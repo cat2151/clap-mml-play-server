@@ -1,8 +1,6 @@
 use serde::Deserialize;
 use std::path::PathBuf;
 
-const DEFAULT_CONFIG: &str = include_str!("../config.toml");
-
 #[derive(Deserialize, Debug)]
 pub struct Config {
     pub plugin_path: String,
@@ -23,6 +21,55 @@ pub struct Config {
 
 fn default_random_patch() -> bool {
     true
+}
+
+/// OS ごとのデフォルト plugin_path を返す。
+#[cfg(target_os = "windows")]
+fn default_plugin_path() -> &'static str {
+    r"C:\Program Files\Common Files\CLAP\Surge Synth Team\Surge XT.clap"
+}
+
+#[cfg(target_os = "macos")]
+fn default_plugin_path() -> &'static str {
+    "/Library/Audio/Plug-Ins/CLAP/Surge XT.clap"
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+fn default_plugin_path() -> &'static str {
+    "/usr/lib/clap/Surge XT.clap"
+}
+
+/// OS に応じたデフォルトの config.toml 内容を生成する。
+fn default_config_content() -> String {
+    let plugin_path = default_plugin_path();
+    format!(
+        r#"# clap-midi-render config
+#
+# 【必須】plugin_path にお使いの CLAP プラグインのパスを設定してください。
+# 例 (Windows): plugin_path = 'C:\Program Files\Common Files\CLAP\Surge Synth Team\Surge XT.clap'
+# 例 (Linux):   plugin_path = '/usr/lib/clap/Surge XT.clap'
+# 例 (macOS):   plugin_path = '/Library/Audio/Plug-Ins/CLAP/Surge XT.clap'
+plugin_path = '{plugin_path}'
+
+input_midi  = "input.mid"
+output_midi = "output.mid"
+output_wav  = "output.wav"
+sample_rate = 44100
+buffer_size = 512
+
+# 【省略可】ファクトリパッチのルートディレクトリ
+# 例 (Windows): patches_dir = 'C:\ProgramData\Surge XT\patches_factory'
+# 例 (Linux):   patches_dir = '/home/user/.local/share/surge-data/patches_factory'
+# patches_dir = ""
+
+# true: 演奏ごとにランダムなパッチを選ぶ（デフォルト true）
+# false: 下の patch_path を使う
+random_patch = true
+
+# 【省略可】random_patch = false のときに使う音色
+# patch_path = ""
+"#
+    )
 }
 
 /// OS 標準の設定ディレクトリ内の config.toml パスを返す。
@@ -53,6 +100,7 @@ impl Config {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
+        let content = default_config_content();
         // create_new で排他的に作成することでレースコンディションを回避する。
         // AlreadyExists は既にファイルがある正常ケースなので無視する。
         match std::fs::OpenOptions::new()
@@ -62,7 +110,7 @@ impl Config {
         {
             Ok(mut file) => {
                 use std::io::Write as _;
-                match file.write_all(DEFAULT_CONFIG.as_bytes()) {
+                match file.write_all(content.as_bytes()) {
                     Ok(_) => {
                         eprintln!(
                             "デフォルトの config.toml を作成しました: {}",
@@ -73,7 +121,7 @@ impl Config {
                         eprintln!(
                             "デフォルト config.toml の書き込みに失敗 ({}):\n--- 書き込もうとした内容 ---\n{}\n--- エラー: {}",
                             path.display(),
-                            DEFAULT_CONFIG,
+                            content,
                             e
                         );
                         return Err(anyhow::anyhow!(
@@ -89,7 +137,7 @@ impl Config {
                 eprintln!(
                     "config.toml の作成に失敗 ({}):\n--- 書き込もうとした内容 ---\n{}\n--- エラー: {}",
                     path.display(),
-                    DEFAULT_CONFIG,
+                    content,
                     e
                 );
                 return Err(anyhow::anyhow!(
