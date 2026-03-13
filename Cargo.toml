@@ -1,10 +1,10 @@
 [package]
-name = "clap-midi-render"
+name = "clap-mml-render-tui"
 version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "clap-midi-render"
+name = "cmrt"
 path = "src/main.rs"
 
 [dependencies]

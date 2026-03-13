@@ -271,7 +271,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "clap-midi-render"
+name = "clap-mml-render-tui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
