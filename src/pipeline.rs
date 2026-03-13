@@ -68,8 +68,47 @@ pub fn mml_render(mml: &str, cfg: &Config, entry: &PluginEntry) -> Result<(Vec<f
     Ok((samples, patch_display))
 }
 
+/// キャッシュ構築専用の MML → レンダリング。
+/// - `patch_history.txt` への追記は行わない
+/// - MIDI/WAV の出力先は専用のテンポラリパス（`daw_cache.mid` / `daw_cache.wav`）を使用
+///   することで通常の出力ファイルを上書きしない
+/// - 呼び出し元はシリアルな単一ワーカースレッドから呼び出すこと（ファイル書き込みの
+///   競合を防ぐため）
+pub fn mml_render_for_cache(mml: &str, cfg: &Config, entry: &PluginEntry) -> Result<Vec<f32>> {
+    let preprocessed = mml_preprocessor::extract_embedded_json(mml);
+    let json_patch = extract_patch_from_json(preprocessed.embedded_json.as_deref(), cfg);
+
+    let effective_patch: Option<String> = if let Some(p) = json_patch {
+        Some(p)
+    } else {
+        cfg.patch_path.clone()
+    };
+
+    let smf_bytes = mml_str_to_smf_bytes(&preprocessed.remaining_mml)?;
+    std::fs::write("daw_cache.mid", &smf_bytes)
+        .map_err(|e| anyhow::anyhow!("daw_cache.mid 書き出し失敗: {}", e))?;
+
+    let (events, total_samples) = parse_smf_bytes(&smf_bytes, cfg.sample_rate)?;
+
+    let patched_cfg = Config {
+        plugin_path: cfg.plugin_path.clone(),
+        input_midi:  cfg.input_midi.clone(),
+        output_midi: "daw_cache.mid".to_string(),
+        output_wav:  "daw_cache.wav".to_string(),
+        sample_rate: cfg.sample_rate,
+        buffer_size: cfg.buffer_size,
+        patch_path:  effective_patch,
+        patches_dir: cfg.patches_dir.clone(),
+        random_patch: false,
+    };
+
+    let samples = render_to_memory(&patched_cfg, entry, events, total_samples)?;
+    write_wav(&samples, cfg.sample_rate as u32, "daw_cache.wav")?;
+
+    Ok(samples)
+}
+
 /// MML文字列 → SMF・WAVファイル出力 + 即時再生
-///
 /// 優先順位:
 ///   1. MML先頭のJSON `{"Surge XT patch": "Pads/Pad 1.fxp"}` で指定されたパッチ
 ///   2. random_patch = true なら patches_dir からランダム選択
