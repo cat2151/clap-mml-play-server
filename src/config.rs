@@ -24,6 +24,7 @@ fn default_random_patch() -> bool {
 }
 
 /// OS ごとのデフォルト plugin_path を返す。
+/// 既知 OS でない場合は空文字を返す（ユーザーに設定を促す）。
 #[cfg(target_os = "windows")]
 fn default_plugin_path() -> &'static str {
     r"C:\Program Files\Common Files\CLAP\Surge Synth Team\Surge XT.clap"
@@ -34,22 +35,33 @@ fn default_plugin_path() -> &'static str {
     "/Library/Audio/Plug-Ins/CLAP/Surge XT.clap"
 }
 
-#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+#[cfg(target_os = "linux")]
 fn default_plugin_path() -> &'static str {
     "/usr/lib/clap/Surge XT.clap"
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+fn default_plugin_path() -> &'static str {
+    ""
 }
 
 /// OS に応じたデフォルトの config.toml 内容を生成する。
 fn default_config_content() -> String {
     let plugin_path = default_plugin_path();
+    let plugin_path_line = if plugin_path.is_empty() {
+        // 未知の OS: ユーザーに設定を促すためコメントアウト状態で出力する
+        "# plugin_path = \"\"  # ← お使いの CLAP プラグインのパスをここに設定してください".to_string()
+    } else {
+        format!("plugin_path = '{plugin_path}'", plugin_path = plugin_path)
+    };
     format!(
-        r#"# clap-midi-render config
+        r#"# cmrt config
 #
 # 【必須】plugin_path にお使いの CLAP プラグインのパスを設定してください。
 # 例 (Windows): plugin_path = 'C:\Program Files\Common Files\CLAP\Surge Synth Team\Surge XT.clap'
 # 例 (Linux):   plugin_path = '/usr/lib/clap/Surge XT.clap'
 # 例 (macOS):   plugin_path = '/Library/Audio/Plug-Ins/CLAP/Surge XT.clap'
-plugin_path = '{plugin_path}'
+{plugin_path_line}
 
 input_midi  = "input.mid"
 output_midi = "output.mid"
@@ -68,7 +80,8 @@ random_patch = true
 
 # 【省略可】random_patch = false のときに使う音色
 # patch_path = ""
-"#
+"#,
+        plugin_path_line = plugin_path_line
     )
 }
 
