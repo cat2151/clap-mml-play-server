@@ -33,6 +33,13 @@ enum Mode {
     Insert,
 }
 
+/// handle_normal の戻り値
+enum NormalAction {
+    Continue,
+    Quit,
+    LaunchDaw,
+}
+
 #[derive(Clone, PartialEq)]
 enum PlayState {
     Idle,
@@ -127,9 +134,10 @@ impl<'a> TuiApp<'a> {
         self.mode = Mode::Insert;
     }
 
-    fn handle_normal(&mut self, key: KeyCode) -> bool {
+    fn handle_normal(&mut self, key: KeyCode) -> NormalAction {
         match key {
-            KeyCode::Char('q') => return true,
+            KeyCode::Char('q') => return NormalAction::Quit,
+            KeyCode::Char('d') => return NormalAction::LaunchDaw,
             KeyCode::Char('i') => self.start_insert(),
             KeyCode::Char('o') => {
                 self.lines.insert(self.cursor + 1, String::new());
@@ -157,7 +165,7 @@ impl<'a> TuiApp<'a> {
             }
             _ => {}
         }
-        false
+        NormalAction::Continue
     }
 
     fn handle_insert(&mut self, key_event: crossterm::event::KeyEvent) {
@@ -198,7 +206,7 @@ impl<'a> TuiApp<'a> {
             PlayState::Err(msg)       => format!("  ✗ {}", msg),
         };
         match self.mode {
-            Mode::Normal => format!("NORMAL  i:INSERT  j/k:移動  Enter:再生  q:終了{}", play_str),
+            Mode::Normal => format!("NORMAL  i:INSERT  j/k:移動  Enter:再生  d:DAW  q:終了{}", play_str),
             Mode::Insert => format!("INSERT  ESC:確定→NORMAL  Enter:確定→次行{}", play_str),
         }
     }
@@ -286,8 +294,16 @@ impl<'a> TuiApp<'a> {
                     }
                     match self.mode {
                         Mode::Normal => {
-                            if self.handle_normal(key.code) {
-                                break;
+                            match self.handle_normal(key.code) {
+                                NormalAction::Quit => break,
+                                NormalAction::LaunchDaw => {
+                                    let mut daw = crate::daw::DawApp::new(
+                                        Arc::clone(&self.cfg),
+                                        self.entry_ptr,
+                                    );
+                                    daw.run_with_terminal(&mut terminal)?;
+                                }
+                                NormalAction::Continue => {}
                             }
                         }
                         Mode::Insert => self.handle_insert(key),

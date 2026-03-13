@@ -1,4 +1,5 @@
 mod config;
+mod daw;
 mod host;
 mod midi;
 mod patch_list;
