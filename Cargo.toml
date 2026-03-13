@@ -36,3 +36,6 @@ dirs = "5"
 # Error handling
 anyhow = "1"
 thiserror = "1"
+
+# HTTP server (for --server mode)
+tiny_http = "0.12"
