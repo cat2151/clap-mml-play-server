@@ -36,6 +36,15 @@ pub fn config_file_path() -> Option<PathBuf> {
 
 impl Config {
     pub fn load() -> anyhow::Result<Self> {
+        // カレントディレクトリの config.toml を最優先（後方互換性・Windows 向け）
+        let cwd_path = std::path::Path::new("config.toml");
+        if cwd_path.exists() {
+            let text = std::fs::read_to_string(cwd_path)
+                .map_err(|e| anyhow::anyhow!("config.toml が読めない ({}): {}", cwd_path.display(), e))?;
+            return toml::from_str(&text)
+                .map_err(|e| anyhow::anyhow!("config.toml のパースに失敗 ({}): {}", cwd_path.display(), e));
+        }
+
         let path = config_file_path().ok_or_else(|| {
             anyhow::anyhow!(
                 "システムの設定ディレクトリが取得できません。HOME 環境変数などを確認してください。"
@@ -53,20 +62,36 @@ impl Config {
         {
             Ok(mut file) => {
                 use std::io::Write as _;
-                file.write_all(DEFAULT_CONFIG.as_bytes()).map_err(|e| {
-                    anyhow::anyhow!(
-                        "デフォルト config.toml の書き込みに失敗 ({}): {}",
-                        path.display(),
-                        e
-                    )
-                })?;
-                eprintln!(
-                    "デフォルトの config.toml を作成しました: {}",
-                    path.display()
-                );
+                match file.write_all(DEFAULT_CONFIG.as_bytes()) {
+                    Ok(_) => {
+                        eprintln!(
+                            "デフォルトの config.toml を作成しました: {}",
+                            path.display()
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "デフォルト config.toml の書き込みに失敗 ({}):\n--- 書き込もうとした内容 ---\n{}\n--- エラー: {}",
+                            path.display(),
+                            DEFAULT_CONFIG,
+                            e
+                        );
+                        return Err(anyhow::anyhow!(
+                            "デフォルト config.toml の書き込みに失敗 ({}): {}",
+                            path.display(),
+                            e
+                        ));
+                    }
+                }
             }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
             Err(e) => {
+                eprintln!(
+                    "config.toml の作成に失敗 ({}):\n--- 書き込もうとした内容 ---\n{}\n--- エラー: {}",
+                    path.display(),
+                    DEFAULT_CONFIG,
+                    e
+                );
                 return Err(anyhow::anyhow!(
                     "config.toml の作成に失敗 ({}): {}",
                     path.display(),
