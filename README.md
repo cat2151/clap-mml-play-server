@@ -11,7 +11,7 @@
 
 ### 準備
 
-Surge XTをinstallしてください
+[Surge XT](https://surge-synthesizer.github.io/)をinstallしてください
 
 ```
 winget install "Surge XT"
