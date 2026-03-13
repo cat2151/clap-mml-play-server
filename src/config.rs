@@ -45,6 +45,35 @@ fn default_plugin_path() -> &'static str {
     ""
 }
 
+/// OS ごとのデフォルト patches_dir を返す。
+/// 既知 OS でない場合や取得できない場合は空文字を返す（ユーザーに設定を促す）。
+#[cfg(target_os = "windows")]
+fn default_patches_dir() -> String {
+    r"C:\ProgramData\Surge XT\patches_factory".to_string()
+}
+
+#[cfg(target_os = "macos")]
+fn default_patches_dir() -> String {
+    "/Library/Application Support/Surge XT/patches_factory".to_string()
+}
+
+#[cfg(target_os = "linux")]
+fn default_patches_dir() -> String {
+    dirs::data_dir()
+        .map(|d| {
+            d.join("surge-data")
+                .join("patches_factory")
+                .to_string_lossy()
+                .into_owned()
+        })
+        .unwrap_or_default()
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+fn default_patches_dir() -> String {
+    String::new()
+}
+
 /// OS に応じたデフォルトの config.toml 内容を生成する。
 fn default_config_content() -> String {
     let plugin_path = default_plugin_path();
@@ -53,6 +82,13 @@ fn default_config_content() -> String {
         "# plugin_path = \"\"  # ← お使いの CLAP プラグインのパスをここに設定してください".to_string()
     } else {
         format!("plugin_path = '{plugin_path}'", plugin_path = plugin_path)
+    };
+    let patches_dir = default_patches_dir();
+    let patches_dir_line = if patches_dir.is_empty() {
+        // 未知の OS またはホームディレクトリが取得できない場合
+        "# patches_dir = \"\"  # ← ファクトリパッチのルートディレクトリを設定してください".to_string()
+    } else {
+        format!("patches_dir = '{patches_dir}'", patches_dir = patches_dir)
     };
     format!(
         r#"# cmrt config
@@ -69,10 +105,11 @@ output_wav  = "output.wav"
 sample_rate = 44100
 buffer_size = 512
 
-# 【省略可】ファクトリパッチのルートディレクトリ
+# 【省略可】ファクトリパッチのルートディレクトリ（random_patch = true のときに使う）
 # 例 (Windows): patches_dir = 'C:\ProgramData\Surge XT\patches_factory'
 # 例 (Linux):   patches_dir = '/home/user/.local/share/surge-data/patches_factory'
-# patches_dir = ""
+# 例 (macOS):   patches_dir = '/Library/Application Support/Surge XT/patches_factory'
+{patches_dir_line}
 
 # true: 演奏ごとにランダムなパッチを選ぶ（デフォルト true）
 # false: 下の patch_path を使う
@@ -81,7 +118,8 @@ random_patch = true
 # 【省略可】random_patch = false のときに使う音色
 # patch_path = ""
 "#,
-        plugin_path_line = plugin_path_line
+        plugin_path_line = plugin_path_line,
+        patches_dir_line = patches_dir_line
     )
 }
 
