@@ -4,6 +4,7 @@ mod midi;
 mod patch_list;
 mod pipeline;
 mod render;
+mod server;
 mod tui;
 
 use anyhow::Result;
@@ -12,15 +13,21 @@ fn main() -> Result<()> {
     // 引数なし → TUI モード
     // --help / -h → ヘルプ表示（config パスを含む）
     // --mml "cde" → CLI パイプラインモード（テスト用）
+    // --server [port] → サーバーモード（デフォルト port 62151）
     let args: Vec<String> = std::env::args().collect();
 
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!("cmrt - CLAP MML Render TUI");
         println!();
         println!("使い方:");
-        println!("  cmrt              TUI モードで起動");
-        println!("  cmrt --mml <mml>  CLI モード（テスト用）");
-        println!("  cmrt --help       このヘルプを表示");
+        println!("  cmrt                    TUI モードで起動");
+        println!("  cmrt --mml <mml>        CLI モード（テスト用）");
+        println!("  cmrt --server           サーバーモード（port {}）", server::DEFAULT_PORT);
+        println!("  cmrt --server <port>    サーバーモード（指定port）");
+        println!("  cmrt --help             このヘルプを表示");
+        println!();
+        println!("サーバーモードでは HTTP POST でMMLを受け取りWAVデータを返します。");
+        println!("  例: curl -X POST http://127.0.0.1:{}/  --data 'cde'", server::DEFAULT_PORT);
         println!();
         match config::config_file_path() {
             Some(p) => println!("設定ファイル: {}", p.display()),
@@ -43,8 +50,17 @@ fn main() -> Result<()> {
         );
     }
 
-    // CLAP プラグインエントリをロード（TUI/CLI 共通）
+    // CLAP プラグインエントリをロード（TUI/CLI/サーバー 共通）
     let entry = host::load_entry(&cfg.plugin_path)?;
+
+    if let Some(pos) = args.iter().position(|a| a == "--server") {
+        // --server [port] の次の引数をポート番号として解釈する（省略時はデフォルト）
+        let port = args
+            .get(pos + 1)
+            .and_then(|s| s.parse::<u16>().ok())
+            .unwrap_or(server::DEFAULT_PORT);
+        return server::run_server(&cfg, &entry, port);
+    }
 
     if let Some(pos) = args.iter().position(|a| a == "--mml") {
         if let Some(mml) = args.get(pos + 1) {
