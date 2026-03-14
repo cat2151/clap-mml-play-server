@@ -1,35 +1,35 @@
 # clap-mml-render-tui
 
-### Purpose
+### Usage
 
-- For playing MML audio
-- For casual installation. Only Rust is required.
+- For playing around with MML (Music Macro Language).
+- Designed for casual installation. Only Rust is required.
 
 ### Technology Stack
 - Plugin host library
   - https://github.com/prokopyl/clack
 
-### Preparation
+### Setup
 
-Please install [Surge XT](https://surge-synthesizer.github.io/).
+Install [Surge XT](https://surge-synthesizer.github.io/).
 
 ```
 winget install "Surge XT"
 ```
 
-### Install
+### Installation
 
 ```
 cargo install --force --git https://github.com/cat2151/clap-mml-render-tui
 ```
 
-### Run
+### Running
 
 ```
 cmrt
 ```
 
-You can input MML and play with it on the TUI screen.
+You can input MML and play with it in the TUI interface.
 
 ### Server Mode
 
@@ -37,11 +37,14 @@ You can input MML and play with it on the TUI screen.
 cmrt --server
 ```
 
-- Interoperates with the bluesky-text-to-audio Chrome extension.
-  - When an MML is found in a Bluesky post, it can be played with Surge XT.
+- Integrates with the bluesky-text-to-audio Chrome extension.
+  - When a Bluesky post contains MML, it can be played using Surge XT.
 
 # Breaking Changes
-- Expect frequent breaking changes daily.
+- Breaking changes are made frequently, on a daily basis.
+
+# Future Plans
+- Disable automatic updates via TOML configuration. In such cases, after quitting, a message like "An update is available. The update command is ~" will be displayed. Further automation is out of scope, as it has been verified that its complexity outweighs the benefits.
 
 # Out of Scope
-- Effects will likely require mandatory editing, so they are currently out of scope and postponed to a much later stage.
+- Effects are likely essential for editing, but for now, they are explicitly out of scope and will be deferred to a much later stage.
