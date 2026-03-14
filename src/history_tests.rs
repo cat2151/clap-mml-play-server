@@ -139,11 +139,15 @@ fn daw_file_path_same_dir_as_history_json() {
     // daw_file_path() は history.json と同じディレクトリに配置される
     let history_path = super::session_state_path();
     let daw_path = super::daw_file_path();
+    // dirs が利用できない環境では両方 None になるのでスキップ。
+    // 一方のみが None の場合はロジックのバグを示すため失敗させる。
     match (history_path, daw_path) {
+        (None, None) => { /* dirs 利用不可の環境ではスキップ */ }
         (Some(h), Some(d)) => {
             assert_eq!(h.parent(), d.parent());
         }
-        _ => { /* dirs が利用不可の環境ではスキップ */ }
+        (Some(_), None) => panic!("session_state_path() は Some だが daw_file_path() は None"),
+        (None, Some(_)) => panic!("daw_file_path() は Some だが session_state_path() は None"),
     }
 }
 
