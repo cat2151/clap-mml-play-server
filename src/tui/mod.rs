@@ -9,6 +9,8 @@
 //!            文字入力: フィルタ（space=AND条件）
 //!            ↑↓:リスト移動  Enter:現在行の先頭にJSONで挿入（上書き）  ESC:キャンセル
 
+mod ui;
+
 use anyhow::Result;
 use clack_host::prelude::PluginEntry;
 use mmlabc_to_smf::mml_preprocessor;
@@ -17,14 +19,7 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use ratatui::{
-    backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout, Margin},
-    style::{Color, Modifier, Style},
-    text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
-    Terminal,
-};
+use ratatui::{backend::CrosstermBackend, widgets::ListState, Frame, Terminal};
 use tui_textarea::TextArea;
 
 use std::sync::{Arc, Mutex};
@@ -55,7 +50,7 @@ enum PatchLoadState {
 }
 
 #[derive(PartialEq)]
-enum Mode {
+pub(super) enum Mode {
     Normal,
     Insert,
     PatchSelect,
@@ -69,7 +64,7 @@ enum NormalAction {
 }
 
 #[derive(Clone, PartialEq)]
-enum PlayState {
+pub(super) enum PlayState {
     Idle,
     Running(String),  // レンダリング中
     Playing(String),  // 演奏中
@@ -78,23 +73,23 @@ enum PlayState {
 }
 
 pub struct TuiApp<'a> {
-    mode: Mode,
-    lines: Vec<String>,
-    cursor: usize,
-    list_state: ListState,
-    textarea: TextArea<'a>,
+    pub(super) mode: Mode,
+    pub(super) lines: Vec<String>,
+    pub(super) cursor: usize,
+    pub(super) list_state: ListState,
+    pub(super) textarea: TextArea<'a>,
     cfg: Arc<Config>,
     entry_ptr: usize, // *const PluginEntry as usize (main() に生存保証)
-    play_state: Arc<Mutex<PlayState>>,
+    pub(super) play_state: Arc<Mutex<PlayState>>,
     // 音色選択モード用
     /// バックグラウンドスレッドが収集したパッチリストの状態
     patch_load_state: Arc<Mutex<PatchLoadState>>,
     /// PatchSelect 起動時にスナップショットした (表示名, 小文字化済み) ペアのリスト
-    patch_all: Vec<(String, String)>,
-    patch_query: String,          // 検索クエリ
-    patch_filtered: Vec<String>,  // フィルタ結果（表示名のみ）
-    patch_cursor: usize,          // フィルタ結果内のカーソル位置
-    patch_list_state: ListState,  // 音色選択リスト描画用
+    pub(super) patch_all: Vec<(String, String)>,
+    pub(super) patch_query: String,          // 検索クエリ
+    pub(super) patch_filtered: Vec<String>,  // フィルタ結果（表示名のみ）
+    pub(super) patch_cursor: usize,          // フィルタ結果内のカーソル位置
+    pub(super) patch_list_state: ListState,  // 音色選択リスト描画用
 }
 
 impl<'a> TuiApp<'a> {
@@ -379,20 +374,8 @@ impl<'a> TuiApp<'a> {
         }
     }
 
-    fn status_text(&self) -> String {
-        let play = self.play_state.lock().unwrap().clone();
-        let play_str = match play {
-            PlayState::Idle           => "".to_string(),
-            PlayState::Running(mml)   => format!("  ⚙ レンダリング中: {}", mml),
-            PlayState::Playing(msg)   => format!("  ▶ 演奏中: {}", msg),
-            PlayState::Done(msg)      => format!("  ✓ {}", msg),
-            PlayState::Err(msg)       => format!("  ✗ {}", msg),
-        };
-        match self.mode {
-            Mode::Normal => format!("NORMAL  i:INSERT  t:音色選択  j/k:移動  Enter:再生  d:DAW  q:終了{}", play_str),
-            Mode::Insert => format!("INSERT  ESC:確定→NORMAL  Enter:確定→次行{}", play_str),
-            Mode::PatchSelect => format!("音色選択  Enter:決定  ESC:キャンセル  ↑↓:移動  文字入力:フィルタ  Space:AND条件{}", play_str),
-        }
+    fn draw(&mut self, f: &mut Frame) {
+        ui::draw(self, f);
     }
 
     pub fn run(&mut self) -> Result<()> {
@@ -403,123 +386,7 @@ impl<'a> TuiApp<'a> {
         let mut terminal = Terminal::new(backend)?;
 
         loop {
-            let status = self.status_text();
-            let is_insert = self.mode == Mode::Insert;
-            let is_patch_select = self.mode == Mode::PatchSelect;
-            let cursor = self.cursor;
-            let status_color = match &*self.play_state.lock().unwrap() {
-                PlayState::Err(_)     => Color::Red,
-                PlayState::Running(_) => Color::Magenta,
-                PlayState::Playing(_) => Color::Yellow,
-                PlayState::Done(_)    => Color::Green,
-                PlayState::Idle       => Color::Cyan,
-            };
-
-            terminal.draw(|f| {
-                if is_patch_select {
-                    // ─── 音色選択 UI ─────────────────────────────────────────────
-                    let chunks = Layout::default()
-                        .direction(Direction::Vertical)
-                        .constraints([
-                            Constraint::Length(3),
-                            Constraint::Min(1),
-                            Constraint::Length(1),
-                        ])
-                        .split(f.area());
-
-                    f.render_widget(
-                        Paragraph::new(format!("> {}", self.patch_query))
-                            .block(
-                                Block::default()
-                                    .borders(Borders::ALL)
-                                    .title(" 音色選択 - 検索 (space=AND) ")
-                                    .border_style(Style::default().fg(Color::Yellow)),
-                            ),
-                        chunks[0],
-                    );
-
-                    let count_title = format!(
-                        " パッチ ({}/{}) ",
-                        self.patch_filtered.len(),
-                        self.patch_all.len()
-                    );
-                    let patch_items: Vec<ListItem> = self
-                        .patch_filtered
-                        .iter()
-                        .enumerate()
-                        .map(|(i, p)| {
-                            let style = if i == self.patch_cursor {
-                                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-                            } else {
-                                Style::default()
-                            };
-                            ListItem::new(Span::styled(p.clone(), style))
-                        })
-                        .collect();
-
-                    f.render_stateful_widget(
-                        List::new(patch_items)
-                            .block(Block::default().borders(Borders::ALL).title(count_title))
-                            .highlight_symbol("▶ "),
-                        chunks[1],
-                        &mut self.patch_list_state,
-                    );
-
-                    f.render_widget(
-                        Paragraph::new(status.clone()).style(Style::default().fg(status_color)),
-                        chunks[2],
-                    );
-                } else {
-                    // ─── 通常 / INSERT UI ────────────────────────────────────────
-                    let chunks = Layout::default()
-                        .direction(Direction::Vertical)
-                        .constraints([
-                            Constraint::Min(3),
-                            Constraint::Length(3),
-                            Constraint::Length(1),
-                        ])
-                        .split(f.area());
-
-                    let items: Vec<ListItem> = self.lines.iter().enumerate().map(|(i, line)| {
-                        let style = if i == cursor {
-                            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-                        } else {
-                            Style::default()
-                        };
-                        ListItem::new(Line::from(vec![
-                            Span::styled(format!("{:>3} ", i + 1), Style::default().fg(Color::DarkGray)),
-                            Span::styled(line.clone(), style),
-                        ]))
-                    }).collect();
-
-                    f.render_stateful_widget(
-                        List::new(items)
-                            .block(Block::default().borders(Borders::ALL).title(" MML Lines "))
-                            .highlight_symbol("▶ "),
-                        chunks[0],
-                        &mut self.list_state,
-                    );
-
-                    let insert_block = Block::default()
-                        .borders(Borders::ALL)
-                        .title(if is_insert { " INSERT " } else { " -- " })
-                        .border_style(if is_insert {
-                            Style::default().fg(Color::Yellow)
-                        } else {
-                            Style::default().fg(Color::DarkGray)
-                        });
-                    f.render_widget(insert_block, chunks[1]);
-                    if is_insert {
-                        let inner = chunks[1].inner(Margin { horizontal: 1, vertical: 1 });
-                        f.render_widget(&self.textarea, inner);
-                    }
-
-                    f.render_widget(
-                        Paragraph::new(status.clone()).style(Style::default().fg(status_color)),
-                        chunks[2],
-                    );
-                }
-            })?;
+            terminal.draw(|f| self.draw(f))?;
 
             if event::poll(std::time::Duration::from_millis(50))? {
                 if let Event::Key(key) = event::read()? {
