@@ -8,6 +8,7 @@ mod pipeline;
 mod render;
 mod server;
 mod tui;
+mod ui_utils;
 mod updater;
 
 use anyhow::Result;
