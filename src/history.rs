@@ -1,17 +1,34 @@
 //! history.json によるセッション状態の保存・復元。
 //!
-//! voicevox-playground-tui に倣い、終了時に現在行番号を保存し、
+//! voicevox-playground-tui に倣い、終了時に現在行番号と編集行を保存し、
 //! 起動時に復元する。
 
 use std::path::PathBuf;
 
 use anyhow::Result;
 
+fn default_lines() -> Vec<String> {
+    vec!["cde".to_string()]
+}
+
 /// 起動・終了で保存・復元するセッション状態。
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SessionState {
     /// 現在行番号（0始まり）。
+    #[serde(default)]
     pub cursor: usize,
+    /// 編集行リスト。
+    #[serde(default = "default_lines")]
+    pub lines: Vec<String>,
+}
+
+impl Default for SessionState {
+    fn default() -> Self {
+        Self {
+            cursor: 0,
+            lines: default_lines(),
+        }
+    }
 }
 
 /// OS ごとのデータディレクトリ配下の `cmrt` サブディレクトリを返す。

@@ -141,8 +141,8 @@ impl<'a> TuiApp<'a> {
         }
 
         // `lines` は常に1行以上を保持する（不変条件）。
-        let lines = vec!["cde".to_string()];
         let session = crate::history::load_session_state();
+        let lines = session.lines;
         let initial_cursor = session.cursor.min(lines.len() - 1);
         let mut list_state = ListState::default();
         list_state.select(Some(initial_cursor));
@@ -428,6 +428,7 @@ impl<'a> TuiApp<'a> {
         // 保存失敗はベストエフォートとして無視する（終了処理のため通知手段がない）。
         let _ = crate::history::save_session_state(&crate::history::SessionState {
             cursor: self.cursor,
+            lines: self.lines.clone(),
         });
 
         let raw_mode_result = disable_raw_mode();
