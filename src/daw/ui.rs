@@ -28,7 +28,14 @@ pub(super) fn draw(app: &DawApp, f: &mut Frame) {
 }
 
 fn draw_grid(app: &DawApp, f: &mut Frame, area: Rect) {
-    let cache = app.cache.lock().unwrap();
+    // キャッシュ状態をスナップショットしてからロックを解放する。
+    // これによりキャッシュワーカースレッドとの競合を最小化する。
+    let cache_states: Vec<Vec<CacheState>> = {
+        let cache = app.cache.lock().unwrap();
+        (0..TRACKS)
+            .map(|t| (0..=MEASURES).map(|m| cache[t][m].state.clone()).collect())
+            .collect()
+    };
 
     // ヘッダ行（列ラベル）
     let mut header_spans = vec![Span::styled("     ", Style::default())];
@@ -75,7 +82,7 @@ fn draw_grid(app: &DawApp, f: &mut Frame, area: Rect) {
         for m in 0..=MEASURES {
             let is_cursor = is_cursor_track && m == app.cursor_measure;
             let mml = &app.data[t][m];
-            let cs = &cache[t][m].state;
+            let cs = &cache_states[t][m];
 
             // セル表示 (4 chars)
             let display: String = if mml.is_empty() {
@@ -161,7 +168,11 @@ fn draw_insert_box(app: &DawApp, f: &mut Frame, area: Rect) {
 }
 
 fn draw_status(app: &DawApp, f: &mut Frame, area: Rect) {
-    let play_str = match *app.play_state.lock().unwrap() {
+    // play_state を一度だけロックしてスナップショットを取り、
+    // play_str と color を同じ状態から導出する（二重ロック・状態不整合を防ぐ）。
+    let play_state = app.play_state.lock().unwrap().clone();
+
+    let play_str = match play_state {
         DawPlayState::Idle => "".to_string(),
         DawPlayState::Playing => "  ▶ 演奏中 (loop)".to_string(),
     };
@@ -177,7 +188,7 @@ fn draw_status(app: &DawApp, f: &mut Frame, area: Rect) {
         ),
     };
 
-    let color = match *app.play_state.lock().unwrap() {
+    let color = match play_state {
         DawPlayState::Idle => Color::Cyan,
         DawPlayState::Playing => Color::Yellow,
     };
