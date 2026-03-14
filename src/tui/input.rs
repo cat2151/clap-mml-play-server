@@ -95,6 +95,12 @@ impl<'a> TuiApp<'a> {
         }
     }
 
+    pub(super) fn handle_help(&mut self, key: KeyCode) {
+        if key == KeyCode::Esc {
+            self.mode = Mode::Normal;
+        }
+    }
+
     pub(super) fn handle_normal(&mut self, key: KeyCode) -> NormalAction {
         match key {
             KeyCode::Char('q') => return NormalAction::Quit,
@@ -140,7 +146,7 @@ impl<'a> TuiApp<'a> {
                     self.list_state.select(Some(self.cursor));
                 }
             }
-            KeyCode::Char('k') => {
+            KeyCode::Char('k') | KeyCode::Up => {
                 if self.cursor > 0 {
                     self.cursor -= 1;
                     self.list_state.select(Some(self.cursor));
@@ -158,6 +164,7 @@ impl<'a> TuiApp<'a> {
                 self.cursor = self.lines.len().saturating_sub(1);
                 self.list_state.select(Some(self.cursor));
             }
+            KeyCode::Char('K') => self.mode = Mode::Help,
             KeyCode::Enter | KeyCode::Char(' ') => {
                 let mml = self.lines[self.cursor].trim().to_string();
                 if !mml.is_empty() {

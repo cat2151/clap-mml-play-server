@@ -47,6 +47,12 @@ impl DawApp {
 
     // ─── キー処理 ─────────────────────────────────────────────
 
+    pub(super) fn handle_help(&mut self, key: KeyCode) {
+        if key == KeyCode::Esc {
+            self.mode = DawMode::Normal;
+        }
+    }
+
     pub(super) fn handle_normal(&mut self, key: KeyCode) -> DawNormalAction {
         match key {
             KeyCode::Char('q') => return DawNormalAction::QuitApp,
@@ -83,6 +89,8 @@ impl DawApp {
             }
 
             KeyCode::Char('i') => self.start_insert(),
+
+            KeyCode::Char('K') => self.mode = DawMode::Help,
 
             KeyCode::Char('p') => {
                 let state = self.play_state.lock().unwrap().clone();

@@ -8,6 +8,7 @@
 //!   PATCHSELECT : インクリメンタルサーチで音色を選択
 //!            文字入力: フィルタ（space=AND条件）
 //!            ↑↓:リスト移動  Enter:現在行の先頭にJSONで挿入（上書き）  ESC:キャンセル
+//!   HELP : K で表示、ESC でキャンセル
 
 mod input;
 mod ui;
@@ -92,6 +93,7 @@ pub(super) enum Mode {
     Normal,
     Insert,
     PatchSelect,
+    Help,
 }
 
 /// handle_normal の戻り値
@@ -347,6 +349,7 @@ impl<'a> TuiApp<'a> {
                         }
                         Mode::Insert => self.handle_insert(key),
                         Mode::PatchSelect => self.handle_patch_select(key),
+                        Mode::Help => self.handle_help(key.code),
                     }
                 }
             }

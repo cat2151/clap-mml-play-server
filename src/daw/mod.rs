@@ -13,6 +13,7 @@
 //!   i      : INSERT モード（現在セルを編集）
 //!   p      : 演奏 / 停止 toggle
 //!   r      : measure 0 にランダム音色を設定
+//!   K      : ヘルプ表示
 //!   q      : アプリ終了
 //!   d / ESC: DAW モード終了 → TUI に戻る
 //!
@@ -20,6 +21,9 @@
 //!   ESC   : 確定 → NORMAL
 //!   Enter : 確定 → 次の小節へ移動 → INSERT 継続
 //!   ;     : 確定時にセミコロンで分割し、下の track に順に追加
+//!
+//! キー操作 (HELP):
+//!   ESC   : キャンセル → NORMAL
 
 mod input;
 mod ui;
@@ -80,6 +84,7 @@ pub(super) enum DawPlayState {
 pub(super) enum DawMode {
     Normal,
     Insert,
+    Help,
 }
 
 /// handle_normal の戻り値
@@ -445,6 +450,9 @@ impl DawApp {
                         },
                         DawMode::Insert => {
                             self.handle_insert(key);
+                        }
+                        DawMode::Help => {
+                            self.handle_help(key.code);
                         }
                     }
                 }

@@ -4,7 +4,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
     Frame,
 };
 
@@ -17,7 +17,10 @@ pub(super) fn draw(app: &mut TuiApp<'_>, f: &mut Frame) {
     let status = status_text(app, &play_state);
     let status_color = status_color(&play_state);
 
-    if app.mode == Mode::PatchSelect {
+    if app.mode == Mode::Help {
+        draw_normal(app, f, &status, status_color);
+        draw_help(f);
+    } else if app.mode == Mode::PatchSelect {
         draw_patch_select(app, f, &status, status_color);
     } else {
         draw_normal(app, f, &status, status_color);
@@ -43,9 +46,10 @@ fn status_text(app: &TuiApp<'_>, play_state: &PlayState) -> String {
         PlayState::Err(msg)       => format!("  ✗ {}", msg),
     };
     match app.mode {
-        Mode::Normal => format!("NORMAL  i:INSERT  t:音色選択  j/k:移動  Enter:再生  d:DAW  q:終了{}", play_str),
+        Mode::Normal => format!("NORMAL  i:INSERT  t:音色選択  j/k:移動  Enter:再生  d:DAW  K:ヘルプ  q:終了{}", play_str),
         Mode::Insert => format!("ESC:確定→NORMAL  Enter:確定→次行{}", play_str),
         Mode::PatchSelect => format!("音色選択  Enter:決定  ESC:キャンセル  ↑↓:移動  文字入力:フィルタ  Space:AND条件{}", play_str),
+        Mode::Help => format!("HELP  ESC:キャンセル{}", play_str),
     }
 }
 
@@ -167,5 +171,50 @@ fn draw_normal(app: &mut TuiApp<'_>, f: &mut Frame, status: &str, status_color: 
     f.render_widget(
         Paragraph::new(status.to_string()).style(Style::default().fg(status_color)),
         chunks[1],
+    );
+}
+
+fn draw_help(f: &mut Frame) {
+    let area = crate::ui_utils::centered_rect(60, 80, f.area());
+    f.render_widget(Clear, area);
+
+    let help_lines = vec![
+        Line::from(Span::styled("NORMAL モード", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+        Line::from("  j / ↓       : 下へ移動"),
+        Line::from("  k / ↑       : 上へ移動"),
+        Line::from("  H           : 先頭行へ移動"),
+        Line::from("  M           : 中央行へ移動"),
+        Line::from("  L           : 末尾行へ移動"),
+        Line::from("  Enter/Space : 再生"),
+        Line::from("  i           : INSERT モード"),
+        Line::from("  o           : 次行に挿入 → INSERT"),
+        Line::from("  t           : 音色選択"),
+        Line::from("  d           : DAW モード"),
+        Line::from("  K           : ヘルプ (このページ)"),
+        Line::from("  q           : 終了"),
+        Line::from("  Ctrl+C      : 強制終了"),
+        Line::from(""),
+        Line::from(Span::styled("INSERT モード", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+        Line::from("  ESC   : 確定 → NORMAL (再生)"),
+        Line::from("  Enter : 確定 → 次行挿入 → INSERT 継続"),
+        Line::from(""),
+        Line::from(Span::styled("音色選択モード", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+        Line::from("  文字入力 : フィルタ (Space=AND条件)"),
+        Line::from("  ↑↓      : リスト移動"),
+        Line::from("  Enter   : 音色決定"),
+        Line::from("  ESC     : キャンセル"),
+        Line::from(""),
+        Line::from(Span::styled("  [ESC] でキャンセル", Style::default().fg(Color::DarkGray))),
+    ];
+
+    f.render_widget(
+        Paragraph::new(help_lines)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" ヘルプ (Keybinds) ")
+                    .border_style(Style::default().fg(Color::Cyan)),
+            ),
+        area,
     );
 }
