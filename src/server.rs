@@ -26,6 +26,16 @@ pub fn run_server(cfg: &Config, entry: &PluginEntry, port: u16) -> Result<()> {
 
     for mut request in server.incoming_requests() {
         let method = request.method().to_string();
+        let url = request.url().to_string();
+
+        // GET /shutdown でサーバーをシャットダウンする
+        if url == "/shutdown" {
+            let response = tiny_http::Response::from_string("シャットダウンします\n");
+            let _ = request.respond(response);
+            println!("シャットダウン要求を受け取りました。サーバーを終了します。");
+            break;
+        }
+
         if method != "POST" {
             let response = tiny_http::Response::from_string(
                 "POSTメソッドでMMLをbodyに含めて送信してください\n",
@@ -102,6 +112,21 @@ pub fn run_server(cfg: &Config, entry: &PluginEntry, port: u16) -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+/// 指定ポートで動作中のサーバーにシャットダウン要求を送る。
+/// サーバーが起動していない場合はエラーを返す。
+pub fn shutdown_server(port: u16) -> anyhow::Result<()> {
+    let url = format!("http://127.0.0.1:{}/shutdown", port);
+    let agent = ureq::AgentBuilder::new()
+        .timeout_read(std::time::Duration::from_secs(5))
+        .timeout_write(std::time::Duration::from_secs(5))
+        .build();
+    agent
+        .get(&url)
+        .call()
+        .map_err(|e| anyhow::anyhow!("サーバーへのシャットダウン要求に失敗しました ({}): {}", url, e))?;
     Ok(())
 }
 

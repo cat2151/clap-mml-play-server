@@ -27,6 +27,8 @@ fn main() -> Result<()> {
         println!("  cmrt <mml>              CLI モード（テスト用）");
         println!("  cmrt --server           サーバーモード（port {}）", server::DEFAULT_PORT);
         println!("  cmrt --server <port>    サーバーモード（指定port）");
+        println!("  cmrt --shutdown         サーバーを停止（port {}）", server::DEFAULT_PORT);
+        println!("  cmrt --shutdown <port>  サーバーを停止（指定port）");
         println!("  cmrt --help             このヘルプを表示");
         println!();
         println!("サーバーモードでは HTTP POST でMMLを受け取りWAVデータを返します。");
@@ -35,6 +37,18 @@ fn main() -> Result<()> {
         match config::config_file_path() {
             Some(p) => println!("設定ファイル: {}", p.display()),
             None => println!("設定ファイル: (システムの設定ディレクトリが見つかりません)"),
+        }
+        return Ok(());
+    }
+
+    if let Some(pos) = args.iter().position(|a| a == "--shutdown") {
+        let port = args
+            .get(pos + 1)
+            .and_then(|s| s.parse::<u16>().ok())
+            .unwrap_or(server::DEFAULT_PORT);
+        match server::shutdown_server(port) {
+            Ok(()) => println!("サーバー（port {}）にシャットダウン要求を送りました。", port),
+            Err(e) => eprintln!("シャットダウン要求に失敗しました: {}", e),
         }
         return Ok(());
     }
@@ -89,6 +103,8 @@ fn main() -> Result<()> {
 
     // アップデートが利用可能な場合、問答無用でアップデートを実行する
     if app.update_available.load(std::sync::atomic::Ordering::Relaxed) {
+        // サーバーが起動していればシャットダウンしてからアップデートする（未起動の場合は無視）
+        let _ = server::shutdown_server(server::DEFAULT_PORT);
         if let Err(e) = updater::run_foreground_update() {
             eprintln!("アップデートに失敗しました: {}", e);
         }
