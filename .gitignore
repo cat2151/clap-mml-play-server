@@ -19,3 +19,10 @@ target
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+
+# MML→SMF 変換中間ファイル（mmlabc-to-smf が CWD に書き出すデバッグ用 JSON）
+pass1_tokens.json
+pass2_ast.json
+pass3_events.json
+daw_cache.mid
+daw_cache.wav
