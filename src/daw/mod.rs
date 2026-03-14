@@ -57,7 +57,6 @@ pub const MEASURES: usize = 8;
 /// track 0 はグローバルヘッダ（テンポ等）専用。演奏 track は 1 から始まる。
 const FIRST_PLAYABLE_TRACK: usize = 1;
 
-const DAW_FILE: &str = "daw.txt";
 const DAW_MML_DEBUG_FILE: &str = "cmrt/daw_mml_debug.txt";
 
 // ─── DawApp ───────────────────────────────────────────────────
@@ -180,7 +179,11 @@ impl DawApp {
     // ─── 保存 / 読み込み ──────────────────────────────────────
 
     fn load(&mut self) {
-        if let Ok(content) = std::fs::read_to_string(DAW_FILE) {
+        let path = crate::history::daw_file_path();
+        let content = path
+            .as_ref()
+            .and_then(|p| std::fs::read_to_string(p).ok());
+        if let Some(content) = content {
             for (t, track_str) in content.split(';').enumerate() {
                 if t >= TRACKS {
                     break;
@@ -197,12 +200,16 @@ impl DawApp {
     }
 
     fn save(&self) {
+        let Some(path) = crate::history::daw_file_path() else { return; };
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
         let tracks: Vec<String> = self
             .data
             .iter()
             .map(|track| track.join("\n"))
             .collect();
-        let _ = std::fs::write(DAW_FILE, tracks.join(";"));
+        let _ = std::fs::write(&path, tracks.join(";"));
     }
 
     // ─── キャッシュ管理 ───────────────────────────────────────

@@ -46,6 +46,13 @@ fn session_state_path() -> Option<PathBuf> {
     history_dir().map(|d| d.join("history.json"))
 }
 
+/// DAW データファイル (`daw.txt`) のパスを返す。
+/// `history.json` と同じディレクトリに配置することでユーザーデータの場所を統一する。
+/// `dirs::data_local_dir()` が利用できない環境では `None` を返す。
+pub fn daw_file_path() -> Option<PathBuf> {
+    history_dir().map(|d| d.join("daw.txt"))
+}
+
 /// セッション状態（現在行番号）を history.json に保存する。
 /// データディレクトリが利用できない場合はベストエフォートでスキップする。
 pub fn save_session_state(state: &SessionState) -> Result<()> {

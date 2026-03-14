@@ -127,6 +127,27 @@ fn save_and_load_session_state_roundtrip() {
 }
 
 #[test]
+fn daw_file_path_ends_with_daw_txt() {
+    // daw_file_path() が利用可能な環境では "daw.txt" という名前で終わること
+    if let Some(path) = super::daw_file_path() {
+        assert_eq!(path.file_name().and_then(|n| n.to_str()), Some("daw.txt"));
+    }
+}
+
+#[test]
+fn daw_file_path_same_dir_as_history_json() {
+    // daw_file_path() は history.json と同じディレクトリに配置される
+    let history_path = super::session_state_path();
+    let daw_path = super::daw_file_path();
+    match (history_path, daw_path) {
+        (Some(h), Some(d)) => {
+            assert_eq!(h.parent(), d.parent());
+        }
+        _ => { /* dirs が利用不可の環境ではスキップ */ }
+    }
+}
+
+#[test]
 fn save_and_load_session_state_roundtrip_daw_mode() {
     // DAW モードのセッション状態が正しく保存・復元されることを検証する
     let tmp_path = std::env::temp_dir().join("cmrt_test_history_roundtrip_daw.json");
