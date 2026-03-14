@@ -57,6 +57,8 @@ pub fn save_session_state(state: &SessionState) -> Result<()> {
 /// history.json からセッション状態を読み込む。
 /// ファイルが存在しない場合・データディレクトリが利用できない場合・読み込みに失敗した場合は
 /// デフォルト値を返す。
+/// `lines` が空の場合（`"lines": []` のような入力）はデフォルト値で補填し、
+/// `lines` が常に1行以上という不変条件を保証する。
 pub fn load_session_state() -> SessionState {
     let Some(path) = session_state_path() else {
         return SessionState::default();
@@ -64,10 +66,14 @@ pub fn load_session_state() -> SessionState {
     if !path.exists() {
         return SessionState::default();
     }
-    std::fs::read_to_string(&path)
+    let mut state: SessionState = std::fs::read_to_string(&path)
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    if state.lines.is_empty() {
+        state.lines = default_lines();
+    }
+    state
 }
 
 #[cfg(test)]

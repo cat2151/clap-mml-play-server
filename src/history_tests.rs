@@ -63,6 +63,14 @@ fn session_state_json_missing_lines_uses_default() {
 }
 
 #[test]
+fn session_state_json_empty_lines_passes_through_serde() {
+    // serde は "lines": [] を空配列のままデシリアライズする（serde デフォルトは適用されない）。
+    // load_session_state() がこれを検知して default_lines() で補填する。
+    let raw: SessionState = serde_json::from_str(r#"{"cursor": 2, "lines": []}"#).unwrap();
+    assert!(raw.lines.is_empty(), "serde は空配列をそのまま通す");
+}
+
+#[test]
 fn save_and_load_session_state_roundtrip() {
     // 実ユーザーデータディレクトリに影響しないよう、一時ファイルに直接書き込んで
     // JSON シリアライズ/デシリアライズの往復を検証する

@@ -141,9 +141,9 @@ impl<'a> TuiApp<'a> {
         }
 
         // `lines` は常に1行以上を保持する（不変条件）。
-        let session = crate::history::load_session_state();
-        let lines = session.lines;
-        let initial_cursor = session.cursor.min(lines.len() - 1);
+        // load_session_state() は lines が空でないことを保証している。
+        let crate::history::SessionState { cursor, lines } = crate::history::load_session_state();
+        let initial_cursor = cursor.min(lines.len() - 1);
         let mut list_state = ListState::default();
         list_state.select(Some(initial_cursor));
 
