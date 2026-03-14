@@ -1,4 +1,4 @@
-use super::{compute_measure_samples, parse_beat_numerator, parse_tempo_bpm};
+use super::timing::{compute_measure_samples, parse_beat_numerator, parse_tempo_bpm};
 
 // ─── parse_tempo_bpm ──────────────────────────────────────────
 
