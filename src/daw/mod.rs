@@ -17,17 +17,12 @@
 //!   Enter : 確定 → 次の小節へ移動 → INSERT 継続
 //!   ;     : 確定時にセミコロンで分割し、下の track に順に追加
 
+mod ui;
+
 use anyhow::Result;
 use clack_host::prelude::PluginEntry;
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
-use ratatui::{
-    backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout, Margin, Rect},
-    style::{Color, Modifier, Style},
-    text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
-    Frame, Terminal,
-};
+use ratatui::{backend::CrosstermBackend, Frame, Terminal};
 use tui_textarea::TextArea;
 
 use std::sync::{Arc, Mutex};
@@ -47,7 +42,7 @@ const DAW_FILE: &str = "daw.txt";
 // ─── キャッシュ ───────────────────────────────────────────────
 
 #[derive(Clone, PartialEq)]
-enum CacheState {
+pub(super) enum CacheState {
     Empty,   // MML が空
     Pending, // MML あり、レンダリング待ち or 実行中
     Ready,   // レンダリング済み
@@ -55,8 +50,8 @@ enum CacheState {
 }
 
 #[derive(Clone)]
-struct CellCache {
-    state: CacheState,
+pub(super) struct CellCache {
+    pub(super) state: CacheState,
 }
 
 impl CellCache {
@@ -68,7 +63,7 @@ impl CellCache {
 // ─── 演奏状態 ─────────────────────────────────────────────────
 
 #[derive(Clone, PartialEq)]
-enum DawPlayState {
+pub(super) enum DawPlayState {
     Idle,
     Playing,
 }
@@ -76,7 +71,7 @@ enum DawPlayState {
 // ─── 内部モード ───────────────────────────────────────────────
 
 #[derive(PartialEq)]
-enum DawMode {
+pub(super) enum DawMode {
     Normal,
     Insert,
 }
@@ -85,25 +80,25 @@ enum DawMode {
 
 pub struct DawApp {
     /// data[track][measure]: track 0..TRACKS, measure 0..=MEASURES
-    data: Vec<Vec<String>>,
+    pub(super) data: Vec<Vec<String>>,
 
-    cursor_track: usize,   // 0..TRACKS-1
-    cursor_measure: usize, // 0..=MEASURES  (0 = 音色列)
+    pub(super) cursor_track: usize,   // 0..TRACKS-1
+    pub(super) cursor_measure: usize, // 0..=MEASURES  (0 = 音色列)
 
-    mode: DawMode,
-    textarea: TextArea<'static>,
+    pub(super) mode: DawMode,
+    pub(super) textarea: TextArea<'static>,
 
     cfg: Arc<Config>,
     entry_ptr: usize, // *const PluginEntry as usize (main() に生存保証)
 
     /// セルごとのキャッシュ [track][measure]
-    cache: Arc<Mutex<Vec<Vec<CellCache>>>>,
+    pub(super) cache: Arc<Mutex<Vec<Vec<CellCache>>>>,
 
     /// キャッシュワーカースレッドへのジョブチャネル: (track, measure, mml)
     /// シリアルな単一ワーカーで処理することでファイル書き込みの競合を防ぐ
     cache_tx: std::sync::mpsc::Sender<(usize, usize, String)>,
 
-    play_state: Arc<Mutex<DawPlayState>>,
+    pub(super) play_state: Arc<Mutex<DawPlayState>>,
 }
 
 impl DawApp {
@@ -453,177 +448,7 @@ impl DawApp {
     // ─── 描画 ─────────────────────────────────────────────────
 
     fn draw(&self, f: &mut Frame) {
-        let area = f.area();
-
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Min(1),
-                Constraint::Length(3),
-                Constraint::Length(1),
-            ])
-            .split(area);
-
-        self.draw_grid(f, chunks[0]);
-        self.draw_insert_box(f, chunks[1]);
-        self.draw_status(f, chunks[2]);
-    }
-
-    fn draw_grid(&self, f: &mut Frame, area: Rect) {
-        let cache = self.cache.lock().unwrap();
-
-        // ヘッダ行（列ラベル）
-        let mut header_spans = vec![Span::styled("     ", Style::default())];
-        for m in 0..=MEASURES {
-            let label = if m == 0 {
-                " Tmb".to_string()
-            } else {
-                format!(" M{:<2}", m)
-            };
-            header_spans.push(Span::styled(
-                format!("{:<5}", label),
-                Style::default().fg(Color::DarkGray),
-            ));
-        }
-        if area.height > 0 {
-            f.render_widget(
-                Paragraph::new(Line::from(header_spans)),
-                Rect { x: area.x, y: area.y, width: area.width, height: 1 },
-            );
-        }
-
-        // track 行（2 行ずつ）
-        for t in 0..TRACKS {
-            let row_y = area.y + 1 + (t as u16) * 2;
-            if row_y + 1 >= area.y + area.height {
-                break;
-            }
-
-            let is_cursor_track = t == self.cursor_track;
-
-            // 行 1: track ラベル + セル内容 (4 chars each)
-            let mut row1: Vec<Span> = vec![Span::styled(
-                format!("T{:<2}  ", t),
-                if is_cursor_track {
-                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(Color::DarkGray)
-                },
-            )];
-
-            // 行 2: 状態インジケータ
-            let mut row2: Vec<Span> = vec![Span::styled("     ", Style::default())];
-
-            for m in 0..=MEASURES {
-                let is_cursor = is_cursor_track && m == self.cursor_measure;
-                let mml = &self.data[t][m];
-                let cs = &cache[t][m].state;
-
-                // セル表示 (4 chars)
-                let display: String = if mml.is_empty() {
-                    "    ".to_string()
-                } else {
-                    let s: String = mml.chars().take(4).collect();
-                    format!("{:<4}", s)
-                };
-
-                let (fg, bg) = if is_cursor {
-                    (Color::Black, Color::Yellow)
-                } else {
-                    match cs {
-                        CacheState::Empty => (Color::DarkGray, Color::Reset),
-                        CacheState::Pending => (Color::White, Color::Reset),
-                        CacheState::Ready => (Color::Green, Color::Reset),
-                        CacheState::Error => (Color::Red, Color::Reset),
-                    }
-                };
-
-                row1.push(Span::styled(
-                    format!("{} ", display),
-                    Style::default().fg(fg).bg(bg),
-                ));
-
-                // 状態インジケータ (4 chars + 1 space)
-                let indicator = match cs {
-                    CacheState::Empty => "     ",
-                    CacheState::Pending => "...  ",
-                    CacheState::Ready => "●    ",
-                    CacheState::Error => "✗    ",
-                };
-                let ind_fg = if is_cursor {
-                    Color::Yellow
-                } else {
-                    match cs {
-                        CacheState::Empty => Color::DarkGray,
-                        CacheState::Pending => Color::Yellow,
-                        CacheState::Ready => Color::Green,
-                        CacheState::Error => Color::Red,
-                    }
-                };
-                row2.push(Span::styled(indicator, Style::default().fg(ind_fg)));
-            }
-
-            f.render_widget(
-                Paragraph::new(Line::from(row1)),
-                Rect { x: area.x, y: row_y, width: area.width, height: 1 },
-            );
-            f.render_widget(
-                Paragraph::new(Line::from(row2)),
-                Rect { x: area.x, y: row_y + 1, width: area.width, height: 1 },
-            );
-        }
-    }
-
-    fn draw_insert_box(&self, f: &mut Frame, area: Rect) {
-        let is_insert = self.mode == DawMode::Insert;
-        let title = if is_insert {
-            let col_label = if self.cursor_measure == 0 { "Tmb".to_string() } else { format!("M{}", self.cursor_measure) };
-            format!(" INSERT T{} {} ", self.cursor_track, col_label)
-        } else {
-            " -- ".to_string()
-        };
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(title)
-            .border_style(if is_insert {
-                Style::default().fg(Color::Yellow)
-            } else {
-                Style::default().fg(Color::DarkGray)
-            });
-        f.render_widget(block, area);
-
-        if is_insert {
-            let inner = area.inner(Margin { horizontal: 1, vertical: 1 });
-            f.render_widget(&self.textarea, inner);
-        }
-    }
-
-    fn draw_status(&self, f: &mut Frame, area: Rect) {
-        let play_str = match *self.play_state.lock().unwrap() {
-            DawPlayState::Idle => "".to_string(),
-            DawPlayState::Playing => "  ▶ 演奏中 (loop)".to_string(),
-        };
-
-        let text = match self.mode {
-            DawMode::Normal => format!(
-                "DAW  h/l:小節移動  j/k:track移動  i:INSERT  p:play/stop  r:random音色  q:戻る{}",
-                play_str
-            ),
-            DawMode::Insert => format!(
-                "INSERT  ESC:確定→NORMAL  Enter:確定→次小節{}",
-                play_str
-            ),
-        };
-
-        let color = match *self.play_state.lock().unwrap() {
-            DawPlayState::Idle => Color::Cyan,
-            DawPlayState::Playing => Color::Yellow,
-        };
-
-        f.render_widget(
-            Paragraph::new(text).style(Style::default().fg(color)),
-            area,
-        );
+        ui::draw(self, f);
     }
 
     // ─── メインループ ─────────────────────────────────────────
