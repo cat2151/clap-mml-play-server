@@ -38,6 +38,7 @@ pub const MEASURES: usize = 8;
 const FIRST_PLAYABLE_TRACK: usize = 1;
 
 const DAW_FILE: &str = "daw.txt";
+const DAW_MML_DEBUG_FILE: &str = "daw_mml_debug.txt";
 
 // ─── キャッシュ ───────────────────────────────────────────────
 
@@ -235,7 +236,8 @@ impl DawApp {
     // ─── MML 構築 ─────────────────────────────────────────────
 
     /// セル (track, measure) のレンダリング用 MML を構築する
-    /// = track0 全体 + track[t][0] (音色) + track[t][m] (音符)
+    /// = track[t][0] (音色) + track0 全体 + track[t][m] (音符)
+    /// 音色 JSON を先頭に置くことで extract_embedded_json が正しく解析できる
     fn build_cell_mml(&self, track: usize, measure: usize) -> String {
         let track0: String = (0..=MEASURES)
             .map(|m| self.data[0][m].trim())
@@ -243,12 +245,13 @@ impl DawApp {
             .join("");
         let timbre = self.data[track][0].trim();
         let notes = self.data[track][measure].trim();
-        format!("{}{}{}", track0, timbre, notes)
+        format!("{}{}{}", timbre, track0, notes)
     }
 
     /// 全 track を結合したフル曲 MML を構築する（演奏用）
     /// track 0 はグローバルヘッダ（テンポ等）として各 track の先頭に付加するが、
     /// それ自体を独立した再生 track としては扱わない。
+    /// 音色 JSON を先頭に置くことで extract_embedded_json が正しく解析できる
     fn build_full_mml(&self) -> String {
         let track0: String = (0..=MEASURES)
             .map(|m| self.data[0][m].trim())
@@ -265,7 +268,7 @@ impl DawApp {
                 if timbre.is_empty() && notes.is_empty() {
                     None
                 } else {
-                    Some(format!("{}{}{}", track0, timbre, notes))
+                    Some(format!("{}{}{}", timbre, track0, notes))
                 }
             })
             .collect();
@@ -280,6 +283,9 @@ impl DawApp {
         if full_mml.trim().is_empty() {
             return;
         }
+
+        // デバッグ用ファイルに組み立てた MML を出力する
+        let _ = std::fs::write(DAW_MML_DEBUG_FILE, &full_mml);
 
         let play_state = Arc::clone(&self.play_state);
         let cfg = Arc::clone(&self.cfg);
@@ -297,8 +303,9 @@ impl DawApp {
                 if *play_state.lock().unwrap() != DawPlayState::Playing {
                     break;
                 }
-                match crate::pipeline::mml_render(&full_mml, &daw_cfg, entry_ref) {
-                    Ok((samples, _)) => {
+                // mml_render_for_cache を使用することで patch_history.txt への追記を行わない
+                match crate::pipeline::mml_render_for_cache(&full_mml, &daw_cfg, entry_ref) {
+                    Ok(samples) => {
                         if *play_state.lock().unwrap() != DawPlayState::Playing {
                             break;
                         }
