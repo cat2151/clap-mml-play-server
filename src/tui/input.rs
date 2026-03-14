@@ -146,6 +146,18 @@ impl<'a> TuiApp<'a> {
                     self.list_state.select(Some(self.cursor));
                 }
             }
+            KeyCode::Char('H') => {
+                self.cursor = 0;
+                self.list_state.select(Some(self.cursor));
+            }
+            KeyCode::Char('M') => {
+                self.cursor = self.lines.len() / 2;
+                self.list_state.select(Some(self.cursor));
+            }
+            KeyCode::Char('L') => {
+                self.cursor = self.lines.len().saturating_sub(1);
+                self.list_state.select(Some(self.cursor));
+            }
             KeyCode::Enter | KeyCode::Char(' ') => {
                 let mml = self.lines[self.cursor].trim().to_string();
                 if !mml.is_empty() {
