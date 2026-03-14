@@ -10,7 +10,8 @@
 //!   i      : INSERT モード（現在セルを編集）
 //!   p      : 演奏 / 停止 toggle
 //!   r      : measure 0 にランダム音色を設定
-//!   q / ESC: DAW モード終了 → TUI に戻る
+//!   q      : アプリ終了
+//!   d / ESC: DAW モード終了 → TUI に戻る
 //!
 //! キー操作 (INSERT):
 //!   ESC   : 確定 → NORMAL
@@ -76,6 +77,21 @@ pub(super) enum DawPlayState {
 pub(super) enum DawMode {
     Normal,
     Insert,
+}
+
+/// handle_normal の戻り値
+pub(super) enum DawNormalAction {
+    Continue,
+    ReturnToTui,
+    QuitApp,
+}
+
+/// DAW モード終了後の TUI への通知
+pub enum DawExitReason {
+    /// d / ESC キーで TUI に戻る
+    ReturnToTui,
+    /// q キーまたは Ctrl+C でアプリを終了する
+    QuitApp,
 }
 
 // ─── DawApp ───────────────────────────────────────────────────
@@ -386,11 +402,13 @@ impl DawApp {
     // ─── メインループ ─────────────────────────────────────────
 
     /// TuiApp と同じ terminal を受け取って DAW モードを実行する。
-    /// 終了時（q / ESC）は `Ok(())` を返して TuiApp の loop に戻る。
+    /// 終了時は `DawExitReason` を返す:
+    ///   - `ReturnToTui` : d / ESC キーで TUI に戻る
+    ///   - `QuitApp`     : q キーまたは Ctrl+C でアプリを終了する
     pub fn run_with_terminal(
         &mut self,
         terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
-    ) -> Result<()> {
+    ) -> Result<DawExitReason> {
         // Pending セルのキャッシュ構築を開始
         self.kick_all_pending();
 
@@ -406,25 +424,28 @@ impl DawApp {
                     if key.modifiers.contains(KeyModifiers::CONTROL)
                         && key.code == KeyCode::Char('c')
                     {
-                        break;
+                        self.stop_play();
+                        return Ok(DawExitReason::QuitApp);
                     }
 
-                    let should_quit = match self.mode {
-                        DawMode::Normal => self.handle_normal(key.code),
+                    match self.mode {
+                        DawMode::Normal => match self.handle_normal(key.code) {
+                            DawNormalAction::ReturnToTui => {
+                                self.stop_play();
+                                return Ok(DawExitReason::ReturnToTui);
+                            }
+                            DawNormalAction::QuitApp => {
+                                self.stop_play();
+                                return Ok(DawExitReason::QuitApp);
+                            }
+                            DawNormalAction::Continue => {}
+                        },
                         DawMode::Insert => {
                             self.handle_insert(key);
-                            false
                         }
-                    };
-
-                    if should_quit {
-                        break;
                     }
                 }
             }
         }
-
-        self.stop_play();
-        Ok(())
     }
 }

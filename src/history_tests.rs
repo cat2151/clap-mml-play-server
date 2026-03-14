@@ -13,15 +13,23 @@ fn session_state_default_lines_is_cde() {
 }
 
 #[test]
+fn session_state_default_is_daw_mode_is_false() {
+    let state = SessionState::default();
+    assert!(!state.is_daw_mode);
+}
+
+#[test]
 fn session_state_serialize_deserialize() {
     let state = SessionState {
         cursor: 42,
         lines: vec!["abc".to_string(), "def".to_string()],
+        is_daw_mode: false,
     };
     let json = serde_json::to_string_pretty(&state).unwrap();
     let loaded: SessionState = serde_json::from_str(&json).unwrap();
     assert_eq!(loaded.cursor, 42);
     assert_eq!(loaded.lines, vec!["abc".to_string(), "def".to_string()]);
+    assert!(!loaded.is_daw_mode);
 }
 
 #[test]
@@ -29,11 +37,26 @@ fn session_state_serialize_deserialize_zero() {
     let state = SessionState {
         cursor: 0,
         lines: vec!["cde".to_string()],
+        is_daw_mode: false,
     };
     let json = serde_json::to_string_pretty(&state).unwrap();
     let loaded: SessionState = serde_json::from_str(&json).unwrap();
     assert_eq!(loaded.cursor, 0);
     assert_eq!(loaded.lines, vec!["cde".to_string()]);
+    assert!(!loaded.is_daw_mode);
+}
+
+#[test]
+fn session_state_serialize_deserialize_is_daw_mode_true() {
+    let state = SessionState {
+        cursor: 1,
+        lines: vec!["cde".to_string()],
+        is_daw_mode: true,
+    };
+    let json = serde_json::to_string_pretty(&state).unwrap();
+    let loaded: SessionState = serde_json::from_str(&json).unwrap();
+    assert_eq!(loaded.cursor, 1);
+    assert!(loaded.is_daw_mode);
 }
 
 #[test]
@@ -43,6 +66,7 @@ fn session_state_json_from_invalid_returns_default() {
         .unwrap_or_default();
     assert_eq!(result.cursor, 0);
     assert_eq!(result.lines, vec!["cde".to_string()]);
+    assert!(!result.is_daw_mode);
 }
 
 #[test]
@@ -52,6 +76,7 @@ fn session_state_json_missing_field_returns_default() {
         .unwrap_or_default();
     assert_eq!(result.cursor, 0);
     assert_eq!(result.lines, vec!["cde".to_string()]);
+    assert!(!result.is_daw_mode);
 }
 
 #[test]
@@ -60,6 +85,14 @@ fn session_state_json_missing_lines_uses_default() {
     let result: SessionState = serde_json::from_str(r#"{"cursor": 3}"#).unwrap();
     assert_eq!(result.cursor, 3);
     assert_eq!(result.lines, vec!["cde".to_string()]);
+}
+
+#[test]
+fn session_state_json_missing_is_daw_mode_defaults_to_false() {
+    // is_daw_mode フィールドがない場合（旧形式の history.json）はデフォルト値 false を返す
+    let result: SessionState = serde_json::from_str(r#"{"cursor": 3, "lines": ["cde"]}"#).unwrap();
+    assert_eq!(result.cursor, 3);
+    assert!(!result.is_daw_mode);
 }
 
 #[test]
@@ -79,6 +112,7 @@ fn save_and_load_session_state_roundtrip() {
     let state = SessionState {
         cursor: 7,
         lines: vec!["cde".to_string(), "fga".to_string()],
+        is_daw_mode: false,
     };
     let json = serde_json::to_string_pretty(&state).unwrap();
     std::fs::write(&tmp_path, &json).unwrap();
@@ -89,4 +123,25 @@ fn save_and_load_session_state_roundtrip() {
 
     assert_eq!(loaded.cursor, 7);
     assert_eq!(loaded.lines, vec!["cde".to_string(), "fga".to_string()]);
+    assert!(!loaded.is_daw_mode);
+}
+
+#[test]
+fn save_and_load_session_state_roundtrip_daw_mode() {
+    // DAW モードのセッション状態が正しく保存・復元されることを検証する
+    let tmp_path = std::env::temp_dir().join("cmrt_test_history_roundtrip_daw.json");
+
+    let state = SessionState {
+        cursor: 0,
+        lines: vec!["cde".to_string()],
+        is_daw_mode: true,
+    };
+    let json = serde_json::to_string_pretty(&state).unwrap();
+    std::fs::write(&tmp_path, &json).unwrap();
+
+    let read_back = std::fs::read_to_string(&tmp_path).unwrap();
+    let loaded: SessionState = serde_json::from_str(&read_back).unwrap();
+    std::fs::remove_file(&tmp_path).ok();
+
+    assert!(loaded.is_daw_mode);
 }

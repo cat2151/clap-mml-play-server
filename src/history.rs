@@ -20,6 +20,9 @@ pub struct SessionState {
     /// 編集行リスト。
     #[serde(default = "default_lines")]
     pub lines: Vec<String>,
+    /// 終了時に DAW モードだったかどうか。起動時に復元する。
+    #[serde(default)]
+    pub is_daw_mode: bool,
 }
 
 impl Default for SessionState {
@@ -27,6 +30,7 @@ impl Default for SessionState {
         Self {
             cursor: 0,
             lines: default_lines(),
+            is_daw_mode: false,
         }
     }
 }

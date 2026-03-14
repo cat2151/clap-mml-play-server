@@ -2,7 +2,7 @@
 
 use crossterm::event::KeyCode;
 
-use super::{DawApp, DawMode, DawPlayState, MEASURES, TRACKS};
+use super::{DawApp, DawMode, DawNormalAction, DawPlayState, MEASURES, TRACKS};
 
 impl DawApp {
     // ─── INSERT モード ────────────────────────────────────────
@@ -47,9 +47,10 @@ impl DawApp {
 
     // ─── キー処理 ─────────────────────────────────────────────
 
-    pub(super) fn handle_normal(&mut self, key: KeyCode) -> bool {
+    pub(super) fn handle_normal(&mut self, key: KeyCode) -> DawNormalAction {
         match key {
-            KeyCode::Char('q') | KeyCode::Esc => return true,
+            KeyCode::Char('q') => return DawNormalAction::QuitApp,
+            KeyCode::Char('d') | KeyCode::Esc => return DawNormalAction::ReturnToTui,
 
             KeyCode::Char('h') | KeyCode::Left => {
                 if self.cursor_measure > 0 {
@@ -101,7 +102,7 @@ impl DawApp {
 
             _ => {}
         }
-        false
+        DawNormalAction::Continue
     }
 
     pub(super) fn handle_insert(&mut self, key_event: crossterm::event::KeyEvent) {
