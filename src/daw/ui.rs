@@ -169,7 +169,7 @@ fn draw_status(app: &DawApp, f: &mut Frame, area: Rect) {
 
     let text = match app.mode {
         DawMode::Normal => format!(
-            "DAW  h/l:小節移動  j/k:track移動  i:INSERT  p:play/stop  r:random音色  K:ヘルプ  q:戻る{}",
+            "DAW  h/l:小節移動  j/k:track移動  i:INSERT  p:play/stop  r:random音色  K:ヘルプ  d/ESC:戻る  q:終了{}",
             play_str
         ),
         DawMode::Insert => format!(

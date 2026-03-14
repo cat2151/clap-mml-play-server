@@ -181,7 +181,7 @@ fn draw_help(f: &mut Frame) {
     let help_lines = vec![
         Line::from(Span::styled("NORMAL モード", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
         Line::from("  j / ↓       : 下へ移動"),
-        Line::from("  k / ↑       : 上へ移動"),
+        Line::from("  k           : 上へ移動"),
         Line::from("  H           : 先頭行へ移動"),
         Line::from("  M           : 中央行へ移動"),
         Line::from("  L           : 末尾行へ移動"),
