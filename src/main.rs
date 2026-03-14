@@ -42,14 +42,18 @@ fn main() -> Result<()> {
     }
 
     if let Some(pos) = args.iter().position(|a| a == "--shutdown") {
-        let port = args
-            .get(pos + 1)
-            .and_then(|s| s.parse::<u16>().ok())
-            .unwrap_or(server::DEFAULT_PORT);
-        match server::shutdown_server(port) {
-            Ok(()) => println!("サーバー（port {}）にシャットダウン要求を送りました。", port),
-            Err(e) => eprintln!("シャットダウン要求に失敗しました: {}", e),
-        }
+        let port = match args.get(pos + 1) {
+            Some(s) => match s.parse::<u16>() {
+                Ok(p) => p,
+                Err(_) => {
+                    eprintln!("ポート番号が不正です: {}", s);
+                    std::process::exit(1);
+                }
+            },
+            None => server::DEFAULT_PORT,
+        };
+        server::shutdown_server(port)?;
+        println!("サーバー（port {}）にシャットダウン要求を送りました。", port);
         return Ok(());
     }
 

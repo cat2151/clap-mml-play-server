@@ -28,7 +28,7 @@ pub fn run_server(cfg: &Config, entry: &PluginEntry, port: u16) -> Result<()> {
         let method = request.method().to_string();
         let url = request.url().to_string();
 
-        // GET /shutdown でサーバーをシャットダウンする
+        // /shutdown でサーバーをシャットダウンする（HTTPメソッド不問）
         if url == "/shutdown" {
             let response = tiny_http::Response::from_string("シャットダウンします\n");
             let _ = request.respond(response);
@@ -117,7 +117,7 @@ pub fn run_server(cfg: &Config, entry: &PluginEntry, port: u16) -> Result<()> {
 
 /// 指定ポートで動作中のサーバーにシャットダウン要求を送る。
 /// サーバーが起動していない場合はエラーを返す。
-pub fn shutdown_server(port: u16) -> anyhow::Result<()> {
+pub fn shutdown_server(port: u16) -> Result<()> {
     let url = format!("http://127.0.0.1:{}/shutdown", port);
     let agent = ureq::AgentBuilder::new()
         .timeout_read(std::time::Duration::from_secs(5))
