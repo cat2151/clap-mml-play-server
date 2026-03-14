@@ -100,6 +100,11 @@ pub struct DawApp {
     cache_tx: std::sync::mpsc::Sender<(usize, usize, String)>,
 
     pub(super) play_state: Arc<Mutex<DawPlayState>>,
+
+    /// 再生スレッドと共有する現在の MML。
+    /// セル編集・ランダム音色変更のたびに更新されることで、
+    /// play 中でも次ループ冒頭から新しい MML が反映される（hot reload）。
+    play_mml: Arc<Mutex<String>>,
 }
 
 impl DawApp {
@@ -149,6 +154,7 @@ impl DawApp {
             cache,
             cache_tx,
             play_state: Arc::new(Mutex::new(DawPlayState::Idle)),
+            play_mml: Arc::new(Mutex::new(String::new())),
         };
 
         app.load();
@@ -287,7 +293,11 @@ impl DawApp {
         // デバッグ用ファイルに組み立てた MML を出力する
         let _ = std::fs::write(DAW_MML_DEBUG_FILE, &full_mml);
 
+        // play_mml を最新の MML で更新してからスレッドに共有する
+        *self.play_mml.lock().unwrap() = full_mml;
+
         let play_state = Arc::clone(&self.play_state);
+        let play_mml = Arc::clone(&self.play_mml);
         let cfg = Arc::clone(&self.cfg);
         let entry_ptr = self.entry_ptr;
 
@@ -303,8 +313,11 @@ impl DawApp {
                 if *play_state.lock().unwrap() != DawPlayState::Playing {
                     break;
                 }
+                // ループの先頭で毎回 play_mml を読み取ることで、
+                // セル編集・音色変更を次ループから即座に反映する（hot reload）
+                let mml = play_mml.lock().unwrap().clone();
                 // mml_render_for_cache を使用することで patch_history.txt への追記を行わない
-                match crate::pipeline::mml_render_for_cache(&full_mml, &daw_cfg, entry_ref) {
+                match crate::pipeline::mml_render_for_cache(&mml, &daw_cfg, entry_ref) {
                     Ok(samples) => {
                         if *play_state.lock().unwrap() != DawPlayState::Playing {
                             break;
@@ -376,6 +389,9 @@ impl DawApp {
         }
 
         self.save();
+
+        // hot reload: play 中であれば次ループから新しい MML を反映する
+        *self.play_mml.lock().unwrap() = self.build_full_mml();
     }
 
     // ─── キー処理 ─────────────────────────────────────────────
@@ -424,6 +440,9 @@ impl DawApp {
                     self.invalidate_cell(self.cursor_track, 0);
                     self.kick_cache(self.cursor_track, 0);
                     self.save();
+
+                    // hot reload: play 中であれば次ループから新しい音色を反映する
+                    *self.play_mml.lock().unwrap() = self.build_full_mml();
                 }
             }
 
