@@ -72,6 +72,15 @@ impl DawApp {
                     self.cursor_track -= 1;
                 }
             }
+            KeyCode::Char('H') => {
+                self.cursor_track = 0;
+            }
+            KeyCode::Char('M') => {
+                self.cursor_track = TRACKS / 2;
+            }
+            KeyCode::Char('L') => {
+                self.cursor_track = TRACKS - 1;
+            }
 
             KeyCode::Char('i') => self.start_insert(),
 

@@ -7,6 +7,9 @@
 //! キー操作 (NORMAL):
 //!   h/l    : 小節 (列) 移動
 //!   j/k    : track (行) 移動
+//!   H      : 先頭 track へ移動
+//!   M      : 中央 track へ移動
+//!   L      : 末尾 track へ移動
 //!   i      : INSERT モード（現在セルを編集）
 //!   p      : 演奏 / 停止 toggle
 //!   r      : measure 0 にランダム音色を設定
