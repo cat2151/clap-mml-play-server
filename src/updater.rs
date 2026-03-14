@@ -213,9 +213,8 @@ fn spawn_updater_process() -> Result<()> {
     let script_str = script_path
         .to_str()
         .ok_or_else(|| anyhow::anyhow!("Updater script path contains invalid UTF-8"))?;
-    // スペースを含むパスに対応するため、スクリプトパスをダブルクォートで囲む
     std::process::Command::new("cmd")
-        .args(["/C", "start", "cmrt updater", &format!("\"{}\"", script_str)])
+        .args(["/C", "start", "cmrt updater", script_str])
         .spawn()?;
     Ok(())
 }
