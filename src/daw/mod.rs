@@ -2,7 +2,7 @@
 //!
 //! 8 tracks × (0..=8 measures) の matrix
 //!   measure 0 = 音色 (timbre) / track ごとの共通ヘッダ
-//!   track   0 = テンポ (t120 など) → render 時に全小節の先頭にくっつける
+//!   track   0 = 拍子JSON + テンポ (例: `{"beat": "4/4"}t120`) → render 時に全小節の先頭にくっつける
 //!
 //! キー操作 (NORMAL):
 //!   h/l    : 小節 (列) 移動
@@ -47,7 +47,48 @@ pub const MEASURES: usize = 8;
 const FIRST_PLAYABLE_TRACK: usize = 1;
 
 const DAW_FILE: &str = "daw.txt";
-const DAW_MML_DEBUG_FILE: &str = "daw_mml_debug.txt";
+const DAW_MML_DEBUG_FILE: &str = "cmrt/daw_mml_debug.txt";
+
+/// MML 文字列から最初の `tNNN` パターンを探し、BPM を返す
+pub(super) fn parse_tempo_bpm(mml: &str) -> Option<f64> {
+    let mut chars = mml.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == 't' {
+            let mut num_str = String::new();
+            while chars.peek().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+                num_str.push(chars.next().unwrap());
+            }
+            if !num_str.is_empty() {
+                return num_str.parse().ok();
+            }
+        }
+    }
+    None
+}
+
+/// JSON 文字列から beat 分子を解析する。
+/// `{"beat": "4/4"}` → 4。解析できない場合は 4 (4/4デフォルト) を返す。最小値は 1。
+pub(super) fn parse_beat_numerator(json_str: Option<&str>) -> u32 {
+    json_str
+        .and_then(|j| {
+            let v: serde_json::Value = serde_json::from_str(j).ok()?;
+            let s = v.get("beat")?.as_str()?;
+            s.split('/').next()?.parse::<u32>().ok()
+        })
+        .unwrap_or(4)
+        .max(1)
+}
+
+/// BPM と beat 分子からステレオサンプル数を計算する純粋関数。
+/// BPM は [1.0, 960.0] にクランプする。結果はステレオ整列のため偶数にする。
+pub(super) fn compute_measure_samples(beat: u32, bpm: f64, sample_rate: f64) -> usize {
+    let bpm = bpm.clamp(1.0, 960.0);
+    let beat = beat.max(1);
+    let secs = (beat as f64 * 60.0) / bpm;
+    let raw = (secs * sample_rate * 2.0).round() as usize;
+    // ステレオ (L/R インターリーブ) 整列のため偶数に切り上げる
+    raw + (raw & 1)
+}
 
 // ─── キャッシュ ───────────────────────────────────────────────
 
@@ -131,17 +172,21 @@ pub struct DawApp {
 
     pub(super) play_state: Arc<Mutex<DawPlayState>>,
 
-    /// 再生スレッドと共有する現在の MML。
+    /// 再生スレッドと共有する各小節の MML ベクター (MEASURES 要素, index i → meas i+1)。
     /// セル編集・ランダム音色変更のたびに更新されることで、
     /// play 中でも次ループ冒頭から新しい MML が反映される（hot reload）。
-    play_mml: Arc<Mutex<String>>,
+    play_measure_mmls: Arc<Mutex<Vec<String>>>,
+
+    /// 再生スレッドと共有する 1 小節のステレオサンプル数。
+    /// セル編集・ランダム音色変更のたびに `play_measure_mmls` と一緒に更新される。
+    play_measure_samples: Arc<Mutex<usize>>,
 }
 
 impl DawApp {
     pub fn new(cfg: Arc<Config>, entry_ptr: usize) -> Self {
         let mut data = vec![vec![String::new(); MEASURES + 1]; TRACKS];
-        // track 0 のデフォルトはテンポ設定
-        data[0][0] = "t120".to_string();
+        // track 0 のデフォルトは拍子指定 JSON + テンポ設定
+        data[0][0] = r#"{"beat": "4/4"}t120"#.to_string();
 
         let cache = Arc::new(Mutex::new(
             vec![vec![CellCache::empty(); MEASURES + 1]; TRACKS],
@@ -149,11 +194,11 @@ impl DawApp {
 
         // シリアルなキャッシュワーカースレッドを起動する。
         // チャネルが送信側（cache_tx）を介してジョブを受け取り順次レンダリングすることで
-        // ファイル書き込み（pass1_tokens.json 等）の競合と過剰スレッド生成を防ぐ。
+        // ファイル書き込み（cmrt/pass1_tokens.json 等）の競合と過剰スレッド生成を防ぐ。
         let (cache_tx, cache_rx) = std::sync::mpsc::channel::<(usize, usize, String)>();
 
         // `mml_render_for_cache` はキャッシュワーカーと再生スレッドの両方から呼ばれるため、
-        // daw_cache.mid/wav への同時書き込みを防ぐ排他ロックを共有する。
+        // cmrt/daw_cache.mid/wav への同時書き込みを防ぐ排他ロックを共有する。
         let render_lock: Arc<Mutex<()>> = Arc::new(Mutex::new(()));
 
         {
@@ -169,8 +214,23 @@ impl DawApp {
                 for (track, measure, mml) in cache_rx {
                     let _guard = render_lock_worker.lock().unwrap();
                     match crate::pipeline::mml_render_for_cache(&mml, &daw_cfg, entry_ref) {
-                        Ok(_) => {
-                            cache_worker.lock().unwrap()[track][measure].state = CacheState::Ready;
+                        Ok(samples) => {
+                            // 開発用: track/measure ごとに WAV ファイルを出力する
+                            // measure 0 は音色/ヘッダセルであり演奏内容ではないためスキップ
+                            let wav_ok = if measure > 0 {
+                                let wav_path = format!("cmrt/track{}_meas{}.wav", track, measure);
+                                crate::pipeline::write_wav(
+                                    &samples,
+                                    daw_cfg.sample_rate as u32,
+                                    &wav_path,
+                                ).is_ok()
+                            } else {
+                                true
+                            };
+                            // WAV 書き出し失敗はデバッグ出力の問題であり、レンダリング自体は成功している。
+                            // そのため WAV 失敗時は Error としてユーザーに通知する。
+                            let state = if wav_ok { CacheState::Ready } else { CacheState::Error };
+                            cache_worker.lock().unwrap()[track][measure].state = state;
                         }
                         Err(_) => {
                             cache_worker.lock().unwrap()[track][measure].state = CacheState::Error;
@@ -192,7 +252,8 @@ impl DawApp {
             cache_tx,
             render_lock,
             play_state: Arc::new(Mutex::new(DawPlayState::Idle)),
-            play_mml: Arc::new(Mutex::new(String::new())),
+            play_measure_mmls: Arc::new(Mutex::new(vec![String::new(); MEASURES])),
+            play_measure_samples: Arc::new(Mutex::new(0)),
         };
 
         app.load();
@@ -292,11 +353,11 @@ impl DawApp {
         format!("{}{}{}", timbre, track0, notes)
     }
 
-    /// 全 track を結合したフル曲 MML を構築する（演奏用）
+    /// 指定小節の全 track を結合した MML を構築する（1小節分の演奏用）
     /// track 0 はグローバルヘッダ（テンポ等）として各 track の先頭に付加するが、
     /// それ自体を独立した再生 track としては扱わない。
     /// 音色 JSON を先頭に置くことで extract_embedded_json が正しく解析できる
-    fn build_full_mml(&self) -> String {
+    pub(super) fn build_measure_mml(&self, measure: usize) -> String {
         let track0: String = (0..=MEASURES)
             .map(|m| self.data[0][m].trim())
             .collect::<Vec<_>>()
@@ -305,10 +366,7 @@ impl DawApp {
         let track_mmls: Vec<String> = (FIRST_PLAYABLE_TRACK..TRACKS)
             .filter_map(|t| {
                 let timbre = self.data[t][0].trim();
-                let notes: String = (1..=MEASURES)
-                    .map(|m| self.data[t][m].trim())
-                    .collect::<Vec<_>>()
-                    .join("");
+                let notes = self.data[t][measure].trim();
                 if timbre.is_empty() && notes.is_empty() {
                     None
                 } else {
@@ -320,22 +378,66 @@ impl DawApp {
         track_mmls.join(";")
     }
 
+    /// 全小節の per-measure MML ベクターを構築する（演奏用; hot reload に使用）
+    /// index i → meas i+1 の MML（空小節は空文字列）
+    fn build_measure_mmls(&self) -> Vec<String> {
+        (1..=MEASURES)
+            .map(|m| self.build_measure_mml(m))
+            .collect()
+    }
+
+    // ─── 拍子 / テンポ解析 ────────────────────────────────────
+
+    /// track0[0] の JSON から beat (拍子分子) を解析する。
+    /// `{"beat": "4/4"}` → 4。解析できない場合は 4 (4/4デフォルト) を返す。
+    /// 現バージョンでは 4/4 のみサポート。JSON は将来の拍子変更に備えた仮置き。
+    pub(super) fn beat_numerator(&self) -> u32 {
+        use mmlabc_to_smf::mml_preprocessor;
+        let header = self.data[0][0].trim();
+        let preprocessed = mml_preprocessor::extract_embedded_json(header);
+        parse_beat_numerator(preprocessed.embedded_json.as_deref())
+    }
+
+    /// track0 MML から tempo (BPM) を解析する。
+    /// `t120` → 120.0。解析できない場合は 120.0 (デフォルト)。[1.0, 960.0] にクランプ。
+    pub(super) fn tempo_bpm(&self) -> f64 {
+        use mmlabc_to_smf::mml_preprocessor;
+        let track0: String = (0..=MEASURES)
+            .map(|m| self.data[0][m].trim())
+            .collect::<Vec<_>>()
+            .join("");
+        let preprocessed = mml_preprocessor::extract_embedded_json(&track0);
+        parse_tempo_bpm(&preprocessed.remaining_mml)
+            .unwrap_or(120.0)
+            .clamp(1.0, 960.0)
+    }
+
+    /// 1小節のサンプル数を計算する（ステレオ: L/R インターリーブ）。
+    /// beat_numerator * (60 / bpm) * sample_rate * 2
+    pub(super) fn measure_duration_samples(&self) -> usize {
+        compute_measure_samples(self.beat_numerator(), self.tempo_bpm(), self.cfg.sample_rate)
+    }
+
     // ─── 演奏 ─────────────────────────────────────────────────
 
     fn start_play(&self) {
-        let full_mml = self.build_full_mml();
-        if full_mml.trim().is_empty() {
+        let measure_mmls = self.build_measure_mmls();
+        if measure_mmls.iter().all(|m| m.trim().is_empty()) {
             return;
         }
 
-        // デバッグ用ファイルに組み立てた MML を出力する
-        let _ = std::fs::write(DAW_MML_DEBUG_FILE, &full_mml);
+        // cmrt/ ディレクトリを確保してからデバッグファイルを書き出す
+        let _ = crate::pipeline::ensure_cmrt_dir();
+        // デバッグ用ファイルに各小節の MML を出力する
+        let _ = std::fs::write(DAW_MML_DEBUG_FILE, measure_mmls.join("\n---\n"));
 
-        // play_mml を最新の MML で更新してからスレッドに共有する
-        *self.play_mml.lock().unwrap() = full_mml;
+        // play_measure_mmls と play_measure_samples を最新の値で更新してからスレッドに共有する
+        *self.play_measure_mmls.lock().unwrap() = measure_mmls;
+        *self.play_measure_samples.lock().unwrap() = self.measure_duration_samples();
 
         let play_state = Arc::clone(&self.play_state);
-        let play_mml = Arc::clone(&self.play_mml);
+        let play_measure_mmls = Arc::clone(&self.play_measure_mmls);
+        let play_measure_samples = Arc::clone(&self.play_measure_samples);
         let render_lock = Arc::clone(&self.render_lock);
         let cfg = Arc::clone(&self.cfg);
         let entry_ptr = self.entry_ptr;
@@ -347,32 +449,65 @@ impl DawApp {
             let entry_ref: &PluginEntry = unsafe { &*(entry_ptr as *const PluginEntry) };
             let mut daw_cfg = (*cfg).clone();
             daw_cfg.random_patch = false;
+            let sample_rate = daw_cfg.sample_rate as u32;
 
-            loop {
+            // OutputStream と Sink をスレッドに 1 つだけ作成し、小節をまたいで再利用する。
+            // これにより小節ごとのオーディオ初期化オーバーヘッドとグリッチを防ぐ。
+            let Ok((_stream, stream_handle)) = rodio::OutputStream::try_default() else {
+                *play_state.lock().unwrap() = DawPlayState::Idle;
+                return;
+            };
+            let Ok(sink) = rodio::Sink::try_new(&stream_handle) else {
+                *play_state.lock().unwrap() = DawPlayState::Idle;
+                return;
+            };
+
+            'outer: loop {
                 if *play_state.lock().unwrap() != DawPlayState::Playing {
                     break;
                 }
-                // ループの先頭で毎回 play_mml を読み取ることで、
+                // ループの先頭で毎回 play_measure_mmls と play_measure_samples を読み取ることで、
                 // セル編集・音色変更を次ループから即座に反映する（hot reload）
-                let mml = play_mml.lock().unwrap().clone();
-                // render_lock を取得してからレンダリングすることで、
-                // キャッシュワーカーと同時に daw_cache.mid/wav を書き込まないようにする
-                let result = {
-                    let _guard = render_lock.lock().unwrap();
-                    // mml_render_for_cache を使用することで patch_history.txt への追記を行わない
-                    crate::pipeline::mml_render_for_cache(&mml, &daw_cfg, entry_ref)
-                };
-                match result {
-                    Ok(samples) => {
-                        if *play_state.lock().unwrap() != DawPlayState::Playing {
-                            break;
-                        }
-                        let _ = crate::pipeline::play_samples(
-                            samples,
-                            daw_cfg.sample_rate as u32,
-                        );
+                let mmls = play_measure_mmls.lock().unwrap().clone();
+                let measure_samples = *play_measure_samples.lock().unwrap();
+
+                for mml in &mmls {
+                    if *play_state.lock().unwrap() != DawPlayState::Playing {
+                        break 'outer;
                     }
-                    Err(_) => break,
+
+                    let samples = if mml.trim().is_empty() {
+                        // 空小節: 1小節分の無音を再生して次の小節開始タイミングを保持する
+                        vec![0.0f32; measure_samples]
+                    } else {
+                        // render_lock を取得してからレンダリングすることで、
+                        // キャッシュワーカーと同時に cmrt/daw_cache.mid/wav を書き込まないようにする
+                        let result = {
+                            let _guard = render_lock.lock().unwrap();
+                            // mml_render_for_cache を使用することで patch_history.txt への追記を行わない
+                            crate::pipeline::mml_render_for_cache(mml, &daw_cfg, entry_ref)
+                        };
+                        match result {
+                            Ok(mut s) => {
+                                // 設定された拍子・テンポに基づく 1 小節の長さに正確に pad / truncate する
+                                if s.len() < measure_samples {
+                                    s.resize(measure_samples, 0.0);
+                                } else {
+                                    s.truncate(measure_samples);
+                                }
+                                s
+                            }
+                            Err(_) => break 'outer,
+                        }
+                    };
+
+                    if *play_state.lock().unwrap() != DawPlayState::Playing {
+                        break 'outer;
+                    }
+                    // 既存の Sink に追加して再生完了を待つ（OutputStream/Sink は使い回す）
+                    let source = rodio::buffer::SamplesBuffer::new(2, sample_rate, samples);
+                    sink.append(source);
+                    sink.sleep_until_end();
                 }
             }
 
@@ -460,3 +595,7 @@ impl DawApp {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
+

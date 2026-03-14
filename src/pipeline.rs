@@ -70,7 +70,7 @@ pub fn mml_render(mml: &str, cfg: &Config, entry: &PluginEntry) -> Result<(Vec<f
 
 /// キャッシュ構築専用の MML → レンダリング。
 /// - `patch_history.txt` への追記は行わない
-/// - MIDI/WAV の出力先は専用のテンポラリパス（`daw_cache.mid` / `daw_cache.wav`）を使用
+/// - MIDI/WAV の出力先は専用のテンポラリパス（`cmrt/daw_cache.mid` / `cmrt/daw_cache.wav`）を使用
 ///   することで通常の出力ファイルを上書きしない
 /// - 呼び出し元はシリアルな単一ワーカースレッドから呼び出すこと（ファイル書き込みの
 ///   競合を防ぐため）
@@ -85,16 +85,18 @@ pub fn mml_render_for_cache(mml: &str, cfg: &Config, entry: &PluginEntry) -> Res
     };
 
     let smf_bytes = mml_str_to_smf_bytes(&preprocessed.remaining_mml)?;
-    std::fs::write("daw_cache.mid", &smf_bytes)
-        .map_err(|e| anyhow::anyhow!("daw_cache.mid 書き出し失敗: {}", e))?;
+    // mml_str_to_smf_bytes が ensure_cmrt_dir を呼ぶが、明示的に保証するためここでも呼ぶ
+    ensure_cmrt_dir()?;
+    std::fs::write("cmrt/daw_cache.mid", &smf_bytes)
+        .map_err(|e| anyhow::anyhow!("cmrt/daw_cache.mid 書き出し失敗: {}", e))?;
 
     let (events, total_samples) = parse_smf_bytes(&smf_bytes, cfg.sample_rate)?;
 
     let patched_cfg = Config {
         plugin_path: cfg.plugin_path.clone(),
         input_midi:  cfg.input_midi.clone(),
-        output_midi: "daw_cache.mid".to_string(),
-        output_wav:  "daw_cache.wav".to_string(),
+        output_midi: "cmrt/daw_cache.mid".to_string(),
+        output_wav:  "cmrt/daw_cache.wav".to_string(),
         sample_rate: cfg.sample_rate,
         buffer_size: cfg.buffer_size,
         patch_path:  effective_patch,
@@ -103,7 +105,7 @@ pub fn mml_render_for_cache(mml: &str, cfg: &Config, entry: &PluginEntry) -> Res
     };
 
     let samples = render_to_memory(&patched_cfg, entry, events, total_samples)?;
-    write_wav(&samples, cfg.sample_rate as u32, "daw_cache.wav")?;
+    write_wav(&samples, cfg.sample_rate as u32, "cmrt/daw_cache.wav")?;
 
     Ok(samples)
 }
@@ -249,11 +251,18 @@ fn append_history(mml: &str, patch: &Option<String>, cfg: &Config) -> Result<()>
 
 /// MML文字列（JSON除去済み）→ SMFバイト列
 pub fn mml_str_to_smf_bytes(mml: &str) -> Result<Vec<u8>> {
-    let tokens = pass1_parser::process_pass1(mml, "pass1_tokens.json")?;
-    let ast = pass2_ast::process_pass2(&tokens, "pass2_ast.json")?;
-    let events = pass3_events::process_pass3(&ast, "pass3_events.json", false)?;
+    ensure_cmrt_dir()?;
+    let tokens = pass1_parser::process_pass1(mml, "cmrt/pass1_tokens.json")?;
+    let ast = pass2_ast::process_pass2(&tokens, "cmrt/pass2_ast.json")?;
+    let events = pass3_events::process_pass3(&ast, "cmrt/pass3_events.json", false)?;
     let smf_bytes = pass4_midi::events_to_midi(&events)?;
     Ok(smf_bytes)
+}
+
+/// cmrt/ ディレクトリを作成する（既存の場合は何もしない）
+pub fn ensure_cmrt_dir() -> Result<()> {
+    std::fs::create_dir_all("cmrt")
+        .map_err(|e| anyhow::anyhow!("cmrt/ ディレクトリの作成に失敗: {}", e))
 }
 
 /// MML文字列 → SMFバイト列（外部公開用、JSON込みのMMLを受け取る）
