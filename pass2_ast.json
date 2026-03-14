@@ -1,0 +1,33 @@
+{
+  "pass": 2,
+  "description": "Abstract Syntax Tree",
+  "ast": {
+    "type": "sequence",
+    "notes": [
+      {
+        "type": "note",
+        "pitch": 60,
+        "name": "c",
+        "length": 8,
+        "dots": 0,
+        "velocity": 127
+      },
+      {
+        "type": "note",
+        "pitch": 62,
+        "name": "d",
+        "length": 8,
+        "dots": 0,
+        "velocity": 127
+      },
+      {
+        "type": "note",
+        "pitch": 64,
+        "name": "e",
+        "length": 8,
+        "dots": 0,
+        "velocity": 127
+      }
+    ]
+  }
+}

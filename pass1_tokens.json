@@ -1,0 +1,18 @@
+{
+  "pass": 1,
+  "description": "Parsed tokens",
+  "tokens": [
+    {
+      "type": "note",
+      "value": "c"
+    },
+    {
+      "type": "note",
+      "value": "d"
+    },
+    {
+      "type": "note",
+      "value": "e"
+    }
+  ]
+}

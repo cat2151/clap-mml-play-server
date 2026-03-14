@@ -52,3 +52,60 @@ pub fn load_session_state() -> SessionState {
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_state_default_cursor_is_zero() {
+        let state = SessionState::default();
+        assert_eq!(state.cursor, 0);
+    }
+
+    #[test]
+    fn session_state_serialize_deserialize() {
+        let state = SessionState { cursor: 42 };
+        let json = serde_json::to_string_pretty(&state).unwrap();
+        let loaded: SessionState = serde_json::from_str(&json).unwrap();
+        assert_eq!(loaded.cursor, 42);
+    }
+
+    #[test]
+    fn session_state_serialize_deserialize_zero() {
+        let state = SessionState { cursor: 0 };
+        let json = serde_json::to_string_pretty(&state).unwrap();
+        let loaded: SessionState = serde_json::from_str(&json).unwrap();
+        assert_eq!(loaded.cursor, 0);
+    }
+
+    #[test]
+    fn session_state_json_from_invalid_returns_default() {
+        // 不正なJSONはデフォルト値を返す
+        let result: SessionState = serde_json::from_str("not json")
+            .unwrap_or_default();
+        assert_eq!(result.cursor, 0);
+    }
+
+    #[test]
+    fn session_state_json_missing_field_returns_default() {
+        // cursor フィールドがない場合はデフォルト値を返す
+        let result: SessionState = serde_json::from_str("{}")
+            .unwrap_or_default();
+        assert_eq!(result.cursor, 0);
+    }
+
+    #[test]
+    fn save_and_load_session_state_roundtrip() {
+        // 保存して読み込んだ値が一致することを確認する
+        // dirs::data_local_dir() が使えない環境ではベストエフォートでスキップされる
+        let state = SessionState { cursor: 7 };
+        let save_result = save_session_state(&state);
+        // 保存に失敗した場合（環境依存）はテストをスキップする
+        if save_result.is_err() {
+            return;
+        }
+        let loaded = load_session_state();
+        assert_eq!(loaded.cursor, 7);
+    }
+}
