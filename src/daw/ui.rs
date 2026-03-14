@@ -1,10 +1,10 @@
 //! DAW モードの描画
 
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Margin, Rect},
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::Paragraph,
     Frame,
 };
 
@@ -17,14 +17,12 @@ pub(super) fn draw(app: &DawApp, f: &mut Frame) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Min(1),
-            Constraint::Length(3),
             Constraint::Length(1),
         ])
         .split(area);
 
     draw_grid(app, f, chunks[0]);
-    draw_insert_box(app, f, chunks[1]);
-    draw_status(app, f, chunks[2]);
+    draw_status(app, f, chunks[1]);
 }
 
 fn draw_grid(app: &DawApp, f: &mut Frame, area: Rect) {
@@ -76,8 +74,13 @@ fn draw_grid(app: &DawApp, f: &mut Frame, area: Rect) {
             },
         )];
 
-        // 行 2: 状態インジケータ
-        let mut row2: Vec<Span> = vec![Span::styled("     ", Style::default())];
+        // INSERTモード時はカーソルtrackのインジケータ行（行2）が不要なので生成をスキップする。
+        let show_indicators = !(is_cursor_track && app.mode == DawMode::Insert);
+        let mut row2: Vec<Span> = if show_indicators {
+            vec![Span::styled("     ", Style::default())]
+        } else {
+            vec![]
+        };
 
         for m in 0..=MEASURES {
             let is_cursor = is_cursor_track && m == app.cursor_measure;
@@ -108,62 +111,45 @@ fn draw_grid(app: &DawApp, f: &mut Frame, area: Rect) {
                 Style::default().fg(fg).bg(bg),
             ));
 
-            // 状態インジケータ (4 chars + 1 space)
-            let indicator = match cs {
-                CacheState::Empty => "     ",
-                CacheState::Pending => "...  ",
-                CacheState::Ready => "●    ",
-                CacheState::Error => "✗    ",
-            };
-            let ind_fg = if is_cursor {
-                Color::Yellow
-            } else {
-                match cs {
-                    CacheState::Empty => Color::DarkGray,
-                    CacheState::Pending => Color::Yellow,
-                    CacheState::Ready => Color::Green,
-                    CacheState::Error => Color::Red,
-                }
-            };
-            row2.push(Span::styled(indicator, Style::default().fg(ind_fg)));
+            // 状態インジケータ (4 chars + 1 space): INSERTモードのカーソルtrackはスキップ
+            if show_indicators {
+                let indicator = match cs {
+                    CacheState::Empty => "     ",
+                    CacheState::Pending => "...  ",
+                    CacheState::Ready => "●    ",
+                    CacheState::Error => "✗    ",
+                };
+                let ind_fg = if is_cursor {
+                    Color::Yellow
+                } else {
+                    match cs {
+                        CacheState::Empty => Color::DarkGray,
+                        CacheState::Pending => Color::Yellow,
+                        CacheState::Ready => Color::Green,
+                        CacheState::Error => Color::Red,
+                    }
+                };
+                row2.push(Span::styled(indicator, Style::default().fg(ind_fg)));
+            }
         }
 
         f.render_widget(
             Paragraph::new(Line::from(row1)),
             Rect { x: area.x, y: row_y, width: area.width, height: 1 },
         );
-        f.render_widget(
-            Paragraph::new(Line::from(row2)),
-            Rect { x: area.x, y: row_y + 1, width: area.width, height: 1 },
-        );
-    }
-}
 
-fn draw_insert_box(app: &DawApp, f: &mut Frame, area: Rect) {
-    let is_insert = app.mode == DawMode::Insert;
-    let title = if is_insert {
-        let col_label = if app.cursor_measure == 0 {
-            "Tmb".to_string()
+        // INSERTモード時は、カーソルtrackのインジケータ行にインラインで textarea を描画する。
+        if show_indicators {
+            f.render_widget(
+                Paragraph::new(Line::from(row2)),
+                Rect { x: area.x, y: row_y + 1, width: area.width, height: 1 },
+            );
         } else {
-            format!("M{}", app.cursor_measure)
-        };
-        format!(" INSERT T{} {} ", app.cursor_track, col_label)
-    } else {
-        " -- ".to_string()
-    };
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .title(title)
-        .border_style(if is_insert {
-            Style::default().fg(Color::Yellow)
-        } else {
-            Style::default().fg(Color::DarkGray)
-        });
-    f.render_widget(block, area);
-
-    if is_insert {
-        let inner = area.inner(Margin { horizontal: 1, vertical: 1 });
-        f.render_widget(&app.textarea, inner);
+            f.render_widget(
+                &app.textarea,
+                Rect { x: area.x, y: row_y + 1, width: area.width, height: 1 },
+            );
+        }
     }
 }
 
@@ -183,7 +169,7 @@ fn draw_status(app: &DawApp, f: &mut Frame, area: Rect) {
             play_str
         ),
         DawMode::Insert => format!(
-            "INSERT  ESC:確定→NORMAL  Enter:確定→次小節{}",
+            "ESC:確定→NORMAL  Enter:確定→次小節{}",
             play_str
         ),
     };

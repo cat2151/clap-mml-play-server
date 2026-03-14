@@ -1,7 +1,7 @@
 //! TUI 描画
 
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Margin},
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, Paragraph},
@@ -44,7 +44,7 @@ fn status_text(app: &TuiApp<'_>, play_state: &PlayState) -> String {
     };
     match app.mode {
         Mode::Normal => format!("NORMAL  i:INSERT  t:音色選択  j/k:移動  Enter:再生  d:DAW  q:終了{}", play_str),
-        Mode::Insert => format!("INSERT  ESC:確定→NORMAL  Enter:確定→次行{}", play_str),
+        Mode::Insert => format!("ESC:確定→NORMAL  Enter:確定→次行{}", play_str),
         Mode::PatchSelect => format!("音色選択  Enter:決定  ESC:キャンセル  ↑↓:移動  文字入力:フィルタ  Space:AND条件{}", play_str),
     }
 }
@@ -111,7 +111,6 @@ fn draw_normal(app: &mut TuiApp<'_>, f: &mut Frame, status: &str, status_color: 
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Min(3),
-            Constraint::Length(3),
             Constraint::Length(1),
         ])
         .split(f.area());
@@ -143,22 +142,30 @@ fn draw_normal(app: &mut TuiApp<'_>, f: &mut Frame, status: &str, status_color: 
         &mut app.list_state,
     );
 
-    let insert_block = Block::default()
-        .borders(Borders::ALL)
-        .title(if is_insert { " INSERT " } else { " -- " })
-        .border_style(if is_insert {
-            Style::default().fg(Color::Yellow)
-        } else {
-            Style::default().fg(Color::DarkGray)
-        });
-    f.render_widget(insert_block, chunks[1]);
+    // INSERTモード時は、カーソル行にインラインで textarea を描画する。
+    // List ウィジェットは Borders::ALL を持つため、内側の開始は +1 ずつオフセットする。
     if is_insert {
-        let inner = chunks[1].inner(Margin { horizontal: 1, vertical: 1 });
-        f.render_widget(&app.textarea, inner);
+        let list_area = chunks[0];
+        let offset = app.list_state.offset();
+        if cursor >= offset {
+            let row_in_visible = (cursor - offset) as u16;
+            let inner_top = list_area.y + 1; // 上ボーダーの内側（1行分）
+            let inner_bottom = list_area.y + list_area.height.saturating_sub(1); // 下ボーダーの位置
+            let textarea_y = inner_top + row_in_visible;
+            if textarea_y < inner_bottom {
+                let textarea_area = Rect {
+                    x: list_area.x + 1,
+                    y: textarea_y,
+                    width: list_area.width.saturating_sub(2),
+                    height: 1,
+                };
+                f.render_widget(&app.textarea, textarea_area);
+            }
+        }
     }
 
     f.render_widget(
         Paragraph::new(status.to_string()).style(Style::default().fg(status_color)),
-        chunks[2],
+        chunks[1],
     );
 }
