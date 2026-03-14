@@ -31,6 +31,15 @@ cmrt
 
 TUI画面でMML入力して遊べます
 
+### serverモード
+
+```
+cmrt --server
+```
+
+- bluesky-text-to-audio chrome拡張 と連動します
+  - Blueskyの投稿にMMLがあったとき、それをSurge XTで鳴らせるようになります
+
 # 破壊的変更
 - 毎日頻繁に破壊的変更します
 
