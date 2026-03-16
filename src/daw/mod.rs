@@ -45,7 +45,7 @@ use crate::patch_list::{collect_patches, to_relative};
 
 // ─── 再エクスポート ───────────────────────────────────────────
 
-pub(super) use types::{CacheState, CellCache, DawMode, DawNormalAction, DawPlayState};
+pub(super) use types::{CacheState, CellCache, DawMode, DawNormalAction, DawPlayState, PlayPosition};
 pub use types::DawExitReason;
 
 // ─── 定数 ─────────────────────────────────────────────────────
@@ -87,6 +87,9 @@ pub struct DawApp {
     render_lock: Arc<Mutex<()>>,
 
     pub(super) play_state: Arc<Mutex<DawPlayState>>,
+
+    /// 再生中の小節・ビート位置（UI 描画に使用）
+    pub(super) play_position: Arc<Mutex<Option<PlayPosition>>>,
 
     /// 再生スレッドと共有する各小節の MML ベクター (MEASURES 要素, index i → meas i+1)。
     /// セル編集・ランダム音色変更のたびに更新されることで、
@@ -168,6 +171,7 @@ impl DawApp {
             cache_tx,
             render_lock,
             play_state: Arc::new(Mutex::new(DawPlayState::Idle)),
+            play_position: Arc::new(Mutex::new(None)),
             play_measure_mmls: Arc::new(Mutex::new(vec![String::new(); MEASURES])),
             play_measure_samples: Arc::new(Mutex::new(0)),
         };

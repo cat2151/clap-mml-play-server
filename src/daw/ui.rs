@@ -158,13 +158,29 @@ fn draw_grid(app: &DawApp, f: &mut Frame, area: Rect) {
 }
 
 fn draw_status(app: &DawApp, f: &mut Frame, area: Rect) {
-    // play_state を一度だけロックしてスナップショットを取り、
-    // play_str と color を同じ状態から導出する（二重ロック・状態不整合を防ぐ）。
+    // play_state と play_position を一度だけロックしてスナップショットを取る。
     let play_state = app.play_state.lock().unwrap().clone();
+    let play_position = app.play_position.lock().unwrap().clone();
 
     let play_str = match play_state {
         DawPlayState::Idle => "".to_string(),
-        DawPlayState::Playing => "  ▶ 演奏中 (loop)".to_string(),
+        DawPlayState::Playing | DawPlayState::Preview => {
+            let label = if play_state == DawPlayState::Preview { "PREVIEW" } else { "loop" };
+            let pos_str = if let Some(pos) = &play_position {
+                let elapsed = pos.measure_start.elapsed().as_secs_f64();
+                let raw_beat = (elapsed / pos.beat_duration_secs) as u32;
+                let current_beat = (raw_beat % pos.beat_count) + 1;
+                format!(
+                    "  ▶ meas{}, beat{} ({})",
+                    pos.measure_index + 1,
+                    current_beat,
+                    label
+                )
+            } else {
+                format!("  ▶ 演奏中 ({})", label)
+            };
+            pos_str
+        }
     };
 
     let text = match app.mode {
@@ -185,6 +201,7 @@ fn draw_status(app: &DawApp, f: &mut Frame, area: Rect) {
     let color = match play_state {
         DawPlayState::Idle => Color::Cyan,
         DawPlayState::Playing => Color::Yellow,
+        DawPlayState::Preview => Color::Magenta,
     };
 
     f.render_widget(
