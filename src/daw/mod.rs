@@ -59,6 +59,15 @@ const FIRST_PLAYABLE_TRACK: usize = 1;
 
 const DAW_MML_DEBUG_FILE: &str = "cmrt/daw_mml_debug.txt";
 
+/// インメモリキャッシュに保持するサンプル数の上限（ステレオ、インターリーブ）。
+///
+/// 2_000_000 サンプル / 2 ch = 1_000_000 samples per ch / 44100 Hz ≈ 22.7 秒 / 小節。
+/// 4/4 拍子では BPM ≈ 4 * 60 / 22.7 ≈ 10.6 以上の小節がキャッシュ対象となる。
+/// これを超えるサンプル数のセル（極端に低い BPM など）はキャッシュに保持せず、
+/// 再生時にフォールバックレンダリングする。
+/// ≈ 2_000_000 × 4 bytes ≈ 8 MB / cell。
+pub(super) const MAX_CACHED_SAMPLES: usize = 2_000_000;
+
 // ─── DawApp ───────────────────────────────────────────────────
 
 pub struct DawApp {
@@ -148,16 +157,22 @@ impl DawApp {
                             };
                             // WAV 書き出し失敗はデバッグ出力の問題であり、レンダリング自体は成功している。
                             // そのため WAV 失敗時は Error としてユーザーに通知する。
-                            let state = if wav_ok { CacheState::Ready } else { CacheState::Error };
+                            let new_state = if wav_ok { CacheState::Ready } else { CacheState::Error };
                             let mut cache = cache_worker.lock().unwrap();
-                            cache[track][measure].state = state;
-                            // Ready 状態のときのみサンプルをメモリに保持する（再生時のキャッシュ利用）
-                            if wav_ok {
+                            cache[track][measure].state = new_state;
+                            // Ready かつサイズ上限以内のときのみサンプルをメモリに保持する。
+                            // 上限超過（低 BPM 等）や WAV 失敗時はサンプルを保持しない。
+                            if wav_ok && samples.len() <= MAX_CACHED_SAMPLES {
                                 cache[track][measure].samples = Some(Arc::new(samples));
+                            } else {
+                                cache[track][measure].samples = None;
                             }
                         }
                         Err(_) => {
-                            cache_worker.lock().unwrap()[track][measure].state = CacheState::Error;
+                            let mut cache = cache_worker.lock().unwrap();
+                            cache[track][measure].state = CacheState::Error;
+                            // エラー時は古いサンプルを保持しない（ステールデータの排除）
+                            cache[track][measure].samples = None;
                         }
                     }
                 }

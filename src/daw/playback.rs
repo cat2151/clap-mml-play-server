@@ -12,47 +12,60 @@ use super::{CacheState, CellCache, DawApp, DawPlayState, PlayPosition, DAW_MML_D
 /// キャッシュを調べ、合算したサンプルを返す。
 /// いずれかの playable track が `Ready` でない（Pending / Error）場合は `None` を返し、
 /// 呼び出し元はフレッシュレンダリングにフォールバックすること。
+/// 全 playable track が `Empty` の場合は無音（ゼロ埋め）を返す。
 /// 結果は `measure_samples` 長に正確に揃えて返す（超過分は切り捨て、不足分はゼロ埋め済み）。
 fn try_get_cached_samples(
     cache: &Arc<Mutex<Vec<Vec<CellCache>>>>,
     measure: usize,
     measure_samples: usize,
 ) -> Option<Vec<f32>> {
-    let cache = cache.lock().unwrap();
-    // 最初からゼロ埋め済みの出力バッファを確保することで、
-    // ・最初の Ready トラックのクローンを避ける
-    // ・measure_samples を超える領域への書き込みを防ぐ
-    let mut mixed = vec![0.0f32; measure_samples];
-    let mut any_ready = false;
-
-    for t in FIRST_PLAYABLE_TRACK..TRACKS {
-        match cache[t][measure].state {
-            CacheState::Empty => {
-                // このトラックは空セル → 無音として扱い次のトラックへ
-            }
-            CacheState::Ready => {
-                if let Some(ref s) = cache[t][measure].samples {
-                    any_ready = true;
-                    // measure_samples に収まる範囲だけミックス（超過分は捨てる）
-                    let n = s.len().min(measure_samples);
-                    for i in 0..n {
-                        mixed[i] += s[i];
+    // ロック下では Arc ハンドルの収集のみ行い、ミックス処理はロック外で実施する。
+    // これによりキャッシュワーカーや UI スレッドとのロック競合を最小化する。
+    let track_samples: Option<Vec<Option<Arc<Vec<f32>>>>> = {
+        let cache = cache.lock().unwrap();
+        let mut result = Vec::with_capacity(TRACKS - FIRST_PLAYABLE_TRACK);
+        for t in FIRST_PLAYABLE_TRACK..TRACKS {
+            match cache[t][measure].state {
+                CacheState::Empty => {
+                    result.push(None); // 空トラック
+                }
+                CacheState::Ready => {
+                    // samples が None の場合（サイズ上限超過等）もフォールバック
+                    let arc = cache[t][measure].samples.clone();
+                    if arc.is_none() {
+                        return None;
                     }
-                } else {
-                    // Ready だがサンプル未保存（起こらないはずだが念のため）
+                    result.push(arc);
+                }
+                _ => {
+                    // Pending または Error → キャッシュ未完成、フォールバックが必要
                     return None;
                 }
             }
-            _ => {
-                // Pending または Error → キャッシュ未完成、フォールバックが必要
-                return None;
+        }
+        Some(result)
+    };
+
+    let track_samples = track_samples?;
+
+    // ロック外でミックス処理を行う
+    // 最初からゼロ埋め済みのバッファを使うことで measure_samples を超える書き込みを防ぐ
+    let mut mixed = vec![0.0f32; measure_samples];
+    let mut any_ready = false;
+
+    for arc_opt in &track_samples {
+        if let Some(s) = arc_opt {
+            any_ready = true;
+            let n = s.len().min(measure_samples);
+            for i in 0..n {
+                mixed[i] += s[i];
             }
         }
     }
 
     if !any_ready {
-        // すべての playable track が Empty → 呼び出し元の空小節チェックで既に処理されるはず
-        return None;
+        // すべての playable track が Empty → 空トラックのみの小節として無音を返す
+        return Some(mixed);
     }
 
     Some(mixed)
@@ -249,16 +262,16 @@ impl DawApp {
                 })
             };
 
-            // サンプル取得後、まだ Preview セッションが有効なときだけ再生開始時刻を更新する。
-            // stop や新しい演奏開始後に上書きしないようガードする。
-            if *play_state.lock().unwrap() == DawPlayState::Preview {
-                *play_position.lock().unwrap() = Some(PlayPosition {
-                    measure_index,
-                    measure_start: std::time::Instant::now(),
-                });
-            }
-
             if let Some(samples) = samples_opt {
+                // サンプル取得成功後、まだ Preview セッションが有効なときだけ再生開始時刻を更新する。
+                // stop や新しい演奏開始後に上書きしないようガードする。
+                // レンダリング失敗時は play_position を更新せず、UI に再生中と表示させない。
+                if *play_state.lock().unwrap() == DawPlayState::Preview {
+                    *play_position.lock().unwrap() = Some(PlayPosition {
+                        measure_index,
+                        measure_start: std::time::Instant::now(),
+                    });
+                }
                 // Preview 中に stop された場合は再生しない
                 if *play_state.lock().unwrap() == DawPlayState::Preview {
                     let source = rodio::buffer::SamplesBuffer::new(2, sample_rate, samples);
