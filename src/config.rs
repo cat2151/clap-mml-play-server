@@ -100,8 +100,10 @@ fn default_config_content() -> String {
 {plugin_path_line}
 
 input_midi  = "input.mid"
-output_midi = "cmrt/output.mid"
-output_wav  = "cmrt/output.wav"
+# output_midi, output_wav は自動的にシステム設定ディレクトリの cmrt/phrase/ または cmrt/daw/ に保存されます。
+# 以下の値は内部的に使用されますが、実際の出力先は上記ディレクトリになります。
+output_midi = "output.mid"
+output_wav  = "output.wav"
 sample_rate = 44100
 buffer_size = 512
 

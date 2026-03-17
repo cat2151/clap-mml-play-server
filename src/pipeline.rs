@@ -34,8 +34,12 @@ pub fn mml_render(mml: &str, cfg: &Config, entry: &PluginEntry) -> Result<(Vec<f
 
     append_history(mml, &effective_patch, cfg)?;
 
+    let phrase_dir = ensure_phrase_dir()?;
+    let output_midi = phrase_dir.join("output.mid").to_string_lossy().into_owned();
+    let output_wav  = phrase_dir.join("output.wav").to_string_lossy().into_owned();
+
     let smf_bytes = mml_str_to_smf_bytes(&preprocessed.remaining_mml)?;
-    std::fs::write(&cfg.output_midi, &smf_bytes)
+    std::fs::write(&output_midi, &smf_bytes)
         .map_err(|e| anyhow::anyhow!("MIDIファイル書き出し失敗: {}", e))?;
 
     let (events, total_samples) = parse_smf_bytes(&smf_bytes, cfg.sample_rate)?;
@@ -43,8 +47,8 @@ pub fn mml_render(mml: &str, cfg: &Config, entry: &PluginEntry) -> Result<(Vec<f
     let patched_cfg = Config {
         plugin_path: cfg.plugin_path.clone(),
         input_midi:  cfg.input_midi.clone(),
-        output_midi: cfg.output_midi.clone(),
-        output_wav:  cfg.output_wav.clone(),
+        output_midi: output_midi,
+        output_wav:  output_wav.clone(),
         sample_rate: cfg.sample_rate,
         buffer_size: cfg.buffer_size,
         patch_path:  effective_patch.clone(),
@@ -53,7 +57,7 @@ pub fn mml_render(mml: &str, cfg: &Config, entry: &PluginEntry) -> Result<(Vec<f
     };
 
     let samples = render_to_memory(&patched_cfg, entry, events, total_samples)?;
-    write_wav(&samples, cfg.sample_rate as u32, &cfg.output_wav)?;
+    write_wav(&samples, cfg.sample_rate as u32, &output_wav)?;
 
     let patch_display = match &effective_patch {
         Some(abs) => {
@@ -70,7 +74,7 @@ pub fn mml_render(mml: &str, cfg: &Config, entry: &PluginEntry) -> Result<(Vec<f
 
 /// キャッシュ構築専用の MML → レンダリング。
 /// - `patch_history.txt` への追記は行わない
-/// - MIDI/WAV の出力先は専用のテンポラリパス（`cmrt/daw_cache.mid` / `cmrt/daw_cache.wav`）を使用
+/// - MIDI/WAV の出力先は DAW 専用ディレクトリ（`config_local_dir()/cmrt/daw/daw_cache.mid/wav`）を使用
 ///   することで通常の出力ファイルを上書きしない
 /// - 呼び出し元はシリアルな単一ワーカースレッドから呼び出すこと（ファイル書き込みの
 ///   競合を防ぐため）
@@ -85,18 +89,19 @@ pub fn mml_render_for_cache(mml: &str, cfg: &Config, entry: &PluginEntry) -> Res
     };
 
     let smf_bytes = mml_str_to_smf_bytes(&preprocessed.remaining_mml)?;
-    // mml_str_to_smf_bytes が ensure_cmrt_dir を呼ぶが、明示的に保証するためここでも呼ぶ
-    ensure_cmrt_dir()?;
-    std::fs::write("cmrt/daw_cache.mid", &smf_bytes)
-        .map_err(|e| anyhow::anyhow!("cmrt/daw_cache.mid 書き出し失敗: {}", e))?;
+    let daw_dir = ensure_daw_dir()?;
+    let cache_mid = daw_dir.join("daw_cache.mid").to_string_lossy().into_owned();
+    let cache_wav = daw_dir.join("daw_cache.wav").to_string_lossy().into_owned();
+    std::fs::write(&cache_mid, &smf_bytes)
+        .map_err(|e| anyhow::anyhow!("daw_cache.mid 書き出し失敗: {}", e))?;
 
     let (events, total_samples) = parse_smf_bytes(&smf_bytes, cfg.sample_rate)?;
 
     let patched_cfg = Config {
         plugin_path: cfg.plugin_path.clone(),
         input_midi:  cfg.input_midi.clone(),
-        output_midi: "cmrt/daw_cache.mid".to_string(),
-        output_wav:  "cmrt/daw_cache.wav".to_string(),
+        output_midi: cache_mid,
+        output_wav:  cache_wav.clone(),
         sample_rate: cfg.sample_rate,
         buffer_size: cfg.buffer_size,
         patch_path:  effective_patch,
@@ -105,7 +110,7 @@ pub fn mml_render_for_cache(mml: &str, cfg: &Config, entry: &PluginEntry) -> Res
     };
 
     let samples = render_to_memory(&patched_cfg, entry, events, total_samples)?;
-    write_wav(&samples, cfg.sample_rate as u32, "cmrt/daw_cache.wav")?;
+    write_wav(&samples, cfg.sample_rate as u32, &cache_wav)?;
 
     Ok(samples)
 }
@@ -137,22 +142,27 @@ pub fn mml_to_play(mml: &str, cfg: &Config, entry: &PluginEntry) -> Result<Strin
     // --- Step 3: 履歴に追記 ---
     append_history(mml, &effective_patch, cfg)?;
 
-    // --- Step 4: MML → SMF バイト列 ---
+    // --- Step 4: 出力先ディレクトリを準備 ---
+    let phrase_dir = ensure_phrase_dir()?;
+    let output_midi = phrase_dir.join("output.mid").to_string_lossy().into_owned();
+    let output_wav  = phrase_dir.join("output.wav").to_string_lossy().into_owned();
+
+    // --- Step 5: MML → SMF バイト列 ---
     let smf_bytes = mml_str_to_smf_bytes(&preprocessed.remaining_mml)?;
 
-    // --- Step 5: SMFファイル書き出し ---
-    std::fs::write(&cfg.output_midi, &smf_bytes)
-        .map_err(|e| anyhow::anyhow!("MIDIファイル書き出し失敗 ({}): {}", cfg.output_midi, e))?;
+    // --- Step 6: SMFファイル書き出し ---
+    std::fs::write(&output_midi, &smf_bytes)
+        .map_err(|e| anyhow::anyhow!("MIDIファイル書き出し失敗 ({}): {}", output_midi, e))?;
 
-    // --- Step 6: SMF → イベント列 ---
+    // --- Step 7: SMF → イベント列 ---
     let (events, total_samples) = parse_smf_bytes(&smf_bytes, cfg.sample_rate)?;
 
-    // --- Step 7: パッチを一時的にcfgに反映してレンダリング ---
+    // --- Step 8: パッチを一時的にcfgに反映してレンダリング ---
     let patched_cfg = Config {
         plugin_path: cfg.plugin_path.clone(),
         input_midi:  cfg.input_midi.clone(),
-        output_midi: cfg.output_midi.clone(),
-        output_wav:  cfg.output_wav.clone(),
+        output_midi: output_midi,
+        output_wav:  output_wav.clone(),
         sample_rate: cfg.sample_rate,
         buffer_size: cfg.buffer_size,
         patch_path:  effective_patch,
@@ -162,10 +172,10 @@ pub fn mml_to_play(mml: &str, cfg: &Config, entry: &PluginEntry) -> Result<Strin
 
     let samples = render_to_memory(&patched_cfg, entry, events, total_samples)?;
 
-    // --- Step 8: WAVファイル書き出し ---
-    write_wav(&samples, cfg.sample_rate as u32, &cfg.output_wav)?;
+    // --- Step 9: WAVファイル書き出し ---
+    write_wav(&samples, cfg.sample_rate as u32, &output_wav)?;
 
-    // --- Step 9: 再生 ---
+    // --- Step 10: 再生 ---
     play_samples(samples, cfg.sample_rate as u32)?;
 
     // 使用したパッチの相対パスを返す
@@ -259,18 +269,50 @@ fn append_history(mml: &str, patch: &Option<String>, cfg: &Config) -> Result<()>
 
 /// MML文字列（JSON除去済み）→ SMFバイト列
 pub fn mml_str_to_smf_bytes(mml: &str) -> Result<Vec<u8>> {
-    ensure_cmrt_dir()?;
-    let tokens = pass1_parser::process_pass1(mml, "cmrt/pass1_tokens.json")?;
-    let ast = pass2_ast::process_pass2(&tokens, "cmrt/pass2_ast.json")?;
-    let events = pass3_events::process_pass3(&ast, "cmrt/pass3_events.json", false)?;
+    let cmrt_dir = ensure_cmrt_dir()?;
+    let pass1 = cmrt_dir.join("pass1_tokens.json").to_string_lossy().into_owned();
+    let pass2 = cmrt_dir.join("pass2_ast.json").to_string_lossy().into_owned();
+    let pass3 = cmrt_dir.join("pass3_events.json").to_string_lossy().into_owned();
+    let tokens = pass1_parser::process_pass1(mml, &pass1)?;
+    let ast = pass2_ast::process_pass2(&tokens, &pass2)?;
+    let events = pass3_events::process_pass3(&ast, &pass3, false)?;
     let smf_bytes = pass4_midi::events_to_midi(&events)?;
     Ok(smf_bytes)
 }
 
-/// cmrt/ ディレクトリを作成する（既存の場合は何もしない）
-pub fn ensure_cmrt_dir() -> Result<()> {
-    std::fs::create_dir_all("cmrt")
-        .map_err(|e| anyhow::anyhow!("cmrt/ ディレクトリの作成に失敗: {}", e))
+/// config_local_dir()/cmrt/ ディレクトリを作成し、パスを返す。
+/// `phrase/` および `daw/` サブディレクトリの親ディレクトリとしても使用される。
+pub fn ensure_cmrt_dir() -> Result<std::path::PathBuf> {
+    let dir = dirs::config_local_dir()
+        .ok_or_else(|| anyhow::anyhow!("システム設定ディレクトリが取得できません"))?
+        .join("cmrt");
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| anyhow::anyhow!("cmrt/ ディレクトリの作成に失敗: {}", e))?;
+    Ok(dir)
+}
+
+/// config_local_dir()/cmrt/phrase/ ディレクトリを作成し、パスを返す。
+/// フレーズモード（非DAWモード）の出力ファイル（output.mid, output.wav）を格納する。
+pub fn ensure_phrase_dir() -> Result<std::path::PathBuf> {
+    let dir = dirs::config_local_dir()
+        .ok_or_else(|| anyhow::anyhow!("システム設定ディレクトリが取得できません"))?
+        .join("cmrt")
+        .join("phrase");
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| anyhow::anyhow!("phrase/ ディレクトリの作成に失敗: {}", e))?;
+    Ok(dir)
+}
+
+/// config_local_dir()/cmrt/daw/ ディレクトリを作成し、パスを返す。
+/// DAWモードの出力ファイル（daw_cache.mid, daw_cache.wav, per-track WAV 等）を格納する。
+pub fn ensure_daw_dir() -> Result<std::path::PathBuf> {
+    let dir = dirs::config_local_dir()
+        .ok_or_else(|| anyhow::anyhow!("システム設定ディレクトリが取得できません"))?
+        .join("cmrt")
+        .join("daw");
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| anyhow::anyhow!("daw/ ディレクトリの作成に失敗: {}", e))?;
+    Ok(dir)
 }
 
 /// MML文字列 → SMFバイト列（外部公開用、JSON込みのMMLを受け取る）

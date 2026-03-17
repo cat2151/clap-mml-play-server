@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use clack_host::prelude::PluginEntry;
 
-use super::{CacheState, CellCache, DawApp, DawPlayState, PlayPosition, DAW_MML_DEBUG_FILE, FIRST_PLAYABLE_TRACK, TRACKS};
+use super::{CacheState, CellCache, DawApp, DawPlayState, PlayPosition, FIRST_PLAYABLE_TRACK, TRACKS};
 
 /// キャッシュ済みのサンプルをミックスして返す。
 ///
@@ -80,10 +80,11 @@ impl DawApp {
             return;
         }
 
-        // cmrt/ ディレクトリを確保してからデバッグファイルを書き出す
-        let _ = crate::pipeline::ensure_cmrt_dir();
-        // デバッグ用ファイルに各小節の MML を出力する
-        let _ = std::fs::write(DAW_MML_DEBUG_FILE, measure_mmls.join("\n---\n"));
+        // daw/ ディレクトリを確保してからデバッグファイルを書き出す
+        if let Ok(daw_dir) = crate::pipeline::ensure_daw_dir() {
+            let debug_file = daw_dir.join("daw_mml_debug.txt");
+            let _ = std::fs::write(&debug_file, measure_mmls.join("\n---\n"));
+        }
 
         // play_measure_mmls と play_measure_samples を最新の値で更新してからスレッドに共有する
         *self.play_measure_mmls.lock().unwrap() = measure_mmls;

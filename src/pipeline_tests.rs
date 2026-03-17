@@ -40,7 +40,7 @@ fn write_wav_invalid_path_returns_error() {
 #[test]
 fn mml_str_to_smf_bytes_returns_valid_smf() {
     // "cde" → ドレミ3音の SMF バイト列が生成されることを確認する
-    // 中間ファイル（pass1_tokens.json 等）が CWD に書き出されるが、
+    // 中間ファイル（pass1_tokens.json 等）が config_local_dir()/cmrt/ に書き出されるが、
     // 戻り値の計算自体はメモリ上で行われるため機能テストとして有効
     let result = mml_str_to_smf_bytes("cde");
     assert!(result.is_ok(), "mml_str_to_smf_bytes が失敗: {:?}", result.err());
@@ -67,4 +67,76 @@ fn mml_str_to_smf_bytes_empty_mml_returns_valid_smf() {
     assert!(result.is_ok(), "空のMMLでmml_str_to_smf_bytesが失敗: {:?}", result.err());
     let bytes = result.unwrap();
     assert!(bytes.starts_with(b"MThd"));
+}
+
+#[test]
+fn ensure_cmrt_dir_creates_directory_and_returns_path() {
+    // ensure_cmrt_dir() が config_local_dir()/cmrt/ を作成してパスを返すことを確認する
+    if dirs::config_local_dir().is_none() {
+        // config_local_dir() が取得できない環境ではテストをスキップ
+        return;
+    }
+    let result = ensure_cmrt_dir();
+    assert!(result.is_ok(), "ensure_cmrt_dir が失敗: {:?}", result.err());
+    let dir = result.unwrap();
+    assert!(dir.exists(), "cmrt/ ディレクトリが存在しない: {}", dir.display());
+    let dir_str = dir.to_string_lossy();
+    assert!(dir_str.contains("cmrt"), "パスに cmrt が含まれていない: {}", dir_str);
+}
+
+#[test]
+fn ensure_phrase_dir_creates_directory_and_returns_path() {
+    // ensure_phrase_dir() が config_local_dir()/cmrt/phrase/ を作成してパスを返すことを確認する
+    if dirs::config_local_dir().is_none() {
+        return;
+    }
+    let result = ensure_phrase_dir();
+    assert!(result.is_ok(), "ensure_phrase_dir が失敗: {:?}", result.err());
+    let dir = result.unwrap();
+    assert!(dir.exists(), "phrase/ ディレクトリが存在しない: {}", dir.display());
+    let dir_str = dir.to_string_lossy();
+    assert!(
+        dir_str.ends_with("phrase") || dir_str.ends_with("phrase/") || dir_str.ends_with(r"phrase\"),
+        "パスが phrase で終わっていない: {}",
+        dir_str
+    );
+    assert!(dir_str.contains("cmrt"), "パスに cmrt が含まれていない: {}", dir_str);
+}
+
+#[test]
+fn ensure_daw_dir_creates_directory_and_returns_path() {
+    // ensure_daw_dir() が config_local_dir()/cmrt/daw/ を作成してパスを返すことを確認する
+    if dirs::config_local_dir().is_none() {
+        return;
+    }
+    let result = ensure_daw_dir();
+    assert!(result.is_ok(), "ensure_daw_dir が失敗: {:?}", result.err());
+    let dir = result.unwrap();
+    assert!(dir.exists(), "daw/ ディレクトリが存在しない: {}", dir.display());
+    let dir_str = dir.to_string_lossy();
+    assert!(
+        dir_str.ends_with("daw") || dir_str.ends_with("daw/") || dir_str.ends_with(r"daw\"),
+        "パスが daw で終わっていない: {}",
+        dir_str
+    );
+    assert!(dir_str.contains("cmrt"), "パスに cmrt が含まれていない: {}", dir_str);
+}
+
+#[test]
+fn phrase_dir_and_daw_dir_are_siblings_under_cmrt() {
+    // phrase/ と daw/ が同じ cmrt/ の下のサブディレクトリであることを確認する
+    if dirs::config_local_dir().is_none() {
+        return;
+    }
+    let phrase_dir = ensure_phrase_dir().unwrap();
+    let daw_dir = ensure_daw_dir().unwrap();
+    // 両方の親ディレクトリが同じであることを確認
+    let phrase_parent = phrase_dir.parent().unwrap();
+    let daw_parent = daw_dir.parent().unwrap();
+    assert_eq!(
+        phrase_parent, daw_parent,
+        "phrase/ と daw/ が同じ親ディレクトリの下にない: {} vs {}",
+        phrase_parent.display(),
+        daw_parent.display()
+    );
 }

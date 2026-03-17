@@ -57,8 +57,6 @@ pub const MEASURES: usize = 8;
 /// track 0 はグローバルヘッダ（テンポ等）専用。演奏 track は 1 から始まる。
 const FIRST_PLAYABLE_TRACK: usize = 1;
 
-const DAW_MML_DEBUG_FILE: &str = "cmrt/daw_mml_debug.txt";
-
 /// インメモリキャッシュに保持するサンプル数の上限（ステレオ、インターリーブ）。
 ///
 /// 2_000_000 サンプル / 2 ch = 1_000_000 samples per ch / 44100 Hz ≈ 22.7 秒 / 小節。
@@ -146,12 +144,15 @@ impl DawApp {
                             // 開発用: track/measure ごとに WAV ファイルを出力する
                             // measure 0 は音色/ヘッダセルであり演奏内容ではないためスキップ
                             let wav_ok = if measure > 0 {
-                                let wav_path = format!("cmrt/track{}_meas{}.wav", track, measure);
-                                crate::pipeline::write_wav(
-                                    &samples,
-                                    daw_cfg.sample_rate as u32,
-                                    &wav_path,
-                                ).is_ok()
+                                let wav_ok_inner = crate::pipeline::ensure_daw_dir().ok().map(|daw_dir| {
+                                    let wav_path = daw_dir.join(format!("track{}_meas{}.wav", track, measure));
+                                    crate::pipeline::write_wav(
+                                        &samples,
+                                        daw_cfg.sample_rate as u32,
+                                        &wav_path.to_string_lossy(),
+                                    ).is_ok()
+                                });
+                                wav_ok_inner.unwrap_or(false)
                             } else {
                                 true
                             };
