@@ -1,5 +1,7 @@
 //! DAW モードの型定義
 
+use std::sync::Arc;
+
 // ─── キャッシュ ───────────────────────────────────────────────
 
 #[derive(Clone, PartialEq)]
@@ -10,14 +12,24 @@ pub enum CacheState {
     Error,   // レンダリング失敗
 }
 
+/// セルごとのレンダリングキャッシュ。
+///
+/// `samples` フィールドはメモリ内にステレオ PCM サンプルを保持する。
+/// 低 BPM では 1 小節が非常に長くなり得るため（BPM=1, 4/4, 44100 Hz → ~21M サンプル ≈ 85 MB/cell）、
+/// キャッシュワーカーはサイズが [`MAX_CACHED_SAMPLES`] を超えるセルのサンプルを保持しない
+/// （その場合 `state` は `Ready` だが `samples` は `None` のまま残り、再生時にフォールバックレンダリングされる）。
+///
+/// [`MAX_CACHED_SAMPLES`]: super::MAX_CACHED_SAMPLES
 #[derive(Clone)]
 pub struct CellCache {
     pub(super) state: CacheState,
+    /// レンダリング済みのステレオサンプル（Ready かつサイズ上限以内のときのみ Some）
+    pub(super) samples: Option<Arc<Vec<f32>>>,
 }
 
 impl CellCache {
     pub(super) fn empty() -> Self {
-        Self { state: CacheState::Empty }
+        Self { state: CacheState::Empty, samples: None }
     }
 }
 
