@@ -103,7 +103,7 @@ pub struct DawApp {
     /// 再生中の小節・ビート位置（UI 描画に使用）
     pub(super) play_position: Arc<Mutex<Option<PlayPosition>>>,
 
-    /// 再生スレッドと共有する各小節の MML ベクター (MEASURES 要素, index i → meas i+1)。
+    /// 再生スレッドと共有する各小節の MML ベクター（measures 要素, index i → meas i+1）。
     /// セル編集・ランダム音色変更のたびに更新されることで、
     /// play 中でも次ループ冒頭から新しい MML が反映される（hot reload）。
     play_measure_mmls: Arc<Mutex<Vec<String>>>,
@@ -115,8 +115,8 @@ pub struct DawApp {
 
 impl DawApp {
     pub fn new(cfg: Arc<Config>, entry_ptr: usize) -> Self {
-        let tracks = cfg.daw_tracks.max(2);
-        let measures = cfg.daw_measures.max(1);
+        let tracks = cfg.daw_tracks.clamp(2, 64);
+        let measures = cfg.daw_measures.clamp(1, 64);
         let mut data = vec![vec![String::new(); measures + 1]; tracks];
         // track 0 のデフォルトは拍子指定 JSON + テンポ設定
         data[0][0] = r#"{"beat": "4/4"}t120"#.to_string();

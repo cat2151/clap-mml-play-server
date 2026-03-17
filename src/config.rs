@@ -138,7 +138,9 @@ random_patch = true
 
 # DAW モード設定
 # daw_tracks: トラック数（track 0 = ヘッダ/テンポ、track 1.. = 演奏トラック）デフォルト: 9 (1+8)
+#   有効範囲: 2 〜 64（範囲外は自動的に最小値 2 または最大値 64 にクランプされます）
 # daw_measures: 小節数（measure 0 = 音色列、measure 1.. = 通常小節）デフォルト: 8
+#   有効範囲: 1 〜 64（範囲外は自動的に最小値 1 または最大値 64 にクランプされます）
 daw_tracks   = 9
 daw_measures = 8
 "#,

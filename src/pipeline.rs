@@ -52,17 +52,10 @@ pub fn mml_render(mml: &str, cfg: &Config, entry: &PluginEntry) -> Result<(Vec<f
         .to_string();
 
     let patched_cfg = Config {
-        plugin_path: cfg.plugin_path.clone(),
-        input_midi:  cfg.input_midi.clone(),
         output_midi: output_midi_str,
         output_wav:  output_wav_str,
-        sample_rate: cfg.sample_rate,
-        buffer_size: cfg.buffer_size,
         patch_path:  effective_patch.clone(),
-        patches_dir: cfg.patches_dir.clone(),
-        random_patch: cfg.random_patch,
-        daw_tracks:  cfg.daw_tracks,
-        daw_measures: cfg.daw_measures,
+        ..cfg.clone()
     };
 
     let samples = render_to_memory(&patched_cfg, entry, events, total_samples)?;
@@ -114,17 +107,11 @@ pub fn mml_render_for_cache(mml: &str, cfg: &Config, entry: &PluginEntry) -> Res
         .to_string();
 
     let patched_cfg = Config {
-        plugin_path: cfg.plugin_path.clone(),
-        input_midi:  cfg.input_midi.clone(),
         output_midi: cache_mid_str,
         output_wav:  cache_wav_str,
-        sample_rate: cfg.sample_rate,
-        buffer_size: cfg.buffer_size,
         patch_path:  effective_patch,
-        patches_dir: cfg.patches_dir.clone(),
         random_patch: false,
-        daw_tracks:  cfg.daw_tracks,
-        daw_measures: cfg.daw_measures,
+        ..cfg.clone()
     };
 
     let samples = render_to_memory(&patched_cfg, entry, events, total_samples)?;
@@ -184,17 +171,10 @@ pub fn mml_to_play(mml: &str, cfg: &Config, entry: &PluginEntry) -> Result<Strin
 
     // --- Step 8: パッチを一時的にcfgに反映してレンダリング ---
     let patched_cfg = Config {
-        plugin_path: cfg.plugin_path.clone(),
-        input_midi:  cfg.input_midi.clone(),
         output_midi: output_midi_str,
         output_wav:  output_wav_str,
-        sample_rate: cfg.sample_rate,
-        buffer_size: cfg.buffer_size,
         patch_path:  effective_patch,
-        patches_dir: cfg.patches_dir.clone(),
-        random_patch: cfg.random_patch,
-        daw_tracks:  cfg.daw_tracks,
-        daw_measures: cfg.daw_measures,
+        ..cfg.clone()
     };
 
     let samples = render_to_memory(&patched_cfg, entry, events, total_samples)?;

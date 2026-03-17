@@ -16,7 +16,7 @@ pub(super) fn effective_measure_count(mmls: &[String]) -> Option<usize> {
 
 /// キャッシュ済みのサンプルをミックスして返す。
 ///
-/// 指定小節（`measure`、1始まり）のすべての playable track（`FIRST_PLAYABLE_TRACK..TRACKS`）の
+/// 指定小節（`measure`、1始まり）のすべての playable track（`FIRST_PLAYABLE_TRACK..tracks`）の
 /// キャッシュを調べ、合算したサンプルを返す。
 /// いずれかの playable track が `Ready` でない（Pending / Error）場合は `None` を返し、
 /// 呼び出し元はフレッシュレンダリングにフォールバックすること。

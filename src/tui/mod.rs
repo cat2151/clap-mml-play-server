@@ -140,19 +140,7 @@ pub struct TuiApp<'a> {
 
 impl<'a> TuiApp<'a> {
     pub fn new(cfg: &'a Config, entry: &'a PluginEntry) -> Self {
-        let cfg_arc = Arc::new(Config {
-            plugin_path: cfg.plugin_path.clone(),
-            input_midi:  cfg.input_midi.clone(),
-            output_midi: cfg.output_midi.clone(),
-            output_wav:  cfg.output_wav.clone(),
-            sample_rate: cfg.sample_rate,
-            buffer_size: cfg.buffer_size,
-            patch_path: cfg.patch_path.clone(),
-            patches_dir: cfg.patches_dir.clone(),
-            random_patch: cfg.random_patch,
-            daw_tracks:  cfg.daw_tracks,
-            daw_measures: cfg.daw_measures,
-        });
+        let cfg_arc = Arc::new(cfg.clone());
 
         // パッチリストはバックグラウンドスレッドで収集する。
         // 起動時の同期スキャンによる遅延を避けるため。
