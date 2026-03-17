@@ -27,6 +27,17 @@ impl CellCache {
 pub enum DawPlayState {
     Idle,
     Playing,
+    /// 一発プレビュー（ループなし）
+    Preview,
+}
+
+/// 再生中の小節・ビート位置
+#[derive(Clone)]
+pub struct PlayPosition {
+    /// 0-based 小節インデックス（表示は +1）
+    pub measure_index: usize,
+    /// この小節の再生開始時刻
+    pub measure_start: std::time::Instant,
 }
 
 // ─── 内部モード ───────────────────────────────────────────────

@@ -97,7 +97,7 @@ impl DawApp {
 
             KeyCode::Char('p') => {
                 let state = self.play_state.lock().unwrap().clone();
-                if state == DawPlayState::Playing {
+                if state == DawPlayState::Playing || state == DawPlayState::Preview {
                     self.stop_play();
                 } else {
                     self.start_play();
@@ -131,12 +131,26 @@ impl DawApp {
     pub(super) fn handle_insert(&mut self, key_event: crossterm::event::KeyEvent) {
         match key_event.code {
             KeyCode::Esc => {
+                let confirmed_measure = self.cursor_measure;
                 self.commit_insert();
+                // 非演奏中の場合、確定した小節をプレビュー再生する
+                if *self.play_state.lock().unwrap() == DawPlayState::Idle
+                    && confirmed_measure > 0
+                {
+                    self.start_preview(confirmed_measure - 1);
+                }
                 self.mode = DawMode::Normal;
             }
             KeyCode::Enter => {
                 // 確定 → 次の小節へ → INSERT 継続
+                let confirmed_measure = self.cursor_measure;
                 self.commit_insert();
+                // 非演奏中の場合、確定した小節をプレビュー再生する
+                if *self.play_state.lock().unwrap() == DawPlayState::Idle
+                    && confirmed_measure > 0
+                {
+                    self.start_preview(confirmed_measure - 1);
+                }
                 if self.cursor_measure < MEASURES {
                     self.cursor_measure += 1;
                 }
