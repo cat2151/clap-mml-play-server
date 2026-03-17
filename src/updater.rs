@@ -22,7 +22,7 @@ fn is_valid_sha1(s: &str) -> bool {
 
 /// ETagのキャッシュファイルパスを返す
 fn etag_cache_file() -> Option<std::path::PathBuf> {
-    dirs::cache_dir().map(|d| d.join("cmrt").join("github_etag"))
+    dirs::cache_dir().map(|d| d.join("clap-mml-render-tui").join("github_etag"))
 }
 
 /// キャッシュされたETagを読み込む

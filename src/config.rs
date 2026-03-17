@@ -91,7 +91,7 @@ fn default_config_content() -> String {
         format!("patches_dir = '{patches_dir}'", patches_dir = patches_dir)
     };
     format!(
-        r#"# cmrt config
+        r#"# clap-mml-render-tui config
 #
 # 【必須】plugin_path にお使いの CLAP プラグインのパスを設定してください。
 # 例 (Windows): plugin_path = 'C:\Program Files\Common Files\CLAP\Surge Synth Team\Surge XT.clap'
@@ -100,7 +100,7 @@ fn default_config_content() -> String {
 {plugin_path_line}
 
 input_midi  = "input.mid"
-# output_midi, output_wav は自動的にシステム設定ディレクトリの cmrt/phrase/ または cmrt/daw/ に保存されます。
+# output_midi, output_wav は自動的にシステム設定ディレクトリの clap-mml-render-tui/phrase/ または clap-mml-render-tui/daw/ に保存されます。
 # 以下の値は内部的に使用されますが、実際の出力先は上記ディレクトリになります。
 output_midi = "output.mid"
 output_wav  = "output.wav"
@@ -126,12 +126,12 @@ random_patch = true
 }
 
 /// OS 標準の設定ディレクトリ内の config.toml パスを返す。
-/// - Windows: %LOCALAPPDATA%\cmrt\config.toml  (Local 側)
-/// - Linux:   ~/.config/cmrt/config.toml
-/// - macOS:   ~/Library/Application Support/cmrt/config.toml
+/// - Windows: %LOCALAPPDATA%\clap-mml-render-tui\config.toml  (Local 側)
+/// - Linux:   ~/.config/clap-mml-render-tui/config.toml
+/// - macOS:   ~/Library/Application Support/clap-mml-render-tui/config.toml
 /// システムの設定ディレクトリが取得できない場合は `None` を返す。
 pub fn config_file_path() -> Option<PathBuf> {
-    dirs::config_local_dir().map(|d| d.join("cmrt").join("config.toml"))
+    dirs::config_local_dir().map(|d| d.join("clap-mml-render-tui").join("config.toml"))
 }
 
 impl Config {

@@ -120,11 +120,11 @@ impl DawApp {
 
         // シリアルなキャッシュワーカースレッドを起動する。
         // チャネルが送信側（cache_tx）を介してジョブを受け取り順次レンダリングすることで
-        // ファイル書き込み（cmrt/pass1_tokens.json 等）の競合と過剰スレッド生成を防ぐ。
+        // ファイル書き込み（clap-mml-render-tui/pass1_tokens.json 等）の競合と過剰スレッド生成を防ぐ。
         let (cache_tx, cache_rx) = std::sync::mpsc::channel::<(usize, usize, String)>();
 
         // `mml_render_for_cache` はキャッシュワーカーと再生スレッドの両方から呼ばれるため、
-        // cmrt/daw_cache.mid/wav への同時書き込みを防ぐ排他ロックを共有する。
+        // clap-mml-render-tui/daw/daw_cache.mid/wav への同時書き込みを防ぐ排他ロックを共有する。
         let render_lock: Arc<Mutex<()>> = Arc::new(Mutex::new(()));
 
         {

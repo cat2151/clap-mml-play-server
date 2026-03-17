@@ -35,11 +35,11 @@ impl Default for SessionState {
     }
 }
 
-/// OS ごとのデータディレクトリ配下の `cmrt` サブディレクトリを返す。
-/// config.toml と同じ `cmrt` プレフィックスに揃えることで、ユーザーデータの場所を一貫させる。
+/// OS ごとのデータディレクトリ配下の `clap-mml-render-tui` サブディレクトリを返す。
+/// config.toml と同じ `clap-mml-render-tui` プレフィックスに揃えることで、ユーザーデータの場所を一貫させる。
 /// `dirs::data_local_dir()` が利用できない環境では `None` を返し、保存・復元をスキップする。
 fn history_dir() -> Option<PathBuf> {
-    dirs::data_local_dir().map(|d| d.join("cmrt"))
+    dirs::data_local_dir().map(|d| d.join("clap-mml-render-tui"))
 }
 
 fn session_state_path() -> Option<PathBuf> {

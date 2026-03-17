@@ -126,9 +126,17 @@ fn compute_measure_samples_beat_zero_clamps_to_one() {
 
 #[test]
 fn ensure_cmrt_dir_is_idempotent() {
-    // 複数回呼んでもエラーにならない
+    // 複数回呼んでもエラーにならない（一時ディレクトリを使って設定ディレクトリを汚染しない）
+    let tmp = std::env::temp_dir().join("cmrt_test_daw_idempotent");
+    std::env::set_var("CMRT_BASE_DIR", &tmp);
+    std::fs::remove_dir_all(&tmp).ok();
+
     let r1 = crate::pipeline::ensure_cmrt_dir();
     let r2 = crate::pipeline::ensure_cmrt_dir();
+    std::env::remove_var("CMRT_BASE_DIR");
+
     assert!(r1.is_ok(), "初回 ensure_cmrt_dir が失敗: {:?}", r1.err());
     assert!(r2.is_ok(), "2回目 ensure_cmrt_dir が失敗: {:?}", r2.err());
+
+    std::fs::remove_dir_all(&tmp).ok();
 }

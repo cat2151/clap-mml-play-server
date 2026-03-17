@@ -81,7 +81,7 @@ pub fn mml_render(mml: &str, cfg: &Config, entry: &PluginEntry) -> Result<(Vec<f
 
 /// キャッシュ構築専用の MML → レンダリング。
 /// - `patch_history.txt` への追記は行わない
-/// - MIDI/WAV の出力先は DAW 専用ディレクトリ（`config_local_dir()/cmrt/daw/daw_cache.mid/wav`）を使用
+/// - MIDI/WAV の出力先は DAW 専用ディレクトリ（`config_local_dir()/clap-mml-render-tui/daw/daw_cache.mid/wav`）を使用
 ///   することで通常の出力ファイルを上書きしない
 /// - 呼び出し元はシリアルな単一ワーカースレッドから呼び出すこと（ファイル書き込みの
 ///   競合を防ぐため）
@@ -270,7 +270,7 @@ fn append_history(mml: &str, patch: &Option<String>, cfg: &Config) -> Result<()>
     let line = format!("{} {}\n", json, mml_body);
 
     use std::io::Write;
-    let Some(path) = dirs::config_local_dir().map(|d| d.join("cmrt").join("patch_history.txt"))
+    let Some(path) = dirs::config_local_dir().map(|d| d.join("clap-mml-render-tui").join("patch_history.txt"))
     else {
         return Ok(()); // ディレクトリが取得できない場合はスキップ
     };
@@ -309,37 +309,37 @@ pub fn mml_str_to_smf_bytes(mml: &str) -> Result<Vec<u8>> {
     Ok(smf_bytes)
 }
 
-/// config_local_dir()/cmrt/ ディレクトリを作成し、パスを返す。
+/// config_local_dir()/clap-mml-render-tui/ ディレクトリを作成し、パスを返す。
 /// `phrase/` および `daw/` サブディレクトリの親ディレクトリとしても使用される。
 /// テスト時は環境変数 `CMRT_BASE_DIR` でベースパスを上書きできる。
 pub fn ensure_cmrt_dir() -> Result<std::path::PathBuf> {
-    let dir = cmrt_base_dir()?.join("cmrt");
+    let dir = cmrt_base_dir()?.join("clap-mml-render-tui");
     std::fs::create_dir_all(&dir)
-        .map_err(|e| anyhow::anyhow!("cmrt/ ディレクトリの作成に失敗: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("clap-mml-render-tui/ ディレクトリの作成に失敗: {}", e))?;
     Ok(dir)
 }
 
-/// config_local_dir()/cmrt/phrase/ ディレクトリを作成し、パスを返す。
+/// config_local_dir()/clap-mml-render-tui/phrase/ ディレクトリを作成し、パスを返す。
 /// フレーズモード（非DAWモード）の出力ファイル（output.mid, output.wav）を格納する。
 /// テスト時は環境変数 `CMRT_BASE_DIR` でベースパスを上書きできる。
 pub fn ensure_phrase_dir() -> Result<std::path::PathBuf> {
-    let dir = cmrt_base_dir()?.join("cmrt").join("phrase");
+    let dir = cmrt_base_dir()?.join("clap-mml-render-tui").join("phrase");
     std::fs::create_dir_all(&dir)
         .map_err(|e| anyhow::anyhow!("phrase/ ディレクトリの作成に失敗: {}", e))?;
     Ok(dir)
 }
 
-/// config_local_dir()/cmrt/daw/ ディレクトリを作成し、パスを返す。
+/// config_local_dir()/clap-mml-render-tui/daw/ ディレクトリを作成し、パスを返す。
 /// DAWモードの出力ファイル（daw_cache.mid, daw_cache.wav, per-track WAV 等）を格納する。
 /// テスト時は環境変数 `CMRT_BASE_DIR` でベースパスを上書きできる。
 pub fn ensure_daw_dir() -> Result<std::path::PathBuf> {
-    let dir = cmrt_base_dir()?.join("cmrt").join("daw");
+    let dir = cmrt_base_dir()?.join("clap-mml-render-tui").join("daw");
     std::fs::create_dir_all(&dir)
         .map_err(|e| anyhow::anyhow!("daw/ ディレクトリの作成に失敗: {}", e))?;
     Ok(dir)
 }
 
-/// `cmrt/` の親ディレクトリを返す。
+/// `clap-mml-render-tui/` の親ディレクトリを返す。
 /// 環境変数 `CMRT_BASE_DIR` が設定されていればそれを使い、なければ `dirs::config_local_dir()` を使う。
 /// テストでは `CMRT_BASE_DIR` に一時ディレクトリを設定することで実際の設定ディレクトリへの書き込みを避ける。
 /// 戻り値: 親ディレクトリのパス（`PathBuf`）。設定ディレクトリが取得できない場合はエラーを返す。

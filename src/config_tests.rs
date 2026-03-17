@@ -5,8 +5,8 @@ fn config_file_path_ends_with_cmrt_config_toml() {
     if let Some(path) = config_file_path() {
         let path_str = path.to_string_lossy();
         assert!(
-            path_str.ends_with("cmrt/config.toml") || path_str.ends_with(r"cmrt\config.toml"),
-            "config_file_path が cmrt/config.toml で終わっていない: {}",
+            path_str.ends_with("clap-mml-render-tui/config.toml") || path_str.ends_with(r"clap-mml-render-tui\config.toml"),
+            "config_file_path が clap-mml-render-tui/config.toml で終わっていない: {}",
             path_str
         );
     }
@@ -18,8 +18,8 @@ fn config_file_path_contains_cmrt_subdir() {
     if let Some(path) = config_file_path() {
         let path_str = path.to_string_lossy();
         assert!(
-            path_str.contains("cmrt"),
-            "config_file_path に cmrt が含まれていない: {}",
+            path_str.contains("clap-mml-render-tui"),
+            "config_file_path に clap-mml-render-tui が含まれていない: {}",
             path_str
         );
     }
