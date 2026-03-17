@@ -1,6 +1,6 @@
 //! DAW 風モード
 //!
-//! 8 tracks × (0..=8 measures) の matrix
+//! 9 tracks × (0..=8 measures) の matrix
 //!   measure 0 = 音色 (timbre) / track ごとの共通ヘッダ
 //!   track   0 = 拍子JSON + テンポ (例: `{"beat": "4/4"}t120`) → render 時に全小節の先頭にくっつける
 //!
