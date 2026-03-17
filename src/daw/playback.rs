@@ -6,6 +6,14 @@ use clack_host::prelude::PluginEntry;
 
 use super::{CacheState, CellCache, DawApp, DawPlayState, PlayPosition, FIRST_PLAYABLE_TRACK, TRACKS};
 
+/// 末尾の空小節を除いた有効な小節数を計算する。
+///
+/// すべての小節が空の場合は `None` を返す。
+/// これにより meas3-8 が空のときは meas1-2 だけをループする（issue #68）。
+pub(super) fn effective_measure_count(mmls: &[String]) -> Option<usize> {
+    mmls.iter().rposition(|m| !m.trim().is_empty()).map(|idx| idx + 1)
+}
+
 /// キャッシュ済みのサンプルをミックスして返す。
 ///
 /// 指定小節（`measure`、1始まり）のすべての playable track（`FIRST_PLAYABLE_TRACK..TRACKS`）の
@@ -139,13 +147,25 @@ impl DawApp {
                 let mmls = play_measure_mmls.lock().unwrap().clone();
                 let measure_samples = *play_measure_samples.lock().unwrap();
 
-                for (measure_index, mml) in mmls.iter().enumerate() {
+                // 末尾の空小節をスキップ: 有効な最後の小節までをループ対象とする。
+                // これにより meas3-8 が空のときは meas1-2 だけをループする（issue #68）。
+                let effective_count = match effective_measure_count(&mmls) {
+                    Some(n) => n,
+                    None => break 'outer,
+                };
+
+                // 全有効小節のサンプルを事前収集する。
+                // シームレス再生のため、全サンプルをまとめて Sink にキューイングしてから
+                // 時間ベースで位置を更新する（issue #68）。
+                let mut all_samples: Vec<(usize, Vec<f32>)> = Vec::with_capacity(effective_count);
+                for measure_index in 0..effective_count {
                     if *play_state.lock().unwrap() != DawPlayState::Playing {
                         break 'outer;
                     }
 
+                    let mml = &mmls[measure_index];
                     let samples = if mml.trim().is_empty() {
-                        // 空小節: 1小節分の無音を再生して次の小節開始タイミングを保持する
+                        // 中間の空小節は無音で維持（前後の小節とのタイミングを保持）
                         vec![0.0f32; measure_samples]
                     } else if let Some(cached) = try_get_cached_samples(&cache, measure_index + 1, measure_samples) {
                         // キャッシュヒット: 事前レンダリング済みサンプルをそのまま使用
@@ -172,20 +192,62 @@ impl DawApp {
                             Err(_) => break 'outer,
                         }
                     };
+                    all_samples.push((measure_index, samples));
+                }
 
+                if all_samples.is_empty() {
+                    break 'outer;
+                }
+
+                // 全サンプルを Sink にまとめてキューイングしてシームレス再生を実現する（issue #68）。
+                // loop_start は最初の append 直前に記録し、各小節の期待開始時刻の基準とする。
+                // measure_samples はステレオインターリーブ（L/R 各 1 サンプル = 2 要素）のため
+                // 実時間 = measure_samples / (sample_rate * 2) となる。
+                let measure_duration_secs =
+                    measure_samples as f64 / (sample_rate as f64 * 2.0);
+                let loop_start = std::time::Instant::now();
+                for (_, samples) in &all_samples {
+                    let source =
+                        rodio::buffer::SamplesBuffer::new(2, sample_rate, samples.clone());
+                    sink.append(source);
+                }
+
+                // 時間ベースで各小節の再生開始位置を更新する。
+                // 10 ms 粒度でポーリングすることで停止要求に素早く応答できる（issue #68）。
+                for (i, (measure_index, _)) in all_samples.iter().enumerate() {
+                    let measure_start_target = loop_start
+                        + std::time::Duration::from_secs_f64(
+                            i as f64 * measure_duration_secs,
+                        );
+                    // この小節の期待開始時刻まで待機（停止チェック付き）
+                    loop {
+                        if std::time::Instant::now() >= measure_start_target {
+                            break;
+                        }
+                        if *play_state.lock().unwrap() != DawPlayState::Playing {
+                            break 'outer;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                    }
                     if *play_state.lock().unwrap() != DawPlayState::Playing {
                         break 'outer;
                     }
-                    // レンダリング完了後・再生直前に位置を記録することで、
-                    // render 時間ではなく実際の再生時間に基づいたビート表示を実現する。
                     *play_position.lock().unwrap() = Some(PlayPosition {
-                        measure_index,
-                        measure_start: std::time::Instant::now(),
+                        measure_index: *measure_index,
+                        measure_start: measure_start_target,
                     });
-                    // 既存の Sink に追加して再生完了を待つ（OutputStream/Sink は使い回す）
-                    let source = rodio::buffer::SamplesBuffer::new(2, sample_rate, samples);
-                    sink.append(source);
-                    sink.sleep_until_end();
+                }
+
+                // 最後の小節の再生完了を 10 ms 粒度でポーリング待機する。
+                // sink.sleep_until_end() は停止要求を検出できないためポーリングを使用する。
+                loop {
+                    if sink.empty() {
+                        break;
+                    }
+                    if *play_state.lock().unwrap() != DawPlayState::Playing {
+                        break 'outer;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(10));
                 }
             }
 
