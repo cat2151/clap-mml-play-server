@@ -30,11 +30,15 @@ impl DawApp {
                 self.data[t][self.cursor_measure] = part.to_string();
                 self.invalidate_cell(t, self.cursor_measure);
                 self.kick_cache(t, self.cursor_measure);
+                // track0 または音色セル変更時は依存セルも再キャッシュする
+                self.invalidate_and_kick_dependent_cells(t, self.cursor_measure);
             }
         } else {
             self.data[self.cursor_track][self.cursor_measure] = text;
             self.invalidate_cell(self.cursor_track, self.cursor_measure);
             self.kick_cache(self.cursor_track, self.cursor_measure);
+            // track0 または音色セル変更時は依存セルも再キャッシュする
+            self.invalidate_and_kick_dependent_cells(self.cursor_track, self.cursor_measure);
         }
 
         self.save();
@@ -111,6 +115,8 @@ impl DawApp {
                         format!("{{\"Surge XT patch\": \"{}\"}}", patch);
                     self.invalidate_cell(self.cursor_track, 0);
                     self.kick_cache(self.cursor_track, 0);
+                    // 音色変更は当該 track の全小節（1..=MEASURES）に影響するため一括再キャッシュ（issue #67 参照）
+                    self.invalidate_and_kick_dependent_cells(self.cursor_track, 0);
                     self.save();
 
                     // hot reload: 次の再生ループから新しい音色を反映する

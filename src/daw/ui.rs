@@ -120,7 +120,7 @@ fn draw_grid(app: &DawApp, f: &mut Frame, area: Rect) {
                 let indicator = match cs {
                     CacheState::Empty => "     ",
                     CacheState::Pending => "...  ",
-                    CacheState::Ready => "●    ",
+                    CacheState::Ready => "     ",
                     CacheState::Error => "✗    ",
                 };
                 let ind_fg = if is_cursor {
