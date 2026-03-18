@@ -25,9 +25,11 @@
 //! キー操作 (HELP):
 //!   ESC   : キャンセル → NORMAL
 
+mod cache;
 mod input;
 mod mml;
 mod playback;
+mod save;
 mod timing;
 mod types;
 mod ui;
@@ -68,68 +70,6 @@ pub(super) const DEFAULT_TRACK0_MML: &str = r#"{"beat": "4/4"}t120"#;
 /// 再生時にフォールバックレンダリングする。
 /// ≈ 2_000_000 × 4 bytes ≈ 8 MB / cell。
 pub(super) const MAX_CACHED_SAMPLES: usize = 2_000_000;
-
-// ─── 保存形式 ─────────────────────────────────────────────────
-
-/// DAW セッションの JSON 保存形式のルート。
-#[derive(serde::Serialize, serde::Deserialize)]
-struct DawSaveFile {
-    tracks: Vec<DawSaveTrack>,
-}
-
-/// JSON 保存形式のトラックエントリ。空トラックは含まれない。
-#[derive(serde::Serialize, serde::Deserialize)]
-struct DawSaveTrack {
-    track: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<String>,
-    meas: Vec<DawSaveMeas>,
-}
-
-/// JSON 保存形式の小節エントリ。空小節は含まれない。
-#[derive(serde::Serialize, serde::Deserialize)]
-struct DawSaveMeas {
-    meas: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<String>,
-    mml: String,
-}
-
-/// data グリッドを `DawSaveFile` に変換する（空トラック・空小節は除外）。
-fn data_to_save_file(data: &[Vec<String>], tracks: usize, measures: usize) -> DawSaveFile {
-    let mut save_tracks: Vec<DawSaveTrack> = Vec::new();
-    for t in 0..tracks {
-        let mut save_meas: Vec<DawSaveMeas> = Vec::new();
-        for m in 0..=measures {
-            if !data[t][m].trim().is_empty() {
-                let description = if m == 0 { Some("initial".to_string()) } else { None };
-                save_meas.push(DawSaveMeas { meas: m, description, mml: data[t][m].clone() });
-            }
-        }
-        if !save_meas.is_empty() {
-            let description = if t == 0 { Some("tempo track".to_string()) } else { None };
-            save_tracks.push(DawSaveTrack { track: t, description, meas: save_meas });
-        }
-    }
-    DawSaveFile { tracks: save_tracks }
-}
-
-/// `DawSaveFile` を data グリッドに書き込む（範囲外インデックスは無視）。
-fn apply_save_file_to_data(file: &DawSaveFile, data: &mut Vec<Vec<String>>, tracks: usize, measures: usize) {
-    for save_track in &file.tracks {
-        let t = save_track.track;
-        if t >= tracks {
-            continue;
-        }
-        for save_meas in &save_track.meas {
-            let m = save_meas.meas;
-            if m > measures {
-                continue;
-            }
-            data[t][m] = save_meas.mml.clone();
-        }
-    }
-}
 
 // ─── DawApp ───────────────────────────────────────────────────
 
@@ -276,142 +216,6 @@ impl DawApp {
         app
     }
 
-    // ─── 保存 / 読み込み ──────────────────────────────────────
-
-    fn load(&mut self) {
-        let path = crate::history::daw_file_path();
-        let content = path
-            .as_ref()
-            .and_then(|p| std::fs::read_to_string(p).ok());
-        if let Some(content) = content {
-            if let Ok(file) = serde_json::from_str::<DawSaveFile>(&content) {
-                // JSON が正常にパースできた場合は、ファイルが正式な保存データであるとみなす。
-                // new() で設定したデフォルト値を残さないよう全セルをクリアしてから JSON の内容を適用する。
-                // （空セルは JSON に含まれないため、クリアしないとデフォルト値が復活する）
-                for row in &mut self.data {
-                    for cell in row.iter_mut() {
-                        cell.clear();
-                    }
-                }
-                apply_save_file_to_data(&file, &mut self.data, self.tracks, self.measures);
-            }
-        }
-        self.sync_cache_states();
-    }
-
-    fn save(&self) {
-        let Some(path) = crate::history::daw_file_path() else { return; };
-        if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        let file = data_to_save_file(&self.data, self.tracks, self.measures);
-        if let Ok(json) = serde_json::to_string_pretty(&file) {
-            let _ = std::fs::write(&path, json);
-        }
-    }
-
-    // ─── キャッシュ管理 ───────────────────────────────────────
-
-    /// data の内容に合わせてキャッシュ状態を同期する（data 変更後に呼ぶ）
-    fn sync_cache_states(&self) {
-        let mut cache = self.cache.lock().unwrap();
-        for t in 0..self.tracks {
-            for m in 0..=self.measures {
-                if self.data[t][m].trim().is_empty() {
-                    cache[t][m] = CellCache::empty();
-                } else if cache[t][m].state == CacheState::Empty {
-                    cache[t][m].state = CacheState::Pending;
-                }
-            }
-        }
-    }
-
-    /// 指定セルのキャッシュを無効化して状態を更新する
-    fn invalidate_cell(&self, track: usize, measure: usize) {
-        let mut cache = self.cache.lock().unwrap();
-        if self.data[track][measure].trim().is_empty() {
-            cache[track][measure] = CellCache::empty();
-        } else {
-            cache[track][measure] = CellCache { state: CacheState::Pending, samples: None };
-        }
-    }
-
-    /// 指定セルのキャッシュジョブをワーカーキューに投入する
-    ///
-    /// セル自身の内容（`data[track][measure]`）が空のときはジョブを投入しない。
-    /// 以前は `build_cell_mml()` の結果（track0 を含む結合 MML）で空判定していたため、
-    /// セルの内容を消去しても `●` インジケータが消えないバグがあった（issue #69 参照）。
-    fn kick_cache(&self, track: usize, measure: usize) {
-        // セル自身の内容が空なら投入しない（track0 含む結合 MML で判定しない）
-        if self.data[track][measure].trim().is_empty() {
-            return;
-        }
-        let mml = self.build_cell_mml(track, measure);
-        // チャネルが既に閉じていれば送信は無視する（DawApp 終了後の残留呼び出しへの安全策）
-        let _ = self.cache_tx.send((track, measure, mml));
-    }
-
-    /// 依存セルを一括で無効化してキャッシュジョブを投入する。
-    ///
-    /// `build_cell_mml(t, m)` はセル自身の内容に加え track0（グローバルヘッダ）と
-    /// 音色セル `data[t][0]` を参照するため、それらが変化した際に依存セルも再レンダリングが必要。
-    ///
-    /// - track == 0（グローバルヘッダ変更）→ 全演奏トラック（1..tracks）の全小節を再キャッシュ
-    /// - measure == 0 かつ track > 0（音色変更）→ 同トラックの全小節（1..=measures）を再キャッシュ
-    /// - それ以外 → 追加の依存セルなし（呼び出し元が個別に処理済み）
-    pub(super) fn invalidate_and_kick_dependent_cells(&self, track: usize, measure: usize) {
-        if track == 0 {
-            // track0 セル変更: 全演奏トラックの全小節が影響を受ける
-            {
-                let mut cache = self.cache.lock().unwrap();
-                for t in 1..self.tracks {
-                    for m in 1..=self.measures {
-                        if self.data[t][m].trim().is_empty() {
-                            cache[t][m] = CellCache::empty();
-                        } else {
-                            cache[t][m] = CellCache { state: CacheState::Pending, samples: None };
-                        }
-                    }
-                }
-            }
-            for t in 1..self.tracks {
-                for m in 1..=self.measures {
-                    self.kick_cache(t, m);
-                }
-            }
-        } else if measure == 0 {
-            // 音色セル（data[track][0]）変更: 同トラックの全小節が影響を受ける（issue #67 参照）
-            {
-                let mut cache = self.cache.lock().unwrap();
-                for m in 1..=self.measures {
-                    if self.data[track][m].trim().is_empty() {
-                        cache[track][m] = CellCache::empty();
-                    } else {
-                        cache[track][m] = CellCache { state: CacheState::Pending, samples: None };
-                    }
-                }
-            }
-            for m in 1..=self.measures {
-                self.kick_cache(track, m);
-            }
-        }
-        // measure > 0 かつ track > 0 の場合は依存セルなし
-    }
-
-    /// Pending 状態のすべてのセルをワーカーキューに投入する
-    fn kick_all_pending(&self) {
-        let pending: Vec<(usize, usize)> = {
-            let cache = self.cache.lock().unwrap();
-            (0..self.tracks)
-                .flat_map(|t| (0..=self.measures).map(move |m| (t, m)))
-                .filter(|&(t, m)| cache[t][m].state == CacheState::Pending)
-                .collect()
-        };
-        for (t, m) in pending {
-            self.kick_cache(t, m);
-        }
-    }
-
     // ─── ランダム音色 ─────────────────────────────────────────
 
     fn pick_random_patch_name(&self) -> Option<String> {
@@ -488,7 +292,4 @@ impl DawApp {
         }
     }
 }
-
-#[cfg(test)]
-mod tests;
 

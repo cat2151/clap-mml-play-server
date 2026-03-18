@@ -368,3 +368,56 @@ impl DawApp {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::effective_measure_count;
+    use super::super::MEASURES;
+
+    // ─── effective_measure_count ──────────────────────────────────
+
+    #[test]
+    fn effective_measure_count_all_empty_returns_none() {
+        let mmls = vec!["".to_string(); MEASURES];
+        assert_eq!(effective_measure_count(&mmls), None);
+    }
+
+    #[test]
+    fn effective_measure_count_skips_trailing_empty_measures() {
+        // meas1=cccccccc, meas2=ffffffff, meas3-8 空 → 有効小節数=2（issue #68）
+        let mut mmls = vec!["".to_string(); MEASURES];
+        mmls[0] = "cccccccc".to_string();
+        mmls[1] = "ffffffff".to_string();
+        assert_eq!(effective_measure_count(&mmls), Some(2));
+    }
+
+    #[test]
+    fn effective_measure_count_includes_internal_empty_measures() {
+        // meas1 非空、meas2 空（中間）、meas3 非空、meas4-8 空 → 有効小節数=3
+        let mut mmls = vec!["".to_string(); MEASURES];
+        mmls[0] = "cde".to_string();
+        mmls[2] = "fga".to_string();
+        assert_eq!(effective_measure_count(&mmls), Some(3));
+    }
+
+    #[test]
+    fn effective_measure_count_single_non_empty_measure() {
+        let mut mmls = vec!["".to_string(); MEASURES];
+        mmls[0] = "c".to_string();
+        assert_eq!(effective_measure_count(&mmls), Some(1));
+    }
+
+    #[test]
+    fn effective_measure_count_all_measures_non_empty() {
+        let mmls: Vec<String> = (0..MEASURES).map(|i| format!("c{}", i)).collect();
+        assert_eq!(effective_measure_count(&mmls), Some(MEASURES));
+    }
+
+    #[test]
+    fn effective_measure_count_whitespace_only_treated_as_empty() {
+        let mut mmls = vec!["".to_string(); MEASURES];
+        mmls[0] = "cde".to_string();
+        mmls[1] = "   ".to_string(); // whitespace-only → treated as empty (trailing)
+        assert_eq!(effective_measure_count(&mmls), Some(1));
+    }
+}
+
