@@ -48,7 +48,7 @@ fn draw_grid(app: &DawApp, f: &mut Frame, area: Rect) {
     let mut header_spans = vec![Span::styled("     ", Style::default())];
     for m in 0..=app.measures {
         let label = if m == 0 {
-            " Tmb".to_string()
+            " Init".to_string()
         } else {
             format!(" M{:<2}", m)
         };
@@ -83,8 +83,13 @@ fn draw_grid(app: &DawApp, f: &mut Frame, area: Rect) {
         let is_cursor_track = t == app.cursor_track;
 
         // 行 1: track ラベル + セル内容 (4 chars each)
+        let track_label = if t == 0 {
+            "Tempo".to_string()
+        } else {
+            format!("T{:<2}  ", t)
+        };
         let mut row1: Vec<Span> = vec![Span::styled(
-            format!("T{:<2}  ", t),
+            track_label,
             if is_cursor_track {
                 Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
             } else {
