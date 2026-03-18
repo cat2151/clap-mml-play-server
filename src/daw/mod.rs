@@ -56,6 +56,9 @@ pub const TRACKS: usize = 9;
 pub const MEASURES: usize = 8;
 /// track 0 はグローバルヘッダ（テンポ等）専用。演奏 track は 1 から始まる。
 const FIRST_PLAYABLE_TRACK: usize = 1;
+/// track 0 / measure 0 のデフォルト内容（拍子指定 JSON + テンポ設定）。
+/// セーブファイルが存在しない初回起動時に使用される。
+pub(super) const DEFAULT_TRACK0_MML: &str = r#"{"beat": "4/4"}t120"#;
 
 /// インメモリキャッシュに保持するサンプル数の上限（ステレオ、インターリーブ）。
 ///
@@ -181,7 +184,7 @@ impl DawApp {
         let measures = cfg.daw_measures.clamp(1, 64);
         let mut data = vec![vec![String::new(); measures + 1]; tracks];
         // track 0 のデフォルトは拍子指定 JSON + テンポ設定
-        data[0][0] = r#"{"beat": "4/4"}t120"#.to_string();
+        data[0][0] = DEFAULT_TRACK0_MML.to_string();
 
         let cache = Arc::new(Mutex::new(
             vec![vec![CellCache::empty(); measures + 1]; tracks],
@@ -282,6 +285,14 @@ impl DawApp {
             .and_then(|p| std::fs::read_to_string(p).ok());
         if let Some(content) = content {
             if let Ok(file) = serde_json::from_str::<DawSaveFile>(&content) {
+                // JSON が正常にパースできた場合は、ファイルが正式な保存データであるとみなす。
+                // new() で設定したデフォルト値を残さないよう全セルをクリアしてから JSON の内容を適用する。
+                // （空セルは JSON に含まれないため、クリアしないとデフォルト値が復活する）
+                for row in &mut self.data {
+                    for cell in row.iter_mut() {
+                        cell.clear();
+                    }
+                }
                 apply_save_file_to_data(&file, &mut self.data, self.tracks, self.measures);
             }
         }

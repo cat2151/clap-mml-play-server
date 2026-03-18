@@ -155,7 +155,7 @@ fn empty_data(tracks: usize, measures: usize) -> Vec<Vec<String>> {
 fn build_cell_mml_includes_timbre_in_measure() {
     // 音色 JSON が小節 MML に含まれること（issue #67 修正の前提: 音色変更時に小節を再キャッシュすべき根拠）
     let mut data = empty_data(TRACKS, MEASURES);
-    data[0][0] = r#"{"beat": "4/4"}t120"#.to_string();
+    data[0][0] = super::DEFAULT_TRACK0_MML.to_string();
     data[1][0] = r#"{"Surge XT patch": "piano"}"#.to_string();
     data[1][1] = "cde".to_string();
 
@@ -182,7 +182,7 @@ fn build_cell_mml_timbre_change_affects_all_measures() {
     // 同じ音符セルで音色が異なる場合、MML が異なること
     // → 音色変更時は当該 track の全小節を再キャッシュしなければならない理由
     let mut data_piano = empty_data(TRACKS, MEASURES);
-    data_piano[0][0] = r#"{"beat": "4/4"}t120"#.to_string();
+    data_piano[0][0] = super::DEFAULT_TRACK0_MML.to_string();
     data_piano[1][0] = r#"{"Surge XT patch": "piano"}"#.to_string();
     data_piano[1][1] = "cde".to_string();
 
@@ -200,7 +200,7 @@ fn build_cell_mml_track0_change_affects_all_tracks() {
     // track0 のテンポ変更で全 track の小節 MML が変化すること
     // → track0 セル変更時は全演奏トラックの全小節を再キャッシュしなければならない理由
     let mut data_t120 = empty_data(TRACKS, MEASURES);
-    data_t120[0][0] = r#"{"beat": "4/4"}t120"#.to_string();
+    data_t120[0][0] = super::DEFAULT_TRACK0_MML.to_string();
     data_t120[1][0] = r#"{"Surge XT patch": "piano"}"#.to_string();
     data_t120[1][1] = "cde".to_string();
 
@@ -218,7 +218,7 @@ fn build_cell_mml_empty_notes_cell_has_no_note_content() {
     // 音符セルが空のとき、その MML には音符が含まれないこと
     // → kick_cache は data[track][measure] が空のときジョブを投入しないことで正しい挙動となる（issue #69 修正）
     let mut data = empty_data(TRACKS, MEASURES);
-    data[0][0] = r#"{"beat": "4/4"}t120"#.to_string();
+    data[0][0] = super::DEFAULT_TRACK0_MML.to_string();
     data[1][0] = r#"{"Surge XT patch": "piano"}"#.to_string();
     data[1][1] = "".to_string(); // 音符が空
 
@@ -291,7 +291,7 @@ fn build_cell_mml_track8_is_accessible() {
     // TRACKS-1 (= 8) が最終演奏トラックとして正しく動作すること（issue #72: track1~8 対応）
     let last_track = TRACKS - 1;
     let mut data = empty_data(TRACKS, MEASURES);
-    data[0][0] = r#"{"beat": "4/4"}t120"#.to_string();
+    data[0][0] = super::DEFAULT_TRACK0_MML.to_string();
     data[last_track][0] = r#"{"Surge XT patch": "bass"}"#.to_string();
     data[last_track][1] = "c4d4e4f4".to_string();
 
@@ -307,7 +307,7 @@ fn build_cell_mml_track8_is_accessible() {
 fn daw_save_json_roundtrip_default_data() {
     // デフォルト data（track0/meas0 のみ非空）が JSON 経由で復元されること
     let mut data = empty_data(TRACKS, MEASURES);
-    data[0][0] = r#"{"beat": "4/4"}t120"#.to_string();
+    data[0][0] = super::DEFAULT_TRACK0_MML.to_string();
 
     let file = super::data_to_save_file(&data, TRACKS, MEASURES);
     let json = serde_json::to_string_pretty(&file).unwrap();
@@ -316,7 +316,7 @@ fn daw_save_json_roundtrip_default_data() {
     let mut restored = empty_data(TRACKS, MEASURES);
     super::apply_save_file_to_data(&loaded_file, &mut restored, TRACKS, MEASURES);
 
-    assert_eq!(restored[0][0], r#"{"beat": "4/4"}t120"#);
+    assert_eq!(restored[0][0], super::DEFAULT_TRACK0_MML);
     // 他のセルは空のまま
     assert!(restored[0][1].is_empty());
     assert!(restored[1][0].is_empty());
@@ -326,7 +326,7 @@ fn daw_save_json_roundtrip_default_data() {
 fn daw_save_json_skips_empty_tracks_and_meas() {
     // 空トラック・空小節は JSON に含まれないこと
     let mut data = empty_data(TRACKS, MEASURES);
-    data[0][0] = r#"{"beat": "4/4"}t120"#.to_string();
+    data[0][0] = super::DEFAULT_TRACK0_MML.to_string();
     data[1][1] = "cde".to_string();
     // track2..8, meas2..MEASURES は空
 
@@ -346,7 +346,7 @@ fn daw_save_json_skips_empty_tracks_and_meas() {
 fn daw_save_json_track0_has_tempo_description() {
     // track0 のエントリに "tempo track" という description が付くこと
     let mut data = empty_data(TRACKS, MEASURES);
-    data[0][0] = r#"{"beat": "4/4"}t120"#.to_string();
+    data[0][0] = super::DEFAULT_TRACK0_MML.to_string();
 
     let file = super::data_to_save_file(&data, TRACKS, MEASURES);
     let json = serde_json::to_string_pretty(&file).unwrap();
@@ -358,7 +358,7 @@ fn daw_save_json_track0_has_tempo_description() {
 fn daw_save_json_meas0_has_initial_description() {
     // meas0 のエントリに "initial" という description が付くこと
     let mut data = empty_data(TRACKS, MEASURES);
-    data[0][0] = r#"{"beat": "4/4"}t120"#.to_string();
+    data[0][0] = super::DEFAULT_TRACK0_MML.to_string();
 
     let file = super::data_to_save_file(&data, TRACKS, MEASURES);
     let json = serde_json::to_string_pretty(&file).unwrap();
@@ -370,7 +370,7 @@ fn daw_save_json_meas0_has_initial_description() {
 fn daw_save_json_non_initial_meas_has_no_description() {
     // meas1 以降のエントリには description が付かないこと（ムダな情報を書かない）
     let mut data = empty_data(TRACKS, MEASURES);
-    data[0][0] = r#"{"beat": "4/4"}t120"#.to_string();
+    data[0][0] = super::DEFAULT_TRACK0_MML.to_string();
     data[1][1] = "cde".to_string();
 
     let file = super::data_to_save_file(&data, TRACKS, MEASURES);
@@ -399,7 +399,7 @@ fn daw_save_json_out_of_range_indices_are_ignored_on_load() {
 fn daw_save_json_roundtrip_with_notes() {
     // 複数トラック・複数小節のデータが JSON 経由で正確に復元されること
     let mut data = empty_data(TRACKS, MEASURES);
-    data[0][0] = r#"{"beat": "4/4"}t120"#.to_string();
+    data[0][0] = super::DEFAULT_TRACK0_MML.to_string();
     data[1][0] = r#"{"Surge XT patch": "piano"}"#.to_string();
     data[1][1] = "cde".to_string();
     data[1][2] = "efg".to_string();
@@ -418,4 +418,44 @@ fn daw_save_json_roundtrip_with_notes() {
     assert_eq!(restored[2][1], data[2][1]);
     // 空セルは空のまま
     assert!(restored[3][1].is_empty());
+}
+
+#[test]
+fn daw_load_clears_defaults_before_applying_json() {
+    // JSON が正常にパースできた場合、new() が設定したデフォルト値（data[0][0]）は
+    // クリアされてから JSON の内容が適用されること。
+    // これにより、ユーザーが track0/meas0 を空にして保存した場合に、次回起動で
+    // デフォルト値が復活しないことを保証する。
+    //
+    // シミュレーション: 全セルが空の JSON（= ユーザーが全て消した状態）を
+    // apply_save_file_to_data で適用すると、pre-populated なデフォルト値は
+    // 上書きされず残ってしまうが、load() はクリア後に apply するため正しく空になる。
+    let empty_file = super::DawSaveFile { tracks: vec![] };
+    let json = serde_json::to_string_pretty(&empty_file).unwrap();
+
+    // data[0][0] にデフォルト値が入った状態を再現する
+    let mut data = empty_data(TRACKS, MEASURES);
+    data[0][0] = super::DEFAULT_TRACK0_MML.to_string();
+
+    // ① クリアなしで apply すると track0/meas0 はデフォルトのまま残る（バグの再現）
+    {
+        let loaded: super::DawSaveFile = serde_json::from_str(&json).unwrap();
+        let mut data_no_clear = data.clone();
+        super::apply_save_file_to_data(&loaded, &mut data_no_clear, TRACKS, MEASURES);
+        assert_eq!(data_no_clear[0][0], super::DEFAULT_TRACK0_MML,
+            "クリアなしでは空 JSON を適用してもデフォルト値が残る（バグの再現）");
+    }
+
+    // ② クリアしてから apply するとデフォルト値は消える（修正後の正しい挙動）
+    {
+        let loaded: super::DawSaveFile = serde_json::from_str(&json).unwrap();
+        for row in &mut data {
+            for cell in row.iter_mut() {
+                cell.clear();
+            }
+        }
+        super::apply_save_file_to_data(&loaded, &mut data, TRACKS, MEASURES);
+        assert!(data[0][0].is_empty(),
+            "クリア後に空 JSON を適用すると track0/meas0 は空になるべき");
+    }
 }
