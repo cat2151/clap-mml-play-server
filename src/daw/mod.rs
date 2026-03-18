@@ -66,6 +66,68 @@ const FIRST_PLAYABLE_TRACK: usize = 1;
 /// ≈ 2_000_000 × 4 bytes ≈ 8 MB / cell。
 pub(super) const MAX_CACHED_SAMPLES: usize = 2_000_000;
 
+// ─── 保存形式 ─────────────────────────────────────────────────
+
+/// DAW セッションの JSON 保存形式のルート。
+#[derive(serde::Serialize, serde::Deserialize)]
+struct DawSaveFile {
+    tracks: Vec<DawSaveTrack>,
+}
+
+/// JSON 保存形式のトラックエントリ。空トラックは含まれない。
+#[derive(serde::Serialize, serde::Deserialize)]
+struct DawSaveTrack {
+    track: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+    meas: Vec<DawSaveMeas>,
+}
+
+/// JSON 保存形式の小節エントリ。空小節は含まれない。
+#[derive(serde::Serialize, serde::Deserialize)]
+struct DawSaveMeas {
+    meas: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+    mml: String,
+}
+
+/// data グリッドを `DawSaveFile` に変換する（空トラック・空小節は除外）。
+fn data_to_save_file(data: &[Vec<String>], tracks: usize, measures: usize) -> DawSaveFile {
+    let mut save_tracks: Vec<DawSaveTrack> = Vec::new();
+    for t in 0..tracks {
+        let mut save_meas: Vec<DawSaveMeas> = Vec::new();
+        for m in 0..=measures {
+            if !data[t][m].trim().is_empty() {
+                let description = if m == 0 { Some("initial".to_string()) } else { None };
+                save_meas.push(DawSaveMeas { meas: m, description, mml: data[t][m].clone() });
+            }
+        }
+        if !save_meas.is_empty() {
+            let description = if t == 0 { Some("tempo track".to_string()) } else { None };
+            save_tracks.push(DawSaveTrack { track: t, description, meas: save_meas });
+        }
+    }
+    DawSaveFile { tracks: save_tracks }
+}
+
+/// `DawSaveFile` を data グリッドに書き込む（範囲外インデックスは無視）。
+fn apply_save_file_to_data(file: &DawSaveFile, data: &mut Vec<Vec<String>>, tracks: usize, measures: usize) {
+    for save_track in &file.tracks {
+        let t = save_track.track;
+        if t >= tracks {
+            continue;
+        }
+        for save_meas in &save_track.meas {
+            let m = save_meas.meas;
+            if m > measures {
+                continue;
+            }
+            data[t][m] = save_meas.mml.clone();
+        }
+    }
+}
+
 // ─── DawApp ───────────────────────────────────────────────────
 
 pub struct DawApp {
@@ -219,16 +281,8 @@ impl DawApp {
             .as_ref()
             .and_then(|p| std::fs::read_to_string(p).ok());
         if let Some(content) = content {
-            for (t, track_str) in content.split(';').enumerate() {
-                if t >= self.tracks {
-                    break;
-                }
-                for (m, cell) in track_str.split('\n').enumerate() {
-                    if m > self.measures {
-                        break;
-                    }
-                    self.data[t][m] = cell.to_string();
-                }
+            if let Ok(file) = serde_json::from_str::<DawSaveFile>(&content) {
+                apply_save_file_to_data(&file, &mut self.data, self.tracks, self.measures);
             }
         }
         self.sync_cache_states();
@@ -239,12 +293,10 @@ impl DawApp {
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
-        let tracks: Vec<String> = self
-            .data
-            .iter()
-            .map(|track| track.join("\n"))
-            .collect();
-        let _ = std::fs::write(&path, tracks.join(";"));
+        let file = data_to_save_file(&self.data, self.tracks, self.measures);
+        if let Ok(json) = serde_json::to_string_pretty(&file) {
+            let _ = std::fs::write(&path, json);
+        }
     }
 
     // ─── キャッシュ管理 ───────────────────────────────────────

@@ -300,3 +300,122 @@ fn build_cell_mml_track8_is_accessible() {
     assert!(mml.contains("c4d4e4f4"), "track8 の音符が MML に含まれていない: {}", mml);
     assert!(mml.contains("t120"), "track0 のテンポが track8 の MML に含まれていない: {}", mml);
 }
+
+// ─── JSON 保存形式 ────────────────────────────────────────────
+
+#[test]
+fn daw_save_json_roundtrip_default_data() {
+    // デフォルト data（track0/meas0 のみ非空）が JSON 経由で復元されること
+    let mut data = empty_data(TRACKS, MEASURES);
+    data[0][0] = r#"{"beat": "4/4"}t120"#.to_string();
+
+    let file = super::data_to_save_file(&data, TRACKS, MEASURES);
+    let json = serde_json::to_string_pretty(&file).unwrap();
+
+    let loaded_file: super::DawSaveFile = serde_json::from_str(&json).unwrap();
+    let mut restored = empty_data(TRACKS, MEASURES);
+    super::apply_save_file_to_data(&loaded_file, &mut restored, TRACKS, MEASURES);
+
+    assert_eq!(restored[0][0], r#"{"beat": "4/4"}t120"#);
+    // 他のセルは空のまま
+    assert!(restored[0][1].is_empty());
+    assert!(restored[1][0].is_empty());
+}
+
+#[test]
+fn daw_save_json_skips_empty_tracks_and_meas() {
+    // 空トラック・空小節は JSON に含まれないこと
+    let mut data = empty_data(TRACKS, MEASURES);
+    data[0][0] = r#"{"beat": "4/4"}t120"#.to_string();
+    data[1][1] = "cde".to_string();
+    // track2..8, meas2..MEASURES は空
+
+    let file = super::data_to_save_file(&data, TRACKS, MEASURES);
+    let json = serde_json::to_string_pretty(&file).unwrap();
+
+    // JSON にトラック 2 以上は含まれない
+    assert!(!json.contains("\"track\": 2"), "空トラックが JSON に含まれている: {json}");
+    // 空小節 2 以降も含まれない
+    assert!(!json.contains("\"meas\": 2"), "空小節が JSON に含まれている: {json}");
+    // 非空データは含まれる
+    assert!(json.contains("t120"), "track0/meas0 の MML が含まれていない: {json}");
+    assert!(json.contains("cde"), "track1/meas1 の MML が含まれていない: {json}");
+}
+
+#[test]
+fn daw_save_json_track0_has_tempo_description() {
+    // track0 のエントリに "tempo track" という description が付くこと
+    let mut data = empty_data(TRACKS, MEASURES);
+    data[0][0] = r#"{"beat": "4/4"}t120"#.to_string();
+
+    let file = super::data_to_save_file(&data, TRACKS, MEASURES);
+    let json = serde_json::to_string_pretty(&file).unwrap();
+
+    assert!(json.contains("\"tempo track\""), "track0 の description が JSON に含まれていない: {json}");
+}
+
+#[test]
+fn daw_save_json_meas0_has_initial_description() {
+    // meas0 のエントリに "initial" という description が付くこと
+    let mut data = empty_data(TRACKS, MEASURES);
+    data[0][0] = r#"{"beat": "4/4"}t120"#.to_string();
+
+    let file = super::data_to_save_file(&data, TRACKS, MEASURES);
+    let json = serde_json::to_string_pretty(&file).unwrap();
+
+    assert!(json.contains("\"initial\""), "meas0 の description が JSON に含まれていない: {json}");
+}
+
+#[test]
+fn daw_save_json_non_initial_meas_has_no_description() {
+    // meas1 以降のエントリには description が付かないこと（ムダな情報を書かない）
+    let mut data = empty_data(TRACKS, MEASURES);
+    data[0][0] = r#"{"beat": "4/4"}t120"#.to_string();
+    data[1][1] = "cde".to_string();
+
+    let file = super::data_to_save_file(&data, TRACKS, MEASURES);
+    // DawSaveMeas の description フィールドを直接確認する
+    let track1 = file.tracks.iter().find(|t| t.track == 1).unwrap();
+    let meas1 = track1.meas.iter().find(|m| m.meas == 1).unwrap();
+    assert!(meas1.description.is_none(), "meas1 に description が付いている: {:?}", meas1.description);
+}
+
+#[test]
+fn daw_save_json_out_of_range_indices_are_ignored_on_load() {
+    // JSON に含まれるトラック・小節インデックスが範囲外の場合は無視されること
+    let json = r#"{"tracks":[{"track":100,"meas":[{"meas":0,"description":"initial","mml":"cde"}]}]}"#;
+    let file: super::DawSaveFile = serde_json::from_str(json).unwrap();
+    let mut data = empty_data(TRACKS, MEASURES);
+    super::apply_save_file_to_data(&file, &mut data, TRACKS, MEASURES);
+    // data は変更されていないこと
+    for t in 0..TRACKS {
+        for m in 0..=MEASURES {
+            assert!(data[t][m].is_empty(), "範囲外インデックスが data を変更した: t={t}, m={m}");
+        }
+    }
+}
+
+#[test]
+fn daw_save_json_roundtrip_with_notes() {
+    // 複数トラック・複数小節のデータが JSON 経由で正確に復元されること
+    let mut data = empty_data(TRACKS, MEASURES);
+    data[0][0] = r#"{"beat": "4/4"}t120"#.to_string();
+    data[1][0] = r#"{"Surge XT patch": "piano"}"#.to_string();
+    data[1][1] = "cde".to_string();
+    data[1][2] = "efg".to_string();
+    data[2][1] = "abc".to_string();
+
+    let file = super::data_to_save_file(&data, TRACKS, MEASURES);
+    let json = serde_json::to_string_pretty(&file).unwrap();
+    let loaded: super::DawSaveFile = serde_json::from_str(&json).unwrap();
+    let mut restored = empty_data(TRACKS, MEASURES);
+    super::apply_save_file_to_data(&loaded, &mut restored, TRACKS, MEASURES);
+
+    assert_eq!(restored[0][0], data[0][0]);
+    assert_eq!(restored[1][0], data[1][0]);
+    assert_eq!(restored[1][1], data[1][1]);
+    assert_eq!(restored[1][2], data[1][2]);
+    assert_eq!(restored[2][1], data[2][1]);
+    // 空セルは空のまま
+    assert!(restored[3][1].is_empty());
+}

@@ -127,10 +127,10 @@ fn save_and_load_session_state_roundtrip() {
 }
 
 #[test]
-fn daw_file_path_ends_with_daw_txt() {
-    // daw_file_path() が利用可能な環境では "daw.txt" という名前で終わること
+fn daw_file_path_ends_with_daw_json() {
+    // daw_file_path() が利用可能な環境では "daw.json" という名前で終わること
     if let Some(path) = super::daw_file_path() {
-        assert_eq!(path.file_name().and_then(|n| n.to_str()), Some("daw.txt"));
+        assert_eq!(path.file_name().and_then(|n| n.to_str()), Some("daw.json"));
     }
 }
 
