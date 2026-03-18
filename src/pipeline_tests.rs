@@ -42,6 +42,8 @@ fn mml_str_to_smf_bytes_returns_valid_smf() {
     // "cde" → ドレミ3音の SMF バイト列が生成されることを確認する
     // 中間ファイル（pass1_tokens.json 等）が config_local_dir()/clap-mml-render-tui/ に書き出されるが、
     // 戻り値の計算自体はメモリ上で行われるため機能テストとして有効
+    // CMRT_BASE_DIR を変更するテストと直列化して、一時ディレクトリを指している最中に実行しない
+    let _guard = super::env_lock();
     let result = mml_str_to_smf_bytes("cde");
     assert!(result.is_ok(), "mml_str_to_smf_bytes が失敗: {:?}", result.err());
     let bytes = result.unwrap();
@@ -53,6 +55,8 @@ fn mml_str_to_smf_bytes_returns_valid_smf() {
 #[test]
 fn mml_to_smf_bytes_strips_json_prefix() {
     // JSON プレフィックス付きの MML でも SMF が生成される
+    // CMRT_BASE_DIR を変更するテストと直列化して、一時ディレクトリを指している最中に実行しない
+    let _guard = super::env_lock();
     let mml = r#"{"Surge XT patch": "Pads/Pad 1.fxp"} cde"#;
     let result = mml_to_smf_bytes(mml);
     assert!(result.is_ok(), "mml_to_smf_bytes が失敗: {:?}", result.err());
@@ -63,6 +67,8 @@ fn mml_to_smf_bytes_strips_json_prefix() {
 #[test]
 fn mml_str_to_smf_bytes_empty_mml_returns_valid_smf() {
     // 空のMMLでも有効なSMFが生成されることを確認
+    // CMRT_BASE_DIR を変更するテストと直列化して、一時ディレクトリを指している最中に実行しない
+    let _guard = super::env_lock();
     let result = mml_str_to_smf_bytes("");
     assert!(result.is_ok(), "空のMMLでmml_str_to_smf_bytesが失敗: {:?}", result.err());
     let bytes = result.unwrap();
@@ -73,11 +79,10 @@ fn mml_str_to_smf_bytes_empty_mml_returns_valid_smf() {
 fn ensure_cmrt_dir_creates_directory_and_returns_path() {
     // 一時ディレクトリを使ってシステム設定ディレクトリを汚染しない
     let tmp = std::env::temp_dir().join("cmrt_test_ensure_cmrt_dir");
-    std::env::set_var("CMRT_BASE_DIR", &tmp);
+    let guard = super::EnvVarGuard::set("CMRT_BASE_DIR", &tmp);
     std::fs::remove_dir_all(&tmp).ok(); // 前回のテスト残骸を除去（存在しない場合は無視）
 
     let result = ensure_cmrt_dir();
-    std::env::remove_var("CMRT_BASE_DIR");
 
     assert!(result.is_ok(), "ensure_cmrt_dir が失敗: {:?}", result.err());
     let dir = result.unwrap();
@@ -85,17 +90,17 @@ fn ensure_cmrt_dir_creates_directory_and_returns_path() {
     let dir_str = dir.to_string_lossy();
     assert!(dir_str.contains("clap-mml-render-tui"), "パスに clap-mml-render-tui が含まれていない: {}", dir_str);
 
+    drop(guard); // CMRT_BASE_DIR を復元してからクリーンアップする
     std::fs::remove_dir_all(&tmp).ok();
 }
 
 #[test]
 fn ensure_phrase_dir_creates_directory_and_returns_path() {
     let tmp = std::env::temp_dir().join("cmrt_test_ensure_phrase_dir");
-    std::env::set_var("CMRT_BASE_DIR", &tmp);
+    let guard = super::EnvVarGuard::set("CMRT_BASE_DIR", &tmp);
     std::fs::remove_dir_all(&tmp).ok();
 
     let result = ensure_phrase_dir();
-    std::env::remove_var("CMRT_BASE_DIR");
 
     assert!(result.is_ok(), "ensure_phrase_dir が失敗: {:?}", result.err());
     let dir = result.unwrap();
@@ -107,17 +112,17 @@ fn ensure_phrase_dir_creates_directory_and_returns_path() {
     );
     assert!(dir.to_string_lossy().contains("clap-mml-render-tui"), "パスに clap-mml-render-tui が含まれていない: {}", dir.display());
 
+    drop(guard); // CMRT_BASE_DIR を復元してからクリーンアップする
     std::fs::remove_dir_all(&tmp).ok();
 }
 
 #[test]
 fn ensure_daw_dir_creates_directory_and_returns_path() {
     let tmp = std::env::temp_dir().join("cmrt_test_ensure_daw_dir");
-    std::env::set_var("CMRT_BASE_DIR", &tmp);
+    let guard = super::EnvVarGuard::set("CMRT_BASE_DIR", &tmp);
     std::fs::remove_dir_all(&tmp).ok();
 
     let result = ensure_daw_dir();
-    std::env::remove_var("CMRT_BASE_DIR");
 
     assert!(result.is_ok(), "ensure_daw_dir が失敗: {:?}", result.err());
     let dir = result.unwrap();
@@ -129,6 +134,7 @@ fn ensure_daw_dir_creates_directory_and_returns_path() {
     );
     assert!(dir.to_string_lossy().contains("clap-mml-render-tui"), "パスに clap-mml-render-tui が含まれていない: {}", dir.display());
 
+    drop(guard); // CMRT_BASE_DIR を復元してからクリーンアップする
     std::fs::remove_dir_all(&tmp).ok();
 }
 
@@ -136,12 +142,11 @@ fn ensure_daw_dir_creates_directory_and_returns_path() {
 fn phrase_dir_and_daw_dir_are_siblings_under_cmrt() {
     // phrase/ と daw/ が同じ clap-mml-render-tui/ の下のサブディレクトリであることを確認する
     let tmp = std::env::temp_dir().join("cmrt_test_siblings");
-    std::env::set_var("CMRT_BASE_DIR", &tmp);
+    let guard = super::EnvVarGuard::set("CMRT_BASE_DIR", &tmp);
     std::fs::remove_dir_all(&tmp).ok();
 
     let phrase_dir = ensure_phrase_dir().unwrap();
     let daw_dir = ensure_daw_dir().unwrap();
-    std::env::remove_var("CMRT_BASE_DIR");
 
     // 両方の親ディレクトリが同じであることを確認
     let phrase_parent = phrase_dir.parent().unwrap();
@@ -153,5 +158,6 @@ fn phrase_dir_and_daw_dir_are_siblings_under_cmrt() {
         daw_parent.display()
     );
 
+    drop(guard); // CMRT_BASE_DIR を復元してからクリーンアップする
     std::fs::remove_dir_all(&tmp).ok();
 }
