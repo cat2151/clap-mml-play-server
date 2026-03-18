@@ -10,6 +10,11 @@ use ratatui::{
 
 use super::{CacheState, DawApp, DawMode, DawPlayState};
 
+/// Pending インジケータのアニメーション 1 フレームの長さ（ミリ秒）
+const ANIM_FRAME_MS: u128 = 250;
+/// Pending インジケータのアニメーションフレーム数（"." / ".." / "..."）
+const ANIM_FRAME_COUNT: u128 = 3;
+
 pub(super) fn draw(app: &DawApp, f: &mut Frame) {
     let area = f.area();
 
@@ -59,13 +64,13 @@ fn draw_grid(app: &DawApp, f: &mut Frame, area: Rect) {
         );
     }
 
-    // Pending セル用アニメーションフレーム（0/1/2 を 250ms サイクルで切り替え）
+    // Pending セル用アニメーションフレーム（0..ANIM_FRAME_COUNT を ANIM_FRAME_MS ごとに切り替え）
     let anim_frame = {
         let millis = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis())
             .unwrap_or(0);
-        ((millis / 250) % 3) as u32
+        (millis / ANIM_FRAME_MS) % ANIM_FRAME_COUNT
     };
 
     // track 行（2 行ずつ）
