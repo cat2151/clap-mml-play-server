@@ -5,7 +5,7 @@ use clack_host::prelude::PluginEntry;
 use hound::{WavSpec, WavWriter, SampleFormat};
 use rodio::{OutputStream, Sink, buffer::SamplesBuffer};
 
-use crate::config::Config;
+use crate::CoreConfig;
 use crate::midi::parse_smf_bytes;
 use crate::patch_list::{collect_patches, to_relative};
 use crate::render::render_to_memory;
@@ -20,7 +20,7 @@ use mmlabc_to_smf::{
 
 /// MML → レンダリングのみ。再生はしない。
 /// 戻り値: (サンプル列, 使用パッチ相対パス)
-pub fn mml_render(mml: &str, cfg: &Config, entry: &PluginEntry) -> Result<(Vec<f32>, String)> {
+pub fn mml_render(mml: &str, cfg: &CoreConfig, entry: &PluginEntry) -> Result<(Vec<f32>, String)> {
     let preprocessed = mml_preprocessor::extract_embedded_json(mml);
     let json_patch = extract_patch_from_json(preprocessed.embedded_json.as_deref(), cfg);
 
@@ -51,7 +51,7 @@ pub fn mml_render(mml: &str, cfg: &Config, entry: &PluginEntry) -> Result<(Vec<f
         .ok_or_else(|| anyhow::anyhow!("出力WAVパスが非UTF-8です: {}", output_wav.display()))?
         .to_string();
 
-    let patched_cfg = Config {
+    let patched_cfg = CoreConfig {
         output_midi: output_midi_str,
         output_wav:  output_wav_str,
         patch_path:  effective_patch.clone(),
@@ -80,7 +80,7 @@ pub fn mml_render(mml: &str, cfg: &Config, entry: &PluginEntry) -> Result<(Vec<f
 ///   することで通常の出力ファイルを上書きしない
 /// - 呼び出し元はシリアルな単一ワーカースレッドから呼び出すこと（ファイル書き込みの
 ///   競合を防ぐため）
-pub fn mml_render_for_cache(mml: &str, cfg: &Config, entry: &PluginEntry) -> Result<Vec<f32>> {
+pub fn mml_render_for_cache(mml: &str, cfg: &CoreConfig, entry: &PluginEntry) -> Result<Vec<f32>> {
     let preprocessed = mml_preprocessor::extract_embedded_json(mml);
     let json_patch = extract_patch_from_json(preprocessed.embedded_json.as_deref(), cfg);
 
@@ -106,7 +106,7 @@ pub fn mml_render_for_cache(mml: &str, cfg: &Config, entry: &PluginEntry) -> Res
         .ok_or_else(|| anyhow::anyhow!("DAW WAVキャッシュパスが非UTF-8です: {}", cache_wav.display()))?
         .to_string();
 
-    let patched_cfg = Config {
+    let patched_cfg = CoreConfig {
         output_midi: cache_mid_str,
         output_wav:  cache_wav_str,
         patch_path:  effective_patch,
@@ -127,7 +127,7 @@ pub fn mml_render_for_cache(mml: &str, cfg: &Config, entry: &PluginEntry) -> Res
 ///   3. config.toml の patch_path
 ///   4. Init Saw（デフォルト）
 /// 戻り値: 使用したパッチの相対パス（またはnone文字列）
-pub fn mml_to_play(mml: &str, cfg: &Config, entry: &PluginEntry) -> Result<String> {
+pub fn mml_to_play(mml: &str, cfg: &CoreConfig, entry: &PluginEntry) -> Result<String> {
     // --- Step 1: MML先頭JSONを解析 ---
     let preprocessed = mml_preprocessor::extract_embedded_json(mml);
     let json_patch = extract_patch_from_json(preprocessed.embedded_json.as_deref(), cfg);
@@ -170,7 +170,7 @@ pub fn mml_to_play(mml: &str, cfg: &Config, entry: &PluginEntry) -> Result<Strin
         .to_string();
 
     // --- Step 8: パッチを一時的にcfgに反映してレンダリング ---
-    let patched_cfg = Config {
+    let patched_cfg = CoreConfig {
         output_midi: output_midi_str,
         output_wav:  output_wav_str,
         patch_path:  effective_patch,
@@ -200,7 +200,7 @@ pub fn mml_to_play(mml: &str, cfg: &Config, entry: &PluginEntry) -> Result<Strin
 }
 
 /// MML先頭JSONから "Surge XT patch" キーの値を取り出し、絶対パスに変換する。
-fn extract_patch_from_json(json_str: Option<&str>, cfg: &Config) -> Option<String> {
+fn extract_patch_from_json(json_str: Option<&str>, cfg: &CoreConfig) -> Option<String> {
     let json_str = json_str?;
     let v: serde_json::Value = serde_json::from_str(json_str).ok()?;
     let rel = v.get("Surge XT patch")?.as_str()?;
@@ -214,7 +214,7 @@ fn extract_patch_from_json(json_str: Option<&str>, cfg: &Config) -> Option<Strin
 }
 
 /// patches_dir からランダムに1つ選んで絶対パスを返す。
-fn pick_random_patch(cfg: &Config) -> Result<Option<String>> {
+fn pick_random_patch(cfg: &CoreConfig) -> Result<Option<String>> {
     let dir = match &cfg.patches_dir {
         Some(d) => d,
         None => return Ok(None),
@@ -236,7 +236,7 @@ fn pick_random_patch(cfg: &Config) -> Result<Option<String>> {
 }
 
 /// patch_history.txt に「JSON、MML」形式で追記する。
-fn append_history(mml: &str, patch: &Option<String>, cfg: &Config) -> Result<()> {
+fn append_history(mml: &str, patch: &Option<String>, cfg: &CoreConfig) -> Result<()> {
     let patch_rel = match patch {
         Some(abs) => {
             if let Some(ref base) = cfg.patches_dir {

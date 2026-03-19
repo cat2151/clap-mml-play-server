@@ -12,7 +12,7 @@ fn main() {
     println!("cargo:rustc-env=GIT_COMMIT_HASH={}", hash);
 
     // .git/HEAD 自体の変更を監視
-    let head_path = ".git/HEAD";
+    let head_path = "../.git/HEAD";
     println!("cargo:rerun-if-changed={}", head_path);
 
     // HEAD がシンボリックリファレンス (例: "ref: refs/heads/main") の場合は、
@@ -21,10 +21,10 @@ fn main() {
         if let Some(rest) = head_contents.strip_prefix("ref:") {
             let ref_path = rest.trim();
             if !ref_path.is_empty() {
-                println!("cargo:rerun-if-changed=.git/{}", ref_path);
+                println!("cargo:rerun-if-changed=../.git/{}", ref_path);
             }
         }
         // 個々のファイルではなく packed-refs に格納される場合もある
-        println!("cargo:rerun-if-changed=.git/packed-refs");
+        println!("cargo:rerun-if-changed=../.git/packed-refs");
     }
 }

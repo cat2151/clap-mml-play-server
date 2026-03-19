@@ -1,5 +1,6 @@
 use serde::Deserialize;
 use std::path::PathBuf;
+use cmrt_core::CoreConfig;
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct Config {
@@ -219,6 +220,20 @@ impl Config {
             .map_err(|e| anyhow::anyhow!("config.toml が読めない ({}): {}", path.display(), e))?;
         toml::from_str(&text)
             .map_err(|e| anyhow::anyhow!("config.toml のパースに失敗 ({}): {}", path.display(), e))
+    }
+}
+
+impl From<&Config> for CoreConfig {
+    fn from(value: &Config) -> Self {
+        Self {
+            output_midi: value.output_midi.clone(),
+            output_wav: value.output_wav.clone(),
+            sample_rate: value.sample_rate,
+            buffer_size: value.buffer_size,
+            patch_path: value.patch_path.clone(),
+            patches_dir: value.patches_dir.clone(),
+            random_patch: value.random_patch,
+        }
     }
 }
 

@@ -1,0 +1,30 @@
+[package]
+name = "cmrt-core"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "cmrt_core"
+path = "src/lib.rs"
+
+[dependencies]
+# CLAP host bindings (crates.io 未公開のため git 指定が必要)
+clack-host = { git = "https://github.com/prokopyl/clack.git", package = "clack-host" }
+clack-extensions = { git = "https://github.com/prokopyl/clack.git", package = "clack-extensions", features = ["state", "clack-host"] }
+
+# MML → SMF (cli feature で pass1_parser が有効になる)
+mmlabc-to-smf = { git = "https://github.com/cat2151/mmlabc-to-smf-rust.git", package = "mmlabc-to-smf", features = ["cli"] }
+
+# MIDI parsing
+midly = "0.5"
+
+# WAV output / 再生
+hound = "3.5"
+rodio = "0.19"
+
+# Config/path helper
+serde_json = "1"
+dirs = "5"
+
+# Error handling
+anyhow = "1"

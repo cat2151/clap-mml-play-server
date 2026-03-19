@@ -36,6 +36,7 @@ mod ui;
 
 use anyhow::Result;
 use clack_host::prelude::PluginEntry;
+use cmrt_core::{collect_patches, ensure_daw_dir, mml_render_for_cache, to_relative, write_wav};
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use ratatui::{backend::CrosstermBackend, Frame, Terminal};
 use tui_textarea::TextArea;
@@ -43,7 +44,6 @@ use tui_textarea::TextArea;
 use std::sync::{Arc, Mutex};
 
 use crate::config::Config;
-use crate::patch_list::{collect_patches, to_relative};
 
 // ─── 再エクスポート ───────────────────────────────────────────
 
@@ -151,14 +151,15 @@ impl DawApp {
 
                 for (track, measure, mml) in cache_rx {
                     let _guard = render_lock_worker.lock().unwrap();
-                    match crate::pipeline::mml_render_for_cache(&mml, &daw_cfg, entry_ref) {
+                    let core_cfg = cmrt_core::CoreConfig::from(&daw_cfg);
+                    match mml_render_for_cache(&mml, &core_cfg, entry_ref) {
                         Ok(samples) => {
                             // 開発用: track/measure ごとに WAV ファイルを出力する
                             // measure 0 は音色/ヘッダセルであり演奏内容ではないためスキップ
                             let wav_ok = if measure > 0 {
-                                if let Ok(daw_dir) = crate::pipeline::ensure_daw_dir() {
+                                if let Ok(daw_dir) = ensure_daw_dir() {
                                     let wav_path = daw_dir.join(format!("track{}_meas{}.wav", track, measure));
-                                    crate::pipeline::write_wav(
+                                    write_wav(
                                         &samples,
                                         daw_cfg.sample_rate as u32,
                                         &wav_path,
@@ -292,4 +293,3 @@ impl DawApp {
         }
     }
 }
-

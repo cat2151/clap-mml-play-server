@@ -19,8 +19,8 @@ winget install "Surge XT"
 
 ### Installation
 
-```
-cargo install --force --git https://github.com/cat2151/clap-mml-render-tui
+``` 
+cargo install --force --git https://github.com/cat2151/clap-mml-render-tui --package clap-mml-render-tui
 ```
 
 ### Running

@@ -1,17 +1,6 @@
-mod config;
-mod daw;
-mod history;
-mod host;
-mod midi;
-mod patch_list;
-mod pipeline;
-mod render;
-mod server;
-mod tui;
-mod ui_utils;
-mod updater;
-
 use anyhow::Result;
+use clap_mml_render_tui::{config, server, tui, updater};
+use cmrt_core::{CoreConfig, load_entry, mml_to_play};
 
 fn main() -> Result<()> {
     // 引数なし → TUI モード
@@ -73,7 +62,7 @@ fn main() -> Result<()> {
     }
 
     // CLAP プラグインエントリをロード（TUI/CLI/サーバー 共通）
-    let entry = host::load_entry(&cfg.plugin_path)?;
+    let entry = load_entry(&cfg.plugin_path)?;
 
     // --mml は廃止済み。旧来の使い方をしたユーザーに新しい使い方を案内する
     if args.iter().any(|a| a == "--mml") {
@@ -93,7 +82,8 @@ fn main() -> Result<()> {
     if args.len() == 2 && !args[1].starts_with('-') {
         let mml = &args[1];
         println!("CLI モード: MML = {}", mml);
-        let patch = pipeline::mml_to_play(mml, &cfg, &entry)?;
+        let core_cfg = CoreConfig::from(&cfg);
+        let patch = mml_to_play(mml, &core_cfg, &entry)?;
         println!("patch: {}", patch);
         return Ok(());
     }
@@ -117,4 +107,3 @@ fn main() -> Result<()> {
 
     Ok(())
 }
-

@@ -299,12 +299,11 @@ name = "clap-mml-render-tui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "clack-extensions",
  "clack-host",
+ "cmrt-core",
  "crossterm",
  "dirs",
  "hound",
- "midly",
  "mmlabc-to-smf",
  "ratatui",
  "rodio",
@@ -358,6 +357,21 @@ name = "claxon"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4bfbf56724aa9eca8afa4fcfadeb479e722935bb2a0900c2d37e0cc477af0688"
+
+[[package]]
+name = "cmrt-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clack-extensions",
+ "clack-host",
+ "dirs",
+ "hound",
+ "midly",
+ "mmlabc-to-smf",
+ "rodio",
+ "serde_json",
+]
 
 [[package]]
 name = "colorchoice"

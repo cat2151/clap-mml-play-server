@@ -2,10 +2,10 @@
 
 use anyhow::Result;
 use clack_host::prelude::PluginEntry;
+use cmrt_core::{CoreConfig, mml_render};
 use std::io::{Cursor, Read};
 
 use crate::config::Config;
-use crate::pipeline::mml_render;
 
 pub const DEFAULT_PORT: u16 = 62151;
 
@@ -76,7 +76,8 @@ pub fn run_server(cfg: &Config, entry: &PluginEntry, port: u16) -> Result<()> {
         let mml_preview: String = mml.chars().take(80).collect();
         println!("MML受信: {}", mml_preview.escape_default());
 
-        match mml_render(&mml, cfg, entry) {
+        let core_cfg = CoreConfig::from(cfg);
+        match mml_render(&mml, &core_cfg, entry) {
             Ok((samples, patch_display)) => {
                 println!("レンダリング完了: patch={}", patch_display);
 

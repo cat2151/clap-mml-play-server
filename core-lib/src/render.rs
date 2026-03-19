@@ -7,7 +7,7 @@ use clack_host::events::event_types::{NoteOnEvent, NoteOffEvent};
 use clack_extensions::state::PluginState;
 use hound::{WavSpec, WavWriter, SampleFormat};
 
-use crate::config::Config;
+use crate::CoreConfig;
 use crate::midi::{TimedMidiEvent, MidiEvent};
 use crate::host::{MidiRenderHost, MidiRenderHostShared};
 
@@ -69,7 +69,7 @@ fn load_patch(plugin_instance: &mut PluginInstance<MidiRenderHost>, patch_path: 
 
 #[allow(dead_code)]
 pub fn render(
-    cfg: &Config,
+    cfg: &CoreConfig,
     entry: &PluginEntry,
     events: Vec<TimedMidiEvent>,
     total_samples: u64,
@@ -168,7 +168,7 @@ pub fn render(
 
 /// メモリ上にレンダリングして Vec<f32>（インターリーブステレオ）を返す
 pub fn render_to_memory(
-    cfg: &Config,
+    cfg: &CoreConfig,
     entry: &PluginEntry,
     events: Vec<TimedMidiEvent>,
     total_samples: u64,

@@ -3,6 +3,7 @@
 use std::sync::{Arc, Mutex};
 
 use clack_host::prelude::PluginEntry;
+use cmrt_core::{CoreConfig, ensure_daw_dir, mml_render_for_cache};
 
 use super::{CacheState, CellCache, DawApp, DawPlayState, PlayPosition, FIRST_PLAYABLE_TRACK};
 
@@ -90,7 +91,7 @@ impl DawApp {
         }
 
         // daw/ ディレクトリを確保してからデバッグファイルを書き出す
-        if let Ok(daw_dir) = crate::pipeline::ensure_daw_dir() {
+        if let Ok(daw_dir) = ensure_daw_dir() {
             let debug_file = daw_dir.join("daw_mml_debug.txt");
             let _ = std::fs::write(&debug_file, measure_mmls.join("\n---\n"));
         }
@@ -179,7 +180,8 @@ impl DawApp {
                         let result = {
                             let _guard = render_lock.lock().unwrap();
                             // mml_render_for_cache を使用することで patch_history.txt への追記を行わない
-                            crate::pipeline::mml_render_for_cache(mml, &daw_cfg, entry_ref)
+                            let core_cfg = CoreConfig::from(&daw_cfg);
+                            mml_render_for_cache(mml, &core_cfg, entry_ref)
                         };
                         match result {
                             Ok(mut s) => {
@@ -321,7 +323,8 @@ impl DawApp {
             } else {
                 let result = {
                     let _guard = render_lock.lock().unwrap();
-                    crate::pipeline::mml_render_for_cache(&mml, &daw_cfg, entry_ref)
+                    let core_cfg = CoreConfig::from(&daw_cfg);
+                    mml_render_for_cache(&mml, &core_cfg, entry_ref)
                 };
                 result.ok().map(|mut s| {
                     if s.len() < measure_samples {
@@ -420,4 +423,3 @@ mod tests {
         assert_eq!(effective_measure_count(&mmls), Some(1));
     }
 }
-

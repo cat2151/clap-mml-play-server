@@ -15,6 +15,7 @@ mod ui;
 
 use anyhow::Result;
 use clack_host::prelude::PluginEntry;
+use cmrt_core::{CoreConfig, collect_patches, mml_render, play_samples, to_relative};
 use crossterm::{
     event::{self, Event, KeyCode, KeyModifiers},
     execute,
@@ -155,12 +156,12 @@ impl<'a> TuiApp<'a> {
                         *state_bg.lock().unwrap() = PatchLoadState::Ready(Vec::new());
                     }
                     Some(dir) => {
-                        match crate::patch_list::collect_patches(&dir) {
+                        match collect_patches(&dir) {
                             Ok(paths) => {
                                 let pairs: Vec<(String, String)> = paths
                                     .into_iter()
                                     .map(|p| {
-                                        let rel = crate::patch_list::to_relative(&dir, &p);
+                                        let rel = to_relative(&dir, &p);
                                         let lower = rel.to_lowercase();
                                         (rel, lower)
                                     })
@@ -219,7 +220,7 @@ impl<'a> TuiApp<'a> {
             *state.lock().unwrap() = PlayState::Playing(msg.clone());
 
             std::thread::spawn(move || {
-                let play_result = crate::pipeline::play_samples(samples, cfg.sample_rate as u32);
+                let play_result = play_samples(samples, cfg.sample_rate as u32);
 
                 *state.lock().unwrap() = match play_result {
                     Ok(_)  => PlayState::Done(msg),
@@ -235,7 +236,8 @@ impl<'a> TuiApp<'a> {
                 let entry_ref: &PluginEntry = unsafe { &*(entry_ptr as *const PluginEntry) };
 
                 // レンダリング
-                let render_result = crate::pipeline::mml_render(&mml, &cfg, entry_ref);
+                let core_cfg = CoreConfig::from(cfg.as_ref());
+                let render_result = mml_render(&mml, &core_cfg, entry_ref);
 
                 match render_result {
                     Err(e) => {
@@ -255,7 +257,7 @@ impl<'a> TuiApp<'a> {
                         *state.lock().unwrap() = PlayState::Playing(msg.clone());
 
                         // 再生（ブロッキング）
-                        let play_result = crate::pipeline::play_samples(samples, cfg.sample_rate as u32);
+                        let play_result = play_samples(samples, cfg.sample_rate as u32);
 
                         *state.lock().unwrap() = match play_result {
                             Ok(_)  => PlayState::Done(msg),

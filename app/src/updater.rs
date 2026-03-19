@@ -11,6 +11,10 @@ use anyhow::Result;
 
 const REPO_OWNER: &str = "cat2151";
 const REPO_NAME: &str = "clap-mml-render-tui";
+/// ワークスペース構成の `cargo install` で指定する対象パッケージ名。
+/// app/Cargo.toml の `[package] name = "clap-mml-render-tui"` と
+/// 一致している必要がある。
+const INSTALL_PACKAGE: &str = "clap-mml-render-tui";
 
 /// ビルド時に埋め込まれたgit commit hash
 const LOCAL_HASH: &str = env!("GIT_COMMIT_HASH");
@@ -162,17 +166,24 @@ pub fn run_foreground_update() -> Result<()> {
     #[cfg(not(target_os = "windows"))]
     {
         println!("アップデートを開始します...");
+        let repo_url = format!("https://github.com/{}/{}", REPO_OWNER, REPO_NAME);
         println!(
-            "cargo install --force --git https://github.com/{}/{}",
-            REPO_OWNER, REPO_NAME
+            "cargo install --force --git {} --package {}",
+            repo_url, INSTALL_PACKAGE
         );
 
+        // ワークスペース構成では対象パッケージ指定が必要なため、
+        // 表示コマンドと実行コマンドの両方で --package を付与する。
+        // これがない場合、workspace root からどのパッケージを install するか
+        // 判別できず、更新コマンドが失敗する可能性がある。
         let status = std::process::Command::new("cargo")
             .args([
                 "install",
                 "--force",
                 "--git",
-                &format!("https://github.com/{}/{}", REPO_OWNER, REPO_NAME),
+                &repo_url,
+                "--package",
+                INSTALL_PACKAGE,
             ])
             .stdout(std::process::Stdio::inherit())
             .stderr(std::process::Stdio::inherit())
@@ -205,9 +216,10 @@ fn spawn_updater_process() -> Result<()> {
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     let script_path = std::env::temp_dir().join(format!("cmrt_updater_{}.bat", suffix));
+    // ワークスペース構成では対象パッケージ指定が必要なため、--package を付与する。
     let script = format!(
-        "@echo off\r\ntimeout /t 3 /nobreak >nul\r\ncargo install --force --git https://github.com/{}/{}\r\ncmrt\r\n(goto) 2>nul & del \"%~f0\"\r\n",
-        REPO_OWNER, REPO_NAME
+        "@echo off\r\ntimeout /t 3 /nobreak >nul\r\ncargo install --force --git https://github.com/{}/{} --package {}\r\ncmrt\r\n(goto) 2>nul & del \"%~f0\"\r\n",
+        REPO_OWNER, REPO_NAME, INSTALL_PACKAGE
     );
     std::fs::write(&script_path, &script)?;
     let script_str = script_path
