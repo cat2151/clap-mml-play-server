@@ -1,3 +1,3 @@
 # clap-mml-play-server
 
-`clap-mml-render-tui` から `core-lib` クレートを切り出して管理するためのリポジトリです。
+Cloned from the original repository and spun off as an independent project. It retains the history up to the point of this spin-off.
