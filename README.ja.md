@@ -1,3 +1,7 @@
+# clap-mml-play-server
+
+元repoからcloneして暖簾分けしました。暖簾分け断面までの履歴を持っています。
+
 # clap-mml-render-tui
 
 ### 用途
@@ -48,3 +52,4 @@ cmrt --server
 
 # スコープ外
 - effectはおそらく編集必須なので割り切って、ひとまずスコープ外、かなり後ろに後回し、とする
+
