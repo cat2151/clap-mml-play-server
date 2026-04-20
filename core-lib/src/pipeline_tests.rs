@@ -12,7 +12,10 @@ fn write_wav_creates_valid_riff_file() {
     std::fs::remove_file(&path).ok();
 
     // WAV ファイルは "RIFF" で始まる
-    assert!(content.starts_with(b"RIFF"), "WAV ファイルが RIFF ヘッダで始まっていない");
+    assert!(
+        content.starts_with(b"RIFF"),
+        "WAV ファイルが RIFF ヘッダで始まっていない"
+    );
     // 最低限ヘッダ (44 bytes) 以上のサイズがある
     assert!(content.len() > 44);
 }
@@ -45,7 +48,11 @@ fn mml_str_to_smf_bytes_returns_valid_smf() {
     // CMRT_BASE_DIR を変更するテストと直列化して、一時ディレクトリを指している最中に実行しない
     let _guard = super::env_lock();
     let result = mml_str_to_smf_bytes("cde");
-    assert!(result.is_ok(), "mml_str_to_smf_bytes が失敗: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "mml_str_to_smf_bytes が失敗: {:?}",
+        result.err()
+    );
     let bytes = result.unwrap();
     // SMF は "MThd" で始まる
     assert!(bytes.starts_with(b"MThd"), "SMF が MThd で始まっていない");
@@ -59,7 +66,11 @@ fn mml_to_smf_bytes_strips_json_prefix() {
     let _guard = super::env_lock();
     let mml = r#"{"Surge XT patch": "Pads/Pad 1.fxp"} cde"#;
     let result = mml_to_smf_bytes(mml);
-    assert!(result.is_ok(), "mml_to_smf_bytes が失敗: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "mml_to_smf_bytes が失敗: {:?}",
+        result.err()
+    );
     let bytes = result.unwrap();
     assert!(bytes.starts_with(b"MThd"));
 }
@@ -70,9 +81,82 @@ fn mml_str_to_smf_bytes_empty_mml_returns_valid_smf() {
     // CMRT_BASE_DIR を変更するテストと直列化して、一時ディレクトリを指している最中に実行しない
     let _guard = super::env_lock();
     let result = mml_str_to_smf_bytes("");
-    assert!(result.is_ok(), "空のMMLでmml_str_to_smf_bytesが失敗: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "空のMMLでmml_str_to_smf_bytesが失敗: {:?}",
+        result.err()
+    );
     let bytes = result.unwrap();
     assert!(bytes.starts_with(b"MThd"));
+}
+
+#[test]
+fn render_options_default_preroll_is_disabled() {
+    let options = RenderOptions::default();
+
+    assert_eq!(options.preroll(), RenderPreroll::Disabled);
+    assert_eq!(options.preroll_samples(44_100.0), 0);
+}
+
+#[test]
+fn render_options_preroll_ms_rounds_up_to_samples() {
+    let options = RenderOptions::new().with_preroll_ms(1);
+
+    assert_eq!(options.preroll(), RenderPreroll::from_millis(1));
+    assert_eq!(options.preroll_samples(44_100.0), 45);
+}
+
+#[test]
+fn apply_render_preroll_shifts_events_and_total_samples() {
+    let events = vec![crate::midi::TimedMidiEvent {
+        sample_pos: 12,
+        message: crate::midi::MidiEvent::NoteOn {
+            channel: 0,
+            key: 60,
+            velocity: 100,
+        },
+    }];
+
+    let (events, total_samples) = apply_render_preroll(events, 34, 100);
+
+    assert_eq!(events[0].sample_pos, 112);
+    assert_eq!(total_samples, 134);
+}
+
+#[test]
+fn trim_render_preroll_drops_leading_stereo_samples() {
+    let trimmed = trim_render_preroll(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], 1);
+
+    assert_eq!(trimmed, vec![3.0, 4.0, 5.0, 6.0]);
+}
+
+#[test]
+fn prepare_render_inputs_applies_configured_preroll() {
+    let _guard = super::env_lock();
+    let smf_bytes = mml_str_to_smf_bytes("t120o4c").unwrap();
+    let config = CoreConfig {
+        output_midi: "out.mid".into(),
+        output_wav: "out.wav".into(),
+        sample_rate: 1_000.0,
+        buffer_size: 512,
+        patch_path: None,
+        patches_dir: None,
+        random_patch: false,
+    };
+
+    let prepared = prepare_render_inputs(
+        &smf_bytes,
+        config,
+        RenderOptions::new().with_preroll(RenderPreroll::from_millis(100)),
+    )
+    .unwrap();
+
+    assert_eq!(prepared.preroll_samples, 100);
+    assert_eq!(prepared.events[0].sample_pos, 100);
+    assert!(
+        prepared.total_samples > 100,
+        "render length should include the preroll"
+    );
 }
 
 #[test]
@@ -86,9 +170,17 @@ fn ensure_cmrt_dir_creates_directory_and_returns_path() {
 
     assert!(result.is_ok(), "ensure_cmrt_dir が失敗: {:?}", result.err());
     let dir = result.unwrap();
-    assert!(dir.exists(), "clap-mml-render-tui/ ディレクトリが存在しない: {}", dir.display());
+    assert!(
+        dir.exists(),
+        "clap-mml-render-tui/ ディレクトリが存在しない: {}",
+        dir.display()
+    );
     let dir_str = dir.to_string_lossy();
-    assert!(dir_str.contains("clap-mml-render-tui"), "パスに clap-mml-render-tui が含まれていない: {}", dir_str);
+    assert!(
+        dir_str.contains("clap-mml-render-tui"),
+        "パスに clap-mml-render-tui が含まれていない: {}",
+        dir_str
+    );
 
     drop(guard); // CMRT_BASE_DIR を復元してからクリーンアップする
     std::fs::remove_dir_all(&tmp).ok();
@@ -102,15 +194,27 @@ fn ensure_phrase_dir_creates_directory_and_returns_path() {
 
     let result = ensure_phrase_dir();
 
-    assert!(result.is_ok(), "ensure_phrase_dir が失敗: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "ensure_phrase_dir が失敗: {:?}",
+        result.err()
+    );
     let dir = result.unwrap();
-    assert!(dir.exists(), "phrase/ ディレクトリが存在しない: {}", dir.display());
+    assert!(
+        dir.exists(),
+        "phrase/ ディレクトリが存在しない: {}",
+        dir.display()
+    );
     assert!(
         dir.ends_with("phrase"),
         "パスが phrase で終わっていない: {}",
         dir.display()
     );
-    assert!(dir.to_string_lossy().contains("clap-mml-render-tui"), "パスに clap-mml-render-tui が含まれていない: {}", dir.display());
+    assert!(
+        dir.to_string_lossy().contains("clap-mml-render-tui"),
+        "パスに clap-mml-render-tui が含まれていない: {}",
+        dir.display()
+    );
 
     drop(guard); // CMRT_BASE_DIR を復元してからクリーンアップする
     std::fs::remove_dir_all(&tmp).ok();
@@ -126,13 +230,21 @@ fn ensure_daw_dir_creates_directory_and_returns_path() {
 
     assert!(result.is_ok(), "ensure_daw_dir が失敗: {:?}", result.err());
     let dir = result.unwrap();
-    assert!(dir.exists(), "daw/ ディレクトリが存在しない: {}", dir.display());
+    assert!(
+        dir.exists(),
+        "daw/ ディレクトリが存在しない: {}",
+        dir.display()
+    );
     assert!(
         dir.ends_with("daw"),
         "パスが daw で終わっていない: {}",
         dir.display()
     );
-    assert!(dir.to_string_lossy().contains("clap-mml-render-tui"), "パスに clap-mml-render-tui が含まれていない: {}", dir.display());
+    assert!(
+        dir.to_string_lossy().contains("clap-mml-render-tui"),
+        "パスに clap-mml-render-tui が含まれていない: {}",
+        dir.display()
+    );
 
     drop(guard); // CMRT_BASE_DIR を復元してからクリーンアップする
     std::fs::remove_dir_all(&tmp).ok();
@@ -152,7 +264,8 @@ fn phrase_dir_and_daw_dir_are_siblings_under_cmrt() {
     let phrase_parent = phrase_dir.parent().unwrap();
     let daw_parent = daw_dir.parent().unwrap();
     assert_eq!(
-        phrase_parent, daw_parent,
+        phrase_parent,
+        daw_parent,
         "phrase/ と daw/ が同じ親ディレクトリの下にない: {} vs {}",
         phrase_parent.display(),
         daw_parent.display()
