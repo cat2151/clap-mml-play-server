@@ -1,15 +1,15 @@
 //! オフラインレンダリングループ
 
 use anyhow::Result;
-use clack_host::prelude::*;
-use clack_host::events::Match;
-use clack_host::events::event_types::{NoteOnEvent, NoteOffEvent};
 use clack_extensions::state::PluginState;
-use hound::{WavSpec, WavWriter, SampleFormat};
+use clack_host::events::event_types::{NoteOffEvent, NoteOnEvent};
+use clack_host::events::Match;
+use clack_host::prelude::*;
+use hound::{SampleFormat, WavSpec, WavWriter};
 
-use crate::CoreConfig;
-use crate::midi::{TimedMidiEvent, MidiEvent};
 use crate::host::{MidiRenderHost, MidiRenderHostShared};
+use crate::midi::{MidiEvent, TimedMidiEvent};
+use crate::CoreConfig;
 
 /// .fxp ファイルを clap state として plugin にロードする
 ///
@@ -22,10 +22,14 @@ use crate::host::{MidiRenderHost, MidiRenderHostShared};
 ///   Bytes 32+  : chunk data (== Surge 独自形式: 'sub3' + xml + wavetables)
 ///
 /// CLAP state として渡すべきは chunk data (offset 32 以降) のみ。
-fn load_patch(plugin_instance: &mut PluginInstance<MidiRenderHost>, patch_path: &str) -> Result<()> {
+fn load_patch(
+    plugin_instance: &mut PluginInstance<MidiRenderHost>,
+    patch_path: &str,
+) -> Result<()> {
     let state_ext: PluginState = {
         let handle = plugin_instance.plugin_handle();
-        handle.get_extension::<PluginState>()
+        handle
+            .get_extension::<PluginState>()
             .ok_or_else(|| anyhow::anyhow!("プラグインが state extension をサポートしていない"))?
     }; // handle をここでドロップ
 
@@ -58,10 +62,10 @@ fn load_patch(plugin_instance: &mut PluginInstance<MidiRenderHost>, patch_path: 
         &raw[..]
     };
 
-
     let mut cursor = std::io::Cursor::new(chunk_data);
     let mut handle = plugin_instance.plugin_handle();
-    state_ext.load(&mut handle, &mut cursor)
+    state_ext
+        .load(&mut handle, &mut cursor)
         .map_err(|_| anyhow::anyhow!("パッチのロードに失敗: {}", patch_path))?;
 
     Ok(())
@@ -81,13 +85,23 @@ pub fn render(
         .plugin_descriptors()
         .next()
         .ok_or_else(|| anyhow::anyhow!("プラグインディスクリプタが見つからない"))?;
-    let _plugin_name = plugin_descriptor.name()
+    let _plugin_name = plugin_descriptor
+        .name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "unknown".to_string());
 
-    let host_info = HostInfo::new("clap-midi-render", "clap-midi-render", "https://example.com", "0.1.0")?;
+    let host_info = HostInfo::new(
+        "clap-midi-render",
+        "clap-midi-render",
+        "https://example.com",
+        "0.1.0",
+    )?;
     let mut plugin_instance = PluginInstance::<MidiRenderHost>::new(
-        |_| MidiRenderHostShared, |_| (), entry, plugin_descriptor.id().unwrap(), &host_info,
+        |_| MidiRenderHostShared,
+        |_| (),
+        entry,
+        plugin_descriptor.id().unwrap(),
+        &host_info,
     )?;
 
     if let Some(ref patch) = cfg.patch_path {
@@ -101,22 +115,28 @@ pub fn render(
     };
     let audio_processor = plugin_instance.activate(|_, _| (), audio_config)?;
 
-    let spec = WavSpec { channels: 2, sample_rate: cfg.sample_rate as u32, bits_per_sample: 32, sample_format: SampleFormat::Float };
+    let spec = WavSpec {
+        channels: 2,
+        sample_rate: cfg.sample_rate as u32,
+        bits_per_sample: 32,
+        sample_format: SampleFormat::Float,
+    };
     let mut wav = WavWriter::create(&cfg.output_wav, spec)
         .map_err(|e| anyhow::anyhow!("WAVファイルの作成に失敗: {}", e))?;
 
     let buf_size = cfg.buffer_size;
     let audio_processor = std::thread::scope(|s| {
         s.spawn(|| -> Result<_> {
-            let mut ap = audio_processor.start_processing()
+            let mut ap = audio_processor
+                .start_processing()
                 .map_err(|e| anyhow::anyhow!("start_processing 失敗: {:?}", e))?;
             let mut current_sample: u64 = 0;
             let mut event_cursor: usize = 0;
-            let mut in_left  = vec![0.0f32; buf_size];
+            let mut in_left = vec![0.0f32; buf_size];
             let mut in_right = vec![0.0f32; buf_size];
-            let mut out_left  = vec![0.0f32; buf_size];
+            let mut out_left = vec![0.0f32; buf_size];
             let mut out_right = vec![0.0f32; buf_size];
-            let mut input_ports  = AudioPorts::with_capacity(2, 1);
+            let mut input_ports = AudioPorts::with_capacity(2, 1);
             let mut output_ports = AudioPorts::with_capacity(2, 1);
             let mut output_events_buf = EventBuffer::new();
 
@@ -128,11 +148,27 @@ pub fn render(
                     let ev = &events[event_cursor];
                     let offset = (ev.sample_pos.saturating_sub(current_sample)) as u32;
                     match ev.message {
-                        MidiEvent::NoteOn { channel, key, velocity } => {
-                            input_events_raw.push(&NoteOnEvent::new(offset, Pckn::new(0u16, channel as u16, key as u16, Match::All), velocity as f64 / 127.0));
+                        MidiEvent::NoteOn {
+                            channel,
+                            key,
+                            velocity,
+                        } => {
+                            input_events_raw.push(&NoteOnEvent::new(
+                                offset,
+                                Pckn::new(0u16, channel as u16, key as u16, Match::All),
+                                velocity as f64 / 127.0,
+                            ));
                         }
-                        MidiEvent::NoteOff { channel, key, velocity } => {
-                            input_events_raw.push(&NoteOffEvent::new(offset, Pckn::new(0u16, channel as u16, key as u16, Match::All), velocity as f64 / 127.0));
+                        MidiEvent::NoteOff {
+                            channel,
+                            key,
+                            velocity,
+                        } => {
+                            input_events_raw.push(&NoteOffEvent::new(
+                                offset,
+                                Pckn::new(0u16, channel as u16, key as u16, Match::All),
+                                velocity as f64 / 127.0,
+                            ));
                         }
                     }
                     event_cursor += 1;
@@ -144,21 +180,36 @@ pub fn render(
                 let out_l: &mut [f32] = &mut out_left[..frames as usize];
                 let out_r: &mut [f32] = &mut out_right[..frames as usize];
                 let input_audio = input_ports.with_input_buffers([AudioPortBuffer {
-                    latency: 0, channels: AudioPortBufferType::f32_input_only([in_l, in_r].into_iter().map(InputChannel::constant)),
+                    latency: 0,
+                    channels: AudioPortBufferType::f32_input_only(
+                        [in_l, in_r].into_iter().map(InputChannel::constant),
+                    ),
                 }]);
                 let mut output_audio = output_ports.with_output_buffers([AudioPortBuffer {
-                    latency: 0, channels: AudioPortBufferType::f32_output_only([out_l, out_r].into_iter()),
+                    latency: 0,
+                    channels: AudioPortBufferType::f32_output_only([out_l, out_r].into_iter()),
                 }]);
-                ap.process(&input_audio, &mut output_audio, &input_events, &mut output_events, None, None)
-                    .map_err(|e| anyhow::anyhow!("process() 失敗: {:?}", e))?;
+                ap.process(
+                    &input_audio,
+                    &mut output_audio,
+                    &input_events,
+                    &mut output_events,
+                    None,
+                    None,
+                )
+                .map_err(|e| anyhow::anyhow!("process() 失敗: {:?}", e))?;
                 for i in 0..frames as usize {
-                    wav.write_sample(out_left[i]).map_err(|e| anyhow::anyhow!("WAV 書き込み失敗: {}", e))?;
-                    wav.write_sample(out_right[i]).map_err(|e| anyhow::anyhow!("WAV 書き込み失敗: {}", e))?;
+                    wav.write_sample(out_left[i])
+                        .map_err(|e| anyhow::anyhow!("WAV 書き込み失敗: {}", e))?;
+                    wav.write_sample(out_right[i])
+                        .map_err(|e| anyhow::anyhow!("WAV 書き込み失敗: {}", e))?;
                 }
                 current_sample = buf_end;
             }
             Ok(ap.stop_processing())
-        }).join().unwrap()
+        })
+        .join()
+        .unwrap()
     })?;
 
     plugin_instance.deactivate(audio_processor);
@@ -181,9 +232,18 @@ pub fn render_to_memory(
         .next()
         .ok_or_else(|| anyhow::anyhow!("プラグインディスクリプタが見つからない"))?;
 
-    let host_info = HostInfo::new("clap-midi-render", "clap-midi-render", "https://example.com", "0.1.0")?;
+    let host_info = HostInfo::new(
+        "clap-midi-render",
+        "clap-midi-render",
+        "https://example.com",
+        "0.1.0",
+    )?;
     let mut plugin_instance = PluginInstance::<MidiRenderHost>::new(
-        |_| MidiRenderHostShared, |_| (), entry, plugin_descriptor.id().unwrap(), &host_info,
+        |_| MidiRenderHostShared,
+        |_| (),
+        entry,
+        plugin_descriptor.id().unwrap(),
+        &host_info,
     )?;
 
     if let Some(ref patch) = cfg.patch_path {
@@ -200,16 +260,17 @@ pub fn render_to_memory(
     let buf_size = cfg.buffer_size;
     let (audio_processor, samples) = std::thread::scope(|s| {
         s.spawn(|| -> Result<_> {
-            let mut ap = audio_processor.start_processing()
+            let mut ap = audio_processor
+                .start_processing()
                 .map_err(|e| anyhow::anyhow!("start_processing 失敗: {:?}", e))?;
             let mut current_sample: u64 = 0;
             let mut event_cursor: usize = 0;
             let mut out_samples: Vec<f32> = Vec::with_capacity(total_samples as usize * 2);
-            let mut in_left  = vec![0.0f32; buf_size];
+            let mut in_left = vec![0.0f32; buf_size];
             let mut in_right = vec![0.0f32; buf_size];
-            let mut out_left  = vec![0.0f32; buf_size];
+            let mut out_left = vec![0.0f32; buf_size];
             let mut out_right = vec![0.0f32; buf_size];
-            let mut input_ports  = AudioPorts::with_capacity(2, 1);
+            let mut input_ports = AudioPorts::with_capacity(2, 1);
             let mut output_ports = AudioPorts::with_capacity(2, 1);
             let mut output_events_buf = EventBuffer::new();
 
@@ -221,11 +282,27 @@ pub fn render_to_memory(
                     let ev = &events[event_cursor];
                     let offset = (ev.sample_pos.saturating_sub(current_sample)) as u32;
                     match ev.message {
-                        MidiEvent::NoteOn { channel, key, velocity } => {
-                            input_events_raw.push(&NoteOnEvent::new(offset, Pckn::new(0u16, channel as u16, key as u16, Match::All), velocity as f64 / 127.0));
+                        MidiEvent::NoteOn {
+                            channel,
+                            key,
+                            velocity,
+                        } => {
+                            input_events_raw.push(&NoteOnEvent::new(
+                                offset,
+                                Pckn::new(0u16, channel as u16, key as u16, Match::All),
+                                velocity as f64 / 127.0,
+                            ));
                         }
-                        MidiEvent::NoteOff { channel, key, velocity } => {
-                            input_events_raw.push(&NoteOffEvent::new(offset, Pckn::new(0u16, channel as u16, key as u16, Match::All), velocity as f64 / 127.0));
+                        MidiEvent::NoteOff {
+                            channel,
+                            key,
+                            velocity,
+                        } => {
+                            input_events_raw.push(&NoteOffEvent::new(
+                                offset,
+                                Pckn::new(0u16, channel as u16, key as u16, Match::All),
+                                velocity as f64 / 127.0,
+                            ));
                         }
                     }
                     event_cursor += 1;
@@ -237,13 +314,24 @@ pub fn render_to_memory(
                 let out_l: &mut [f32] = &mut out_left[..frames as usize];
                 let out_r: &mut [f32] = &mut out_right[..frames as usize];
                 let input_audio = input_ports.with_input_buffers([AudioPortBuffer {
-                    latency: 0, channels: AudioPortBufferType::f32_input_only([in_l, in_r].into_iter().map(InputChannel::constant)),
+                    latency: 0,
+                    channels: AudioPortBufferType::f32_input_only(
+                        [in_l, in_r].into_iter().map(InputChannel::constant),
+                    ),
                 }]);
                 let mut output_audio = output_ports.with_output_buffers([AudioPortBuffer {
-                    latency: 0, channels: AudioPortBufferType::f32_output_only([out_l, out_r].into_iter()),
+                    latency: 0,
+                    channels: AudioPortBufferType::f32_output_only([out_l, out_r].into_iter()),
                 }]);
-                ap.process(&input_audio, &mut output_audio, &input_events, &mut output_events, None, None)
-                    .map_err(|e| anyhow::anyhow!("process() 失敗: {:?}", e))?;
+                ap.process(
+                    &input_audio,
+                    &mut output_audio,
+                    &input_events,
+                    &mut output_events,
+                    None,
+                    None,
+                )
+                .map_err(|e| anyhow::anyhow!("process() 失敗: {:?}", e))?;
                 for i in 0..frames as usize {
                     out_samples.push(out_left[i]);
                     out_samples.push(out_right[i]);
@@ -251,7 +339,9 @@ pub fn render_to_memory(
                 current_sample = buf_end;
             }
             Ok((ap.stop_processing(), out_samples))
-        }).join().unwrap()
+        })
+        .join()
+        .unwrap()
     })?;
 
     plugin_instance.deactivate(audio_processor);

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use midly::{Smf, Timing, TrackEventKind, MidiMessage};
+use midly::{MidiMessage, Smf, Timing, TrackEventKind};
 
 /// サンプル単位のタイムスタンプを持つ生MIDIイベント
 #[derive(Debug, Clone)]
@@ -11,7 +11,7 @@ pub struct TimedMidiEvent {
 
 #[derive(Debug, Clone)]
 pub enum MidiEvent {
-    NoteOn  { channel: u8, key: u8, velocity: u8 },
+    NoteOn { channel: u8, key: u8, velocity: u8 },
     NoteOff { channel: u8, key: u8, velocity: u8 },
 }
 
@@ -59,11 +59,22 @@ pub fn parse_smf_bytes(raw: &[u8], sample_rate: f64) -> Result<(Vec<TimedMidiEve
                         MidiMessage::NoteOn { key, vel } => {
                             let velocity = vel.as_int();
                             let msg = if velocity == 0 {
-                                MidiEvent::NoteOff { channel: ch, key: key.as_int(), velocity: 0 }
+                                MidiEvent::NoteOff {
+                                    channel: ch,
+                                    key: key.as_int(),
+                                    velocity: 0,
+                                }
                             } else {
-                                MidiEvent::NoteOn  { channel: ch, key: key.as_int(), velocity }
+                                MidiEvent::NoteOn {
+                                    channel: ch,
+                                    key: key.as_int(),
+                                    velocity,
+                                }
                             };
-                            events.push(TimedMidiEvent { sample_pos, message: msg });
+                            events.push(TimedMidiEvent {
+                                sample_pos,
+                                message: msg,
+                            });
                         }
                         MidiMessage::NoteOff { key, vel } => {
                             events.push(TimedMidiEvent {

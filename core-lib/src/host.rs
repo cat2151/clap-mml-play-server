@@ -23,7 +23,7 @@ pub struct MidiRenderHost;
 
 impl HostHandlers for MidiRenderHost {
     type Shared<'a> = MidiRenderHostShared;
-    type MainThread<'a> = ();      // メインスレッド処理は今回不要
+    type MainThread<'a> = (); // メインスレッド処理は今回不要
     type AudioProcessor<'a> = (); // オーディオスレッド処理も今回不要
 }
 
