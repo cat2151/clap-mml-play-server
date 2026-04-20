@@ -1,0 +1,4 @@
+- プルリクエストは日本語で書くこと
+- cargoのformatとlinterを使うこと
+- cat2151のライブラリはrevision固定を禁止
+- issue-notes/は更新を禁止

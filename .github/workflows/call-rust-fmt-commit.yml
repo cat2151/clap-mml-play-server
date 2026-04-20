@@ -1,0 +1,23 @@
+name: Call Rust fmt and Commit
+
+on:
+  pull_request: # メリットは最速で致命的な問題発生を検知できること。デメリットは頻繁すぎ？対策はしばらく運用して様子見
+    types: [closed]
+    paths:
+      - '**/*.rs'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rustfmt.toml'
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  call-rust-fmt:
+    permissions:
+      contents: write
+    # uses: ./.github/workflows/rust-fmt-commit.yml # ローカルでのテスト用
+    uses: cat2151/github-actions/.github/workflows/rust-fmt-commit.yml@main
+    with:
+      target-branch: ${{ github.ref_name }}

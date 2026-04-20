@@ -1,0 +1,18 @@
+# 用途 : GitHub Copilot Coding AgentにRustでWindows版アプリをcodingさせたとき、Windowsランナーでcargo checkが通るかを早期検知する用
+name: Call Rust Windows Runner Cargo Check
+
+on:
+  pull_request: # メリットは最速で致命的な問題発生を検知できること。デメリットは頻繁すぎ？対策はしばらく運用して様子見
+    types: [closed]
+#  schedule: # pull_requestで実施するならこちらは不要の考え
+#    # Japan time 03:00 (UTC 18:00 previous day)
+#    - cron: '0 18 * * *'
+  workflow_dispatch: # test用
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  rust-windows-cargo-check:
+    uses: cat2151/github-actions/.github/workflows/rust-windows-cargo-check.yml@main

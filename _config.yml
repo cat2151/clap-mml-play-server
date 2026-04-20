@@ -1,0 +1,8 @@
+title: "clap-mml-play-server"
+description: "clap-mml-play-server"
+theme: jekyll-theme-slate
+github:
+  is_project_page: true
+  repository_url: https://github.com/cat2151/clap-mml-play-server
+plugins:
+  - jekyll-sitemap
