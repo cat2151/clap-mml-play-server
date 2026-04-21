@@ -41,6 +41,31 @@ fn write_wav_invalid_path_returns_error() {
 }
 
 #[test]
+fn encode_wav_i16_creates_16bit_stereo_wav_bytes() {
+    let bytes = encode_wav_i16(&[0.0, 1.0, -1.0, 0.5], 48_000).unwrap();
+
+    let mut reader = hound::WavReader::new(std::io::Cursor::new(bytes)).unwrap();
+    let spec = reader.spec();
+    assert_eq!(spec.channels, 2);
+    assert_eq!(spec.sample_rate, 48_000);
+    assert_eq!(spec.bits_per_sample, 16);
+    assert_eq!(spec.sample_format, hound::SampleFormat::Int);
+
+    let samples = reader
+        .samples::<i16>()
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(samples, vec![0, i16::MAX, i16::MIN, 16384]);
+}
+
+#[test]
+fn encode_wav_i16_rejects_odd_stereo_sample_count() {
+    let error = encode_wav_i16(&[0.0], 48_000).unwrap_err();
+
+    assert!(error.to_string().contains("奇数"));
+}
+
+#[test]
 fn mml_str_to_smf_bytes_returns_valid_smf() {
     // "cde" → ドレミ3音の SMF バイト列が生成されることを確認する
     // 中間ファイル（pass1_tokens.json 等）が config_local_dir()/clap-mml-render-tui/ に書き出されるが、
@@ -88,6 +113,21 @@ fn mml_str_to_smf_bytes_empty_mml_returns_valid_smf() {
     );
     let bytes = result.unwrap();
     assert!(bytes.starts_with(b"MThd"));
+}
+
+#[test]
+fn mml_str_to_smf_bytes_in_dir_writes_intermediates_to_requested_dir() {
+    let tmp = std::env::temp_dir().join("cmrt_test_smf_bytes_in_dir");
+    std::fs::remove_dir_all(&tmp).ok();
+
+    let bytes = mml_str_to_smf_bytes_in_dir("cde", &tmp).unwrap();
+
+    assert!(bytes.starts_with(b"MThd"));
+    assert!(tmp.join("pass1_tokens.json").is_file());
+    assert!(tmp.join("pass2_ast.json").is_file());
+    assert!(tmp.join("pass3_events.json").is_file());
+
+    std::fs::remove_dir_all(&tmp).ok();
 }
 
 #[test]

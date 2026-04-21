@@ -18,8 +18,9 @@ pub struct CoreConfig {
 pub use host::load_entry;
 pub use patch_list::{collect_patches, to_relative};
 pub use pipeline::{
-    ensure_cmrt_dir, ensure_daw_dir, ensure_phrase_dir, mml_render, mml_render_for_cache,
-    mml_render_for_cache_with_options, mml_render_with_options, mml_str_to_smf_bytes, mml_to_play,
+    encode_wav_i16, ensure_cmrt_dir, ensure_daw_dir, ensure_phrase_dir, mml_render,
+    mml_render_for_cache, mml_render_for_cache_with_options, mml_render_stateless,
+    mml_render_stateless_with_options, mml_render_with_options, mml_str_to_smf_bytes, mml_to_play,
     mml_to_play_with_options, mml_to_smf_bytes, play_samples, write_wav, RenderOptions,
     RenderPreroll,
 };

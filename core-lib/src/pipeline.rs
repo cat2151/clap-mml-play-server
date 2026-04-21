@@ -4,6 +4,7 @@ use anyhow::Result;
 use clack_host::prelude::PluginEntry;
 use hound::{SampleFormat, WavSpec, WavWriter};
 use rodio::{buffer::SamplesBuffer, OutputStream, Sink};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::midi::parse_smf_bytes;
 use crate::patch_list::{collect_patches, to_relative};
@@ -13,6 +14,7 @@ use crate::CoreConfig;
 use mmlabc_to_smf::{mml_preprocessor, pass1_parser, pass2_ast, pass3_events, pass4_midi};
 
 const RENDER_CHANNELS: u64 = 2;
+static TEMP_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// レンダリング時に追加で適用する前処理。
 ///
@@ -115,6 +117,34 @@ pub fn mml_render_with_options(
     let samples = render_prepared_inputs(prepared.inputs, entry)?;
     write_wav(&samples, cfg.sample_rate as u32, &output_wav)?;
     Ok((samples, patch_display))
+}
+
+/// MML → レンダリングのみ。履歴や永続 output.mid/output.wav は書かない。
+pub fn mml_render_stateless(mml: &str, cfg: &CoreConfig, entry: &PluginEntry) -> Result<Vec<f32>> {
+    mml_render_stateless_with_options(mml, cfg, entry, RenderOptions::default())
+}
+
+/// MML → レンダリングのみ。中間ファイルは呼び出しごとの一時ディレクトリに閉じる。
+pub fn mml_render_stateless_with_options(
+    mml: &str,
+    cfg: &CoreConfig,
+    entry: &PluginEntry,
+    options: RenderOptions,
+) -> Result<Vec<f32>> {
+    let temp_dir = RenderTempDir::create()?;
+    let preprocessed = mml_preprocessor::extract_embedded_json(mml);
+    let effective_patch =
+        resolve_effective_patch(preprocessed.embedded_json.as_deref(), cfg, false)?;
+    let smf_bytes = mml_str_to_smf_bytes_in_dir(&preprocessed.remaining_mml, temp_dir.path())?;
+    let patched_cfg = CoreConfig {
+        output_midi: utf8_path_string(&temp_dir.path().join("output.mid"), "一時MIDIパス")?,
+        output_wav: utf8_path_string(&temp_dir.path().join("output.wav"), "一時WAVパス")?,
+        patch_path: effective_patch,
+        random_patch: false,
+        ..cfg.clone()
+    };
+    let inputs = prepare_render_inputs(&smf_bytes, patched_cfg, options)?;
+    render_prepared_inputs(inputs, entry)
 }
 
 /// キャッシュ構築専用の MML → レンダリング。
@@ -405,11 +435,17 @@ fn append_history(mml: &str, patch: &Option<String>, cfg: &CoreConfig) -> Result
 /// MML文字列（JSON除去済み）→ SMFバイト列
 pub fn mml_str_to_smf_bytes(mml: &str) -> Result<Vec<u8>> {
     let cmrt_dir = ensure_cmrt_dir()?;
+    mml_str_to_smf_bytes_in_dir(mml, &cmrt_dir)
+}
+
+fn mml_str_to_smf_bytes_in_dir(mml: &str, dir: &std::path::Path) -> Result<Vec<u8>> {
+    std::fs::create_dir_all(dir)
+        .map_err(|e| anyhow::anyhow!("MML中間ファイルディレクトリの作成に失敗: {}", e))?;
     // process_pass{1,2,3} は &str を受け取るため、PathBuf から &str への変換が必要。
     // 非UTF-8パスは明示的にエラーとして扱い、サイレントなパス破壊を防ぐ。
-    let pass1 = cmrt_dir.join("pass1_tokens.json");
-    let pass2 = cmrt_dir.join("pass2_ast.json");
-    let pass3 = cmrt_dir.join("pass3_events.json");
+    let pass1 = dir.join("pass1_tokens.json");
+    let pass2 = dir.join("pass2_ast.json");
+    let pass3 = dir.join("pass3_events.json");
     let pass1_str = pass1
         .to_str()
         .ok_or_else(|| anyhow::anyhow!("パスが非UTF-8です: {}", pass1.display()))?;
@@ -498,6 +534,45 @@ pub fn write_wav(
     Ok(())
 }
 
+/// Vec<f32>（インターリーブステレオ）を 16bit PCM WAV バイト列へエンコードする。
+pub fn encode_wav_i16(samples: &[f32], sample_rate: u32) -> Result<Vec<u8>> {
+    if !samples.len().is_multiple_of(2) {
+        anyhow::bail!("ステレオWAVのサンプル数が奇数です");
+    }
+
+    let mut bytes = Vec::new();
+    {
+        let cursor = std::io::Cursor::new(&mut bytes);
+        let spec = WavSpec {
+            channels: 2,
+            sample_rate,
+            bits_per_sample: 16,
+            sample_format: SampleFormat::Int,
+        };
+        let mut wav =
+            WavWriter::new(cursor, spec).map_err(|e| anyhow::anyhow!("WAV作成失敗: {}", e))?;
+        for &sample in samples {
+            wav.write_sample(float_sample_to_i16(sample))
+                .map_err(|e| anyhow::anyhow!("WAV書き込み失敗: {}", e))?;
+        }
+        wav.finalize()?;
+    }
+    Ok(bytes)
+}
+
+fn float_sample_to_i16(sample: f32) -> i16 {
+    if !sample.is_finite() {
+        return 0;
+    }
+    if sample <= -1.0 {
+        i16::MIN
+    } else if sample >= 1.0 {
+        i16::MAX
+    } else {
+        (sample * i16::MAX as f32).round() as i16
+    }
+}
+
 /// Vec<f32>（インターリーブステレオ）を rodio で再生する
 pub fn play_samples(samples: Vec<f32>, sample_rate: u32) -> Result<()> {
     let (_stream, stream_handle) = OutputStream::try_default()
@@ -508,6 +583,43 @@ pub fn play_samples(samples: Vec<f32>, sample_rate: u32) -> Result<()> {
     sink.append(source);
     sink.sleep_until_end();
     Ok(())
+}
+
+struct RenderTempDir {
+    path: std::path::PathBuf,
+}
+
+impl RenderTempDir {
+    fn create() -> Result<Self> {
+        let base = std::env::temp_dir();
+        let process_id = std::process::id();
+        for _ in 0..100 {
+            let counter = TEMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
+            let path = base.join(format!("cmrt_stateless_render_{process_id}_{counter}"));
+            match std::fs::create_dir(&path) {
+                Ok(()) => return Ok(Self { path }),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(e) => {
+                    return Err(anyhow::anyhow!(
+                        "一時ディレクトリの作成に失敗 ({}): {}",
+                        path.display(),
+                        e
+                    ));
+                }
+            }
+        }
+        anyhow::bail!("一時ディレクトリ名を確保できませんでした")
+    }
+
+    fn path(&self) -> &std::path::Path {
+        &self.path
+    }
+}
+
+impl Drop for RenderTempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.path);
+    }
 }
 
 /// `CMRT_BASE_DIR` 環境変数を変更するテストを直列化するためのグローバル Mutex。

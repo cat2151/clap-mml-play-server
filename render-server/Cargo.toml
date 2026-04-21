@@ -1,0 +1,14 @@
+[package]
+name = "clap-mml-render-server"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "clap-mml-render-server"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+cmrt-runtime = { path = "../../clap-mml-render-tui/cmrt-runtime" }
+cmrt-core = { path = "../core-lib" }
+ctrlc = "3"
