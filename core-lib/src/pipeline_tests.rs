@@ -171,6 +171,13 @@ fn trim_render_preroll_drops_leading_stereo_samples() {
 }
 
 #[test]
+fn trim_render_preroll_returns_empty_when_preroll_exceeds_samples() {
+    let trimmed = trim_render_preroll(vec![1.0, 2.0, 3.0, 4.0], 8);
+
+    assert!(trimmed.is_empty());
+}
+
+#[test]
 fn prepare_render_inputs_applies_configured_preroll() {
     let _guard = super::env_lock();
     let smf_bytes = mml_str_to_smf_bytes("t120o4c").unwrap();
