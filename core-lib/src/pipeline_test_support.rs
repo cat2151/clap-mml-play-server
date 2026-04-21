@@ -3,7 +3,7 @@
 /// 複数のテストが並行して同じ環境変数を変更しないよう、環境変数を操作するすべてのテストは
 /// `EnvVarGuard::set()` を通じてこのロックを取得してから処理を行う。
 /// `ensure_cmrt_dir()` を使用するが環境変数を変更しないテストは `env_lock()` で直列化する。
-pub(crate) static ENV_MUTEX: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+static ENV_MUTEX: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
 
 /// `CMRT_BASE_DIR` を変更しないが `ensure_cmrt_dir()` を使用するテスト向けのロック取得ヘルパー。
 ///

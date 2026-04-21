@@ -13,14 +13,14 @@ use crate::CoreConfig;
 use mmlabc_to_smf::{mml_preprocessor, pass1_parser, pass2_ast, pass3_events, pass4_midi};
 
 #[path = "pipeline_dirs.rs"]
-mod cmrt_dirs;
+mod pipeline_dirs;
 #[cfg(test)]
 #[path = "pipeline_test_support.rs"]
-mod test_support;
+mod pipeline_test_support;
 
-pub use cmrt_dirs::{ensure_cmrt_dir, ensure_daw_dir, ensure_phrase_dir};
+pub use pipeline_dirs::{ensure_cmrt_dir, ensure_daw_dir, ensure_phrase_dir};
 #[cfg(test)]
-pub(crate) use test_support::{env_lock, EnvVarGuard};
+pub(crate) use pipeline_test_support::{env_lock, EnvVarGuard};
 
 const RENDER_CHANNELS: u64 = 2;
 
