@@ -23,7 +23,7 @@ pub(crate) fn env_lock() -> std::sync::MutexGuard<'static, ()> {
 /// - Mutex ガードはこの型の生存期間中保持されるため、複数テスト間の並行実行が防止される。
 pub(crate) struct EnvVarGuard {
     key: &'static str,
-    original: Option<String>,
+    original: Option<std::ffi::OsString>,
     _lock: std::sync::MutexGuard<'static, ()>,
 }
 
@@ -34,7 +34,7 @@ impl EnvVarGuard {
             .get_or_init(|| std::sync::Mutex::new(()))
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        let original = std::env::var(key).ok();
+        let original = std::env::var_os(key);
         std::env::set_var(key, value);
         Self {
             key,

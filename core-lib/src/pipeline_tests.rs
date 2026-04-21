@@ -294,3 +294,64 @@ fn env_var_guard_restores_previous_value_on_drop() {
         None => std::env::remove_var(key),
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn env_var_guard_restores_previous_non_utf8_value_on_drop() {
+    use std::os::unix::ffi::OsStringExt;
+
+    let key = "CMRT_TEST_ENV_GUARD_RESTORE_NON_UTF8";
+    let original = std::env::var_os(key);
+    let before = std::ffi::OsString::from_vec(vec![b'/', b't', b'm', b'p', b'/', 0xFF]);
+    std::env::set_var(key, &before);
+
+    {
+        let guard = super::EnvVarGuard::set(key, "/tmp/cmrt_inside_guard");
+        assert_eq!(std::env::var(key).as_deref(), Ok("/tmp/cmrt_inside_guard"));
+        drop(guard);
+    }
+
+    assert_eq!(std::env::var_os(key), Some(before));
+
+    match original {
+        Some(value) => std::env::set_var(key, value),
+        None => std::env::remove_var(key),
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn ensure_cmrt_dir_uses_non_utf8_env_override() {
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
+    let _guard = super::env_lock();
+    let original = std::env::var_os("CMRT_BASE_DIR");
+    let mut base_bytes = std::env::temp_dir().into_os_string().into_vec();
+    base_bytes.extend_from_slice(b"/cmrt_test_non_utf8_");
+    base_bytes.push(0xFF);
+    let base = std::ffi::OsString::from_vec(base_bytes);
+    std::env::set_var("CMRT_BASE_DIR", &base);
+
+    let result = ensure_cmrt_dir();
+
+    match original {
+        Some(value) => std::env::set_var("CMRT_BASE_DIR", value),
+        None => std::env::remove_var("CMRT_BASE_DIR"),
+    }
+
+    assert!(result.is_ok(), "ensure_cmrt_dir が失敗: {:?}", result.err());
+    let dir = result.unwrap();
+    let dir_bytes = dir.as_os_str().as_bytes();
+    assert!(
+        dir_bytes
+            .windows(base.as_bytes().len())
+            .any(|window| window == base.as_bytes()),
+        "非UTF-8の CMRT_BASE_DIR が反映されていない: {:?}",
+        dir
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+    if let Some(parent) = dir.parent() {
+        std::fs::remove_dir(parent).ok();
+    }
+}

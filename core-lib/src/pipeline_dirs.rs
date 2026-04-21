@@ -35,7 +35,7 @@ pub fn ensure_daw_dir() -> Result<std::path::PathBuf> {
 /// テストでは `CMRT_BASE_DIR` に一時ディレクトリを設定することで実際の設定ディレクトリへの書き込みを避ける。
 /// 戻り値: 親ディレクトリのパス（`PathBuf`）。設定ディレクトリが取得できない場合はエラーを返す。
 fn cmrt_base_dir() -> Result<std::path::PathBuf> {
-    if let Ok(base) = std::env::var("CMRT_BASE_DIR") {
+    if let Some(base) = std::env::var_os("CMRT_BASE_DIR") {
         return Ok(std::path::PathBuf::from(base));
     }
     dirs::config_local_dir()
