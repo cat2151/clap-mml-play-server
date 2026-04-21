@@ -82,6 +82,9 @@ impl RenderOptions {
     }
 }
 
+/// レンダリング実行直前までに確定させた入力一式。
+///
+/// preroll を適用済みの MIDI イベント列と、描画後に切り落とすサンプル数をまとめて保持する。
 pub(crate) struct PreparedRenderInputs {
     pub(crate) patched_cfg: CoreConfig,
     pub(crate) events: Vec<TimedMidiEvent>,
