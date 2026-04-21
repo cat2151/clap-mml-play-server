@@ -277,7 +277,7 @@ fn phrase_dir_and_daw_dir_are_siblings_under_cmrt() {
 
 #[test]
 fn env_var_guard_restores_previous_value_on_drop() {
-    let key = "CMRT_BASE_DIR";
+    let key = "CMRT_TEST_ENV_GUARD_RESTORE";
     let original = std::env::var_os(key);
     std::env::set_var(key, "/tmp/cmrt_before_guard");
 
