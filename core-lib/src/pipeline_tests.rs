@@ -324,20 +324,13 @@ fn env_var_guard_restores_previous_non_utf8_value_on_drop() {
 fn ensure_cmrt_dir_uses_non_utf8_env_override() {
     use std::os::unix::ffi::{OsStrExt, OsStringExt};
 
-    let _guard = super::env_lock();
-    let original = std::env::var_os("CMRT_BASE_DIR");
     let mut base_bytes = std::env::temp_dir().into_os_string().into_vec();
     base_bytes.extend_from_slice(b"/cmrt_test_non_utf8_");
     base_bytes.push(0xFF);
     let base = std::ffi::OsString::from_vec(base_bytes);
-    std::env::set_var("CMRT_BASE_DIR", &base);
-
+    let env_guard = super::EnvVarGuard::set("CMRT_BASE_DIR", &base);
     let result = ensure_cmrt_dir();
-
-    match original {
-        Some(value) => std::env::set_var("CMRT_BASE_DIR", value),
-        None => std::env::remove_var("CMRT_BASE_DIR"),
-    }
+    drop(env_guard);
 
     assert!(result.is_ok(), "ensure_cmrt_dir が失敗: {:?}", result.err());
     let dir = result.unwrap();
@@ -350,8 +343,10 @@ fn ensure_cmrt_dir_uses_non_utf8_env_override() {
         dir
     );
 
-    std::fs::remove_dir_all(&dir).ok();
+    std::fs::remove_dir_all(&dir)
+        .unwrap_or_else(|e| eprintln!("cleanup failed for {:?}: {}", dir, e));
     if let Some(parent) = dir.parent() {
-        std::fs::remove_dir(parent).ok();
+        std::fs::remove_dir(parent)
+            .unwrap_or_else(|e| eprintln!("cleanup failed for {:?}: {}", parent, e));
     }
 }
