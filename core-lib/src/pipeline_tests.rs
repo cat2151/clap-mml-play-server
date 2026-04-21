@@ -274,3 +274,23 @@ fn phrase_dir_and_daw_dir_are_siblings_under_cmrt() {
     drop(guard); // CMRT_BASE_DIR を復元してからクリーンアップする
     std::fs::remove_dir_all(&tmp).ok();
 }
+
+#[test]
+fn env_var_guard_restores_previous_value_on_drop() {
+    let key = "CMRT_BASE_DIR";
+    let original = std::env::var_os(key);
+    std::env::set_var(key, "/tmp/cmrt_before_guard");
+
+    {
+        let guard = super::EnvVarGuard::set(key, "/tmp/cmrt_inside_guard");
+        assert_eq!(std::env::var(key).as_deref(), Ok("/tmp/cmrt_inside_guard"));
+        drop(guard);
+    }
+
+    assert_eq!(std::env::var(key).as_deref(), Ok("/tmp/cmrt_before_guard"));
+
+    match original {
+        Some(value) => std::env::set_var(key, value),
+        None => std::env::remove_var(key),
+    }
+}
