@@ -166,7 +166,7 @@ fn ensure_cmrt_dir_creates_directory_and_returns_path() {
     let guard = super::EnvVarGuard::set("CMRT_BASE_DIR", &tmp);
     std::fs::remove_dir_all(&tmp).ok(); // 前回のテスト残骸を除去（存在しない場合は無視）
 
-    let result = ensure_cmrt_dir();
+    let result = super::ensure_cmrt_dir();
 
     assert!(result.is_ok(), "ensure_cmrt_dir が失敗: {:?}", result.err());
     let dir = result.unwrap();
@@ -273,4 +273,80 @@ fn phrase_dir_and_daw_dir_are_siblings_under_cmrt() {
 
     drop(guard); // CMRT_BASE_DIR を復元してからクリーンアップする
     std::fs::remove_dir_all(&tmp).ok();
+}
+
+#[test]
+fn env_var_guard_restores_previous_value_on_drop() {
+    let key = "CMRT_TEST_ENV_GUARD_RESTORE";
+    let original = std::env::var_os(key);
+    std::env::set_var(key, "/tmp/cmrt_before_guard");
+
+    {
+        let guard = super::EnvVarGuard::set(key, "/tmp/cmrt_inside_guard");
+        assert_eq!(std::env::var(key).as_deref(), Ok("/tmp/cmrt_inside_guard"));
+        drop(guard);
+    }
+
+    assert_eq!(std::env::var(key).as_deref(), Ok("/tmp/cmrt_before_guard"));
+
+    match original {
+        Some(value) => std::env::set_var(key, value),
+        None => std::env::remove_var(key),
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn env_var_guard_restores_previous_non_utf8_value_on_drop() {
+    use std::os::unix::ffi::OsStringExt;
+
+    let key = "CMRT_TEST_ENV_GUARD_RESTORE_NON_UTF8";
+    let original = std::env::var_os(key);
+    let before = std::ffi::OsString::from_vec(vec![b'/', b't', b'm', b'p', b'/', 0xFF]);
+    std::env::set_var(key, &before);
+
+    {
+        let guard = super::EnvVarGuard::set(key, "/tmp/cmrt_inside_guard");
+        assert_eq!(std::env::var(key).as_deref(), Ok("/tmp/cmrt_inside_guard"));
+        drop(guard);
+    }
+
+    assert_eq!(std::env::var_os(key), Some(before));
+
+    match original {
+        Some(value) => std::env::set_var(key, value),
+        None => std::env::remove_var(key),
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn ensure_cmrt_dir_uses_non_utf8_env_override() {
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
+    let mut base_bytes = std::env::temp_dir().into_os_string().into_vec();
+    base_bytes.extend_from_slice(b"/cmrt_test_non_utf8_");
+    base_bytes.push(0xFF);
+    let base = std::ffi::OsString::from_vec(base_bytes);
+    let env_guard = super::EnvVarGuard::set("CMRT_BASE_DIR", &base);
+    let result = ensure_cmrt_dir();
+    drop(env_guard);
+
+    assert!(result.is_ok(), "ensure_cmrt_dir が失敗: {:?}", result.err());
+    let dir = result.unwrap();
+    let dir_bytes = dir.as_os_str().as_bytes();
+    assert!(
+        dir_bytes
+            .windows(base.as_bytes().len())
+            .any(|window| window == base.as_bytes()),
+        "非UTF-8の CMRT_BASE_DIR が反映されていない: {:?}",
+        dir
+    );
+
+    std::fs::remove_dir_all(&dir)
+        .unwrap_or_else(|e| eprintln!("クリーンアップ失敗 {:?}: {}", dir, e));
+    if let Some(parent) = dir.parent() {
+        std::fs::remove_dir(parent)
+            .unwrap_or_else(|e| eprintln!("クリーンアップ失敗 {:?}: {}", parent, e));
+    }
 }

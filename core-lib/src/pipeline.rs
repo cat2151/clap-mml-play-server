@@ -12,6 +12,16 @@ use crate::CoreConfig;
 
 use mmlabc_to_smf::{mml_preprocessor, pass1_parser, pass2_ast, pass3_events, pass4_midi};
 
+#[path = "pipeline_dirs.rs"]
+mod pipeline_dirs;
+#[cfg(test)]
+#[path = "pipeline_test_support.rs"]
+mod pipeline_test_support;
+
+pub use pipeline_dirs::{ensure_cmrt_dir, ensure_daw_dir, ensure_phrase_dir};
+#[cfg(test)]
+pub(crate) use pipeline_test_support::{env_lock, EnvVarGuard};
+
 const RENDER_CHANNELS: u64 = 2;
 
 /// レンダリング時に追加で適用する前処理。
@@ -426,48 +436,6 @@ pub fn mml_str_to_smf_bytes(mml: &str) -> Result<Vec<u8>> {
     Ok(smf_bytes)
 }
 
-/// config_local_dir()/clap-mml-render-tui/ ディレクトリを作成し、パスを返す。
-/// `phrase/` および `daw/` サブディレクトリの親ディレクトリとしても使用される。
-/// テスト時は環境変数 `CMRT_BASE_DIR` でベースパスを上書きできる。
-pub fn ensure_cmrt_dir() -> Result<std::path::PathBuf> {
-    let dir = cmrt_base_dir()?.join("clap-mml-render-tui");
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| anyhow::anyhow!("clap-mml-render-tui/ ディレクトリの作成に失敗: {}", e))?;
-    Ok(dir)
-}
-
-/// config_local_dir()/clap-mml-render-tui/phrase/ ディレクトリを作成し、パスを返す。
-/// フレーズモード（非DAWモード）の出力ファイル（output.mid, output.wav）を格納する。
-/// テスト時は環境変数 `CMRT_BASE_DIR` でベースパスを上書きできる。
-pub fn ensure_phrase_dir() -> Result<std::path::PathBuf> {
-    let dir = cmrt_base_dir()?.join("clap-mml-render-tui").join("phrase");
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| anyhow::anyhow!("phrase/ ディレクトリの作成に失敗: {}", e))?;
-    Ok(dir)
-}
-
-/// config_local_dir()/clap-mml-render-tui/daw/ ディレクトリを作成し、パスを返す。
-/// DAWモードの出力ファイル（daw_cache.mid, daw_cache.wav, per-track WAV 等）を格納する。
-/// テスト時は環境変数 `CMRT_BASE_DIR` でベースパスを上書きできる。
-pub fn ensure_daw_dir() -> Result<std::path::PathBuf> {
-    let dir = cmrt_base_dir()?.join("clap-mml-render-tui").join("daw");
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| anyhow::anyhow!("daw/ ディレクトリの作成に失敗: {}", e))?;
-    Ok(dir)
-}
-
-/// `clap-mml-render-tui/` の親ディレクトリを返す。
-/// 環境変数 `CMRT_BASE_DIR` が設定されていればそれを使い、なければ `dirs::config_local_dir()` を使う。
-/// テストでは `CMRT_BASE_DIR` に一時ディレクトリを設定することで実際の設定ディレクトリへの書き込みを避ける。
-/// 戻り値: 親ディレクトリのパス（`PathBuf`）。設定ディレクトリが取得できない場合はエラーを返す。
-fn cmrt_base_dir() -> Result<std::path::PathBuf> {
-    if let Ok(base) = std::env::var("CMRT_BASE_DIR") {
-        return Ok(std::path::PathBuf::from(base));
-    }
-    dirs::config_local_dir()
-        .ok_or_else(|| anyhow::anyhow!("システム設定ディレクトリが取得できません"))
-}
-
 /// MML文字列 → SMFバイト列（外部公開用、JSON込みのMMLを受け取る）
 #[allow(dead_code)]
 pub fn mml_to_smf_bytes(mml: &str) -> Result<Vec<u8>> {
@@ -508,66 +476,6 @@ pub fn play_samples(samples: Vec<f32>, sample_rate: u32) -> Result<()> {
     sink.append(source);
     sink.sleep_until_end();
     Ok(())
-}
-
-/// `CMRT_BASE_DIR` 環境変数を変更するテストを直列化するためのグローバル Mutex。
-///
-/// 複数のテストが並行して同じ環境変数を変更しないよう、環境変数を操作するすべてのテストは
-/// `EnvVarGuard::set()` を通じてこのロックを取得してから処理を行う。
-/// `ensure_cmrt_dir()` を使用するが環境変数を変更しないテストは `env_lock()` で直列化する。
-#[cfg(test)]
-pub(crate) static ENV_MUTEX: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
-
-/// `CMRT_BASE_DIR` を変更しないが `ensure_cmrt_dir()` を使用するテスト向けのロック取得ヘルパー。
-///
-/// 環境変数を変更するテストと同じ Mutex を取得することで、CMRT_BASE_DIR が一時ディレクトリを
-/// 指している最中に `ensure_cmrt_dir()` を呼び出さないことを保証する。
-#[cfg(test)]
-pub(crate) fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-    ENV_MUTEX
-        .get_or_init(|| std::sync::Mutex::new(()))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-}
-
-/// `CMRT_BASE_DIR` 環境変数の設定とロックの取得を一体化した RAII ガード。
-///
-/// - 構築時にグローバル Mutex を取得し、以前の値を退避してから環境変数を設定する。
-/// - `Drop` 時に元の値を復元する（テストがパニックで終了した場合も含む）。
-/// - Mutex ガードはこの型の生存期間中保持されるため、複数テスト間の並行実行が防止される。
-#[cfg(test)]
-pub(crate) struct EnvVarGuard {
-    key: &'static str,
-    original: Option<String>,
-    _lock: std::sync::MutexGuard<'static, ()>,
-}
-
-#[cfg(test)]
-impl EnvVarGuard {
-    /// 環境変数 `key` を `value` に設定し、Mutex ロックと元の値を保持するガードを返す。
-    pub(crate) fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
-        let lock = ENV_MUTEX
-            .get_or_init(|| std::sync::Mutex::new(()))
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let original = std::env::var(key).ok();
-        std::env::set_var(key, value);
-        Self {
-            key,
-            original,
-            _lock: lock,
-        }
-    }
-}
-
-#[cfg(test)]
-impl Drop for EnvVarGuard {
-    fn drop(&mut self) {
-        match &self.original {
-            Some(v) => std::env::set_var(self.key, v),
-            None => std::env::remove_var(self.key),
-        }
-    }
 }
 
 #[cfg(test)]
