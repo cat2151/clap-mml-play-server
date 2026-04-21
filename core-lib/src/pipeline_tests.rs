@@ -166,7 +166,7 @@ fn ensure_cmrt_dir_creates_directory_and_returns_path() {
     let guard = super::EnvVarGuard::set("CMRT_BASE_DIR", &tmp);
     std::fs::remove_dir_all(&tmp).ok(); // 前回のテスト残骸を除去（存在しない場合は無視）
 
-    let result = ensure_cmrt_dir();
+    let result = super::ensure_cmrt_dir();
 
     assert!(result.is_ok(), "ensure_cmrt_dir が失敗: {:?}", result.err());
     let dir = result.unwrap();
@@ -344,9 +344,9 @@ fn ensure_cmrt_dir_uses_non_utf8_env_override() {
     );
 
     std::fs::remove_dir_all(&dir)
-        .unwrap_or_else(|e| eprintln!("cleanup failed for {:?}: {}", dir, e));
+        .unwrap_or_else(|e| eprintln!("クリーンアップ失敗 {:?}: {}", dir, e));
     if let Some(parent) = dir.parent() {
         std::fs::remove_dir(parent)
-            .unwrap_or_else(|e| eprintln!("cleanup failed for {:?}: {}", parent, e));
+            .unwrap_or_else(|e| eprintln!("クリーンアップ失敗 {:?}: {}", parent, e));
     }
 }
