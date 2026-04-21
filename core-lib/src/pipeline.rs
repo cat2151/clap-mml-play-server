@@ -6,107 +6,28 @@ use hound::{SampleFormat, WavSpec, WavWriter};
 use rodio::{buffer::SamplesBuffer, OutputStream, Sink};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::midi::parse_smf_bytes;
 use crate::patch_list::{collect_patches, to_relative};
-use crate::render::render_to_memory;
 use crate::CoreConfig;
 
 use mmlabc_to_smf::{mml_preprocessor, pass1_parser, pass2_ast, pass3_events, pass4_midi};
 
 #[path = "pipeline_dirs.rs"]
 mod pipeline_dirs;
+#[path = "pipeline_render.rs"]
+mod pipeline_render;
 #[cfg(test)]
 #[path = "pipeline_test_support.rs"]
 mod pipeline_test_support;
 
 pub use pipeline_dirs::{ensure_cmrt_dir, ensure_daw_dir, ensure_phrase_dir};
 #[cfg(test)]
+use pipeline_render::{apply_render_preroll, trim_render_preroll};
+use pipeline_render::{prepare_render_inputs, render_prepared_inputs, PreparedRenderInputs};
+pub use pipeline_render::{RenderOptions, RenderPreroll};
+#[cfg(test)]
 pub(crate) use pipeline_test_support::{env_lock, EnvVarGuard};
 
-const RENDER_CHANNELS: u64 = 2;
 static TEMP_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-/// レンダリング時に追加で適用する前処理。
-///
-/// `Millis(100)` を指定すると、MIDI イベントを 100ms 後ろへずらしてレンダリングし、
-/// 生成後に先頭 100ms を切り落とす。プラグイン初期化直後の発音欠け対策を、通常再生と
-/// キャッシュレンダリングの両方へ同じ形で差し込める。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum RenderPreroll {
-    #[default]
-    Disabled,
-    Millis(u64),
-    Samples(u64),
-}
-
-impl RenderPreroll {
-    pub fn disabled() -> Self {
-        Self::Disabled
-    }
-
-    pub fn from_millis(millis: u64) -> Self {
-        Self::Millis(millis)
-    }
-
-    pub fn from_samples(samples: u64) -> Self {
-        Self::Samples(samples)
-    }
-
-    fn samples(self, sample_rate: f64) -> u64 {
-        match self {
-            Self::Disabled => 0,
-            Self::Samples(samples) => samples,
-            Self::Millis(millis) => {
-                let samples = sample_rate * millis as f64 / 1000.0;
-                if !samples.is_finite() || samples <= 0.0 {
-                    0
-                } else if samples >= u64::MAX as f64 {
-                    u64::MAX
-                } else {
-                    samples.ceil() as u64
-                }
-            }
-        }
-    }
-}
-
-/// MML レンダリングの追加オプション。
-///
-/// 既定値は現在の挙動を保つため preroll 無効。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct RenderOptions {
-    preroll: RenderPreroll,
-}
-
-impl RenderOptions {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn with_preroll(mut self, preroll: RenderPreroll) -> Self {
-        self.preroll = preroll;
-        self
-    }
-
-    pub fn with_preroll_ms(self, millis: u64) -> Self {
-        self.with_preroll(RenderPreroll::from_millis(millis))
-    }
-
-    pub fn preroll(&self) -> RenderPreroll {
-        self.preroll
-    }
-
-    fn preroll_samples(&self, sample_rate: f64) -> u64 {
-        self.preroll.samples(sample_rate)
-    }
-}
-
-struct PreparedRenderInputs {
-    patched_cfg: CoreConfig,
-    events: Vec<crate::midi::TimedMidiEvent>,
-    total_samples: u64,
-    preroll_samples: u64,
-}
 
 /// MML → レンダリングのみ。再生はしない。
 /// 戻り値: (サンプル列, 使用パッチ相対パス)
@@ -272,57 +193,6 @@ fn prepare_cache_render(
     };
     let inputs = prepare_render_inputs(&smf_bytes, patched_cfg, options)?;
     Ok(PreparedCacheRender { inputs, output_wav })
-}
-
-fn prepare_render_inputs(
-    smf_bytes: &[u8],
-    patched_cfg: CoreConfig,
-    options: RenderOptions,
-) -> Result<PreparedRenderInputs> {
-    let (events, total_samples) = parse_smf_bytes(smf_bytes, patched_cfg.sample_rate)?;
-    let preroll_samples = options.preroll_samples(patched_cfg.sample_rate);
-    let (events, total_samples) = apply_render_preroll(events, total_samples, preroll_samples);
-    Ok(PreparedRenderInputs {
-        patched_cfg,
-        events,
-        total_samples,
-        preroll_samples,
-    })
-}
-
-fn render_prepared_inputs(prepared: PreparedRenderInputs, entry: &PluginEntry) -> Result<Vec<f32>> {
-    let PreparedRenderInputs {
-        patched_cfg,
-        events,
-        total_samples,
-        preroll_samples,
-    } = prepared;
-    let samples = render_to_memory(&patched_cfg, entry, events, total_samples)?;
-    Ok(trim_render_preroll(samples, preroll_samples))
-}
-
-fn apply_render_preroll(
-    events: Vec<crate::midi::TimedMidiEvent>,
-    total_samples: u64,
-    preroll_samples: u64,
-) -> (Vec<crate::midi::TimedMidiEvent>, u64) {
-    if preroll_samples == 0 {
-        return (events, total_samples);
-    }
-    let events = events
-        .into_iter()
-        .map(|event| crate::midi::TimedMidiEvent {
-            sample_pos: event.sample_pos.saturating_add(preroll_samples),
-            message: event.message,
-        })
-        .collect();
-    (events, total_samples.saturating_add(preroll_samples))
-}
-
-fn trim_render_preroll(samples: Vec<f32>, preroll_samples: u64) -> Vec<f32> {
-    let trim_len = preroll_samples.saturating_mul(RENDER_CHANNELS);
-    let trim_len = usize::try_from(trim_len).unwrap_or(usize::MAX);
-    samples.into_iter().skip(trim_len).collect()
 }
 
 fn resolve_effective_patch(
