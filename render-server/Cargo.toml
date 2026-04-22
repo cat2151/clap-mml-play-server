@@ -9,6 +9,6 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1"
-cmrt-runtime = { path = "../../clap-mml-render-tui/cmrt-runtime" }
+cmrt-runtime = { git = "https://github.com/cat2151/clap-mml-render-tui.git", package = "cmrt-runtime" }
 cmrt-core = { path = "../core-lib" }
 ctrlc = "3"
