@@ -263,7 +263,6 @@ dependencies = [
  "cmrt-core",
  "cmrt-runtime",
  "ctrlc",
- "toml",
 ]
 
 [[package]]
@@ -326,7 +325,7 @@ dependencies = [
 [[package]]
 name = "cmrt-runtime"
 version = "0.1.0"
-source = "git+https://github.com/cat2151/clap-mml-render-tui.git#4797b1c15272e7de6918db568c9e36cebab5601c"
+source = "git+https://github.com/cat2151/clap-mml-render-tui.git#57f36f41ccd00ab61ee2113c48f59d8fc31c1f0d"
 dependencies = [
  "anyhow",
  "dirs",

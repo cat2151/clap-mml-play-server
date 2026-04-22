@@ -12,4 +12,3 @@ anyhow = "1"
 cmrt-runtime = { git = "https://github.com/cat2151/clap-mml-render-tui.git", package = "cmrt-runtime" }
 cmrt-core = { path = "../core-lib" }
 ctrlc = "3"
-toml = "0.8"
