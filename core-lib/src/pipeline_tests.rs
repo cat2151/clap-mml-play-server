@@ -68,10 +68,6 @@ fn encode_wav_i16_rejects_odd_stereo_sample_count() {
 #[test]
 fn mml_str_to_smf_bytes_returns_valid_smf() {
     // "cde" → ドレミ3音の SMF バイト列が生成されることを確認する
-    // 中間ファイル（pass1_tokens.json 等）が config_local_dir()/clap-mml-render-tui/ に書き出されるが、
-    // 戻り値の計算自体はメモリ上で行われるため機能テストとして有効
-    // CMRT_BASE_DIR を変更するテストと直列化して、一時ディレクトリを指している最中に実行しない
-    let _guard = super::env_lock();
     let result = mml_str_to_smf_bytes("cde");
     assert!(
         result.is_ok(),
@@ -87,8 +83,6 @@ fn mml_str_to_smf_bytes_returns_valid_smf() {
 #[test]
 fn mml_to_smf_bytes_strips_json_prefix() {
     // JSON プレフィックス付きの MML でも SMF が生成される
-    // CMRT_BASE_DIR を変更するテストと直列化して、一時ディレクトリを指している最中に実行しない
-    let _guard = super::env_lock();
     let mml = r#"{"Surge XT patch": "Pads/Pad 1.fxp"} cde"#;
     let result = mml_to_smf_bytes(mml);
     assert!(
@@ -103,8 +97,6 @@ fn mml_to_smf_bytes_strips_json_prefix() {
 #[test]
 fn mml_str_to_smf_bytes_empty_mml_returns_valid_smf() {
     // 空のMMLでも有効なSMFが生成されることを確認
-    // CMRT_BASE_DIR を変更するテストと直列化して、一時ディレクトリを指している最中に実行しない
-    let _guard = super::env_lock();
     let result = mml_str_to_smf_bytes("");
     assert!(
         result.is_ok(),
@@ -116,16 +108,17 @@ fn mml_str_to_smf_bytes_empty_mml_returns_valid_smf() {
 }
 
 #[test]
-fn mml_str_to_smf_bytes_in_dir_writes_intermediates_to_requested_dir() {
-    let tmp = std::env::temp_dir().join("cmrt_test_smf_bytes_in_dir");
+fn mml_str_to_smf_bytes_does_not_write_intermediate_files() {
+    let tmp = std::env::temp_dir().join("cmrt_test_smf_bytes_no_intermediates");
     std::fs::remove_dir_all(&tmp).ok();
+    let _guard = super::EnvVarGuard::set("CMRT_BASE_DIR", &tmp);
 
-    let bytes = mml_str_to_smf_bytes_in_dir("cde", &tmp).unwrap();
+    let bytes = mml_str_to_smf_bytes("cde").unwrap();
 
     assert!(bytes.starts_with(b"MThd"));
-    assert!(tmp.join("pass1_tokens.json").is_file());
-    assert!(tmp.join("pass2_ast.json").is_file());
-    assert!(tmp.join("pass3_events.json").is_file());
+    assert!(!tmp.join("pass1_tokens.json").exists());
+    assert!(!tmp.join("pass2_ast.json").exists());
+    assert!(!tmp.join("pass3_events.json").exists());
 
     std::fs::remove_dir_all(&tmp).ok();
 }

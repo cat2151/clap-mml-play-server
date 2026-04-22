@@ -14,6 +14,9 @@ use http::run_render_server;
 
 const RENDER_PREROLL_MS: u64 = 100;
 const REQUIRED_SAMPLE_RATE: f64 = 48_000.0;
+const DEFAULT_OFFLINE_RENDER_SERVER_WORKERS: usize = 4;
+const MIN_OFFLINE_RENDER_SERVER_WORKERS: usize = 1;
+const MAX_OFFLINE_RENDER_SERVER_WORKERS: usize = 16;
 
 fn main() -> Result<()> {
     if help_requested()? {
@@ -24,20 +27,31 @@ fn main() -> Result<()> {
     let cfg = Config::load()?;
     validate_render_server_config(&cfg)?;
     let core_cfg = core_config_from_runtime(&cfg);
-    let entry = load_entry(&cfg.plugin_path)?;
+    let plugin_path = cfg.plugin_path.clone();
+    let sample_rate = core_cfg.sample_rate as u32;
+    let workers = load_offline_render_server_workers()?;
 
     let shutdown = Arc::new(AtomicBool::new(false));
     install_shutdown_handler(Arc::clone(&shutdown))?;
 
-    run_render_server(cfg.offline_render_server_port, shutdown, |mml| {
-        let samples = mml_render_stateless_with_options(
-            mml,
-            &core_cfg,
-            &entry,
-            RenderOptions::new().with_preroll_ms(RENDER_PREROLL_MS),
-        )?;
-        encode_wav_i16(&samples, core_cfg.sample_rate as u32)
-    })
+    run_render_server(
+        cfg.offline_render_server_port,
+        workers,
+        shutdown,
+        move || {
+            let core_cfg = core_cfg.clone();
+            let entry = load_entry(&plugin_path)?;
+            Ok(move |mml: &str| {
+                let samples = mml_render_stateless_with_options(
+                    mml,
+                    &core_cfg,
+                    &entry,
+                    RenderOptions::new().with_preroll_ms(RENDER_PREROLL_MS),
+                )?;
+                encode_wav_i16(&samples, sample_rate)
+            })
+        },
+    )
 }
 
 fn validate_render_server_config(cfg: &Config) -> Result<()> {
@@ -48,6 +62,40 @@ fn validate_render_server_config(cfg: &Config) -> Result<()> {
         anyhow::bail!("render-server は sample_rate = 48000 の config のみ対応します");
     }
     Ok(())
+}
+
+fn load_offline_render_server_workers() -> Result<usize> {
+    let path = cmrt_runtime::config_file_path().ok_or_else(|| {
+        anyhow::anyhow!(
+            "システムの設定ディレクトリが取得できません。HOME 環境変数などを確認してください。"
+        )
+    })?;
+    let text = std::fs::read_to_string(&path)
+        .map_err(|e| anyhow::anyhow!("config.toml が読めない ({}): {}", path.display(), e))?;
+    parse_offline_render_server_workers(&text)
+        .map_err(|e| anyhow::anyhow!("config.toml の検証に失敗 ({}): {}", path.display(), e))
+}
+
+fn parse_offline_render_server_workers(text: &str) -> Result<usize> {
+    let value: toml::Value =
+        toml::from_str(text).context("offline_render_server_workers の読み取りに失敗")?;
+    let Some(workers_value) = value.get("offline_render_server_workers") else {
+        return Ok(DEFAULT_OFFLINE_RENDER_SERVER_WORKERS);
+    };
+    let workers = workers_value
+        .as_integer()
+        .ok_or_else(|| anyhow::anyhow!("offline_render_server_workers は整数で設定してください"))?;
+    if !(MIN_OFFLINE_RENDER_SERVER_WORKERS as i64..=MAX_OFFLINE_RENDER_SERVER_WORKERS as i64)
+        .contains(&workers)
+    {
+        anyhow::bail!(
+            "offline_render_server_workers は {}〜{} の範囲で設定してください（現在値: {}）",
+            MIN_OFFLINE_RENDER_SERVER_WORKERS,
+            MAX_OFFLINE_RENDER_SERVER_WORKERS,
+            workers
+        );
+    }
+    Ok(workers as usize)
 }
 
 fn core_config_from_runtime(cfg: &Config) -> CoreConfig {
@@ -136,5 +184,28 @@ mod tests {
         let error = validate_render_server_config(&cfg).unwrap_err();
 
         assert!(error.to_string().contains("48000"));
+    }
+
+    #[test]
+    fn parse_offline_render_server_workers_uses_default_when_absent() {
+        let workers = parse_offline_render_server_workers("").unwrap();
+
+        assert_eq!(workers, DEFAULT_OFFLINE_RENDER_SERVER_WORKERS);
+    }
+
+    #[test]
+    fn parse_offline_render_server_workers_reads_explicit_value() {
+        let workers =
+            parse_offline_render_server_workers("offline_render_server_workers = 6").unwrap();
+
+        assert_eq!(workers, 6);
+    }
+
+    #[test]
+    fn parse_offline_render_server_workers_rejects_out_of_range_value() {
+        let error =
+            parse_offline_render_server_workers("offline_render_server_workers = 0").unwrap_err();
+
+        assert!(error.to_string().contains("offline_render_server_workers"));
     }
 }

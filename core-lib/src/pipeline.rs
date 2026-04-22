@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use crate::patch_list::{collect_patches, to_relative};
 use crate::CoreConfig;
 
-use mmlabc_to_smf::{mml_preprocessor, pass1_parser, pass2_ast, pass3_events, pass4_midi};
+use mmlabc_to_smf::{mml_preprocessor, raw_mml_to_smf_bytes_with_options, SmfConversionOptions};
 
 #[path = "pipeline_dirs.rs"]
 mod pipeline_dirs;
@@ -55,7 +55,7 @@ pub fn mml_render_stateless(mml: &str, cfg: &CoreConfig, entry: &PluginEntry) ->
     mml_render_stateless_with_options(mml, cfg, entry, RenderOptions::default())
 }
 
-/// MML → レンダリングのみ。中間ファイルは呼び出しごとの一時ディレクトリに閉じる。
+/// MML → レンダリングのみ。中間ファイルは生成しない。
 pub fn mml_render_stateless_with_options(
     mml: &str,
     cfg: &CoreConfig,
@@ -66,7 +66,7 @@ pub fn mml_render_stateless_with_options(
     let preprocessed = mml_preprocessor::extract_embedded_json(mml);
     let effective_patch =
         resolve_effective_patch(preprocessed.embedded_json.as_deref(), cfg, false)?;
-    let smf_bytes = mml_str_to_smf_bytes_in_dir(&preprocessed.remaining_mml, temp_dir.path())?;
+    let smf_bytes = mml_str_to_smf_bytes(&preprocessed.remaining_mml)?;
     let patched_cfg = CoreConfig {
         output_midi: utf8_path_string(&temp_dir.path().join("output.mid"), "一時MIDIパス")?,
         output_wav: utf8_path_string(&temp_dir.path().join("output.wav"), "一時WAVパス")?,
@@ -314,32 +314,13 @@ fn append_history(mml: &str, patch: &Option<String>, cfg: &CoreConfig) -> Result
 
 /// MML文字列（JSON除去済み）→ SMFバイト列
 pub fn mml_str_to_smf_bytes(mml: &str) -> Result<Vec<u8>> {
-    let cmrt_dir = ensure_cmrt_dir()?;
-    mml_str_to_smf_bytes_in_dir(mml, &cmrt_dir)
+    raw_mml_to_smf_bytes_with_options(mml, smf_conversion_options())
 }
 
-fn mml_str_to_smf_bytes_in_dir(mml: &str, dir: &std::path::Path) -> Result<Vec<u8>> {
-    std::fs::create_dir_all(dir)
-        .map_err(|e| anyhow::anyhow!("MML中間ファイルディレクトリの作成に失敗: {}", e))?;
-    // process_pass{1,2,3} は &str を受け取るため、PathBuf から &str への変換が必要。
-    // 非UTF-8パスは明示的にエラーとして扱い、サイレントなパス破壊を防ぐ。
-    let pass1 = dir.join("pass1_tokens.json");
-    let pass2 = dir.join("pass2_ast.json");
-    let pass3 = dir.join("pass3_events.json");
-    let pass1_str = pass1
-        .to_str()
-        .ok_or_else(|| anyhow::anyhow!("パスが非UTF-8です: {}", pass1.display()))?;
-    let pass2_str = pass2
-        .to_str()
-        .ok_or_else(|| anyhow::anyhow!("パスが非UTF-8です: {}", pass2.display()))?;
-    let pass3_str = pass3
-        .to_str()
-        .ok_or_else(|| anyhow::anyhow!("パスが非UTF-8です: {}", pass3.display()))?;
-    let tokens = pass1_parser::process_pass1(mml, pass1_str)?;
-    let ast = pass2_ast::process_pass2(&tokens, pass2_str)?;
-    let events = pass3_events::process_pass3(&ast, pass3_str, false)?;
-    let smf_bytes = pass4_midi::events_to_midi(&events)?;
-    Ok(smf_bytes)
+fn smf_conversion_options() -> SmfConversionOptions {
+    SmfConversionOptions {
+        use_drum_channel_for_128: false,
+    }
 }
 
 /// MML文字列 → SMFバイト列（外部公開用、JSON込みのMMLを受け取る）

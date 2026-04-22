@@ -263,6 +263,7 @@ dependencies = [
  "cmrt-core",
  "cmrt-runtime",
  "ctrlc",
+ "toml",
 ]
 
 [[package]]
@@ -725,7 +726,7 @@ checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
 [[package]]
 name = "mmlabc-to-smf"
 version = "0.1.0"
-source = "git+https://github.com/cat2151/mmlabc-to-smf-rust.git#9a7c10f8719edf756a315c333a70569dede233af"
+source = "git+https://github.com/cat2151/mmlabc-to-smf-rust.git#306db1570aca14f092879108bca7510fbc99a406"
 dependencies = [
  "anyhow",
  "cc",

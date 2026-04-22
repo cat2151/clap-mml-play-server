@@ -2,8 +2,10 @@ use std::{
     net::{SocketAddr, TcpListener, TcpStream},
     sync::{
         atomic::{AtomicBool, Ordering},
+        mpsc::{sync_channel, Receiver, SyncSender, TrySendError},
         Arc,
     },
+    thread::JoinHandle,
     time::Duration,
 };
 
@@ -11,28 +13,60 @@ use anyhow::{Context as _, Result};
 const MAX_HEADER_BYTES: usize = 16 * 1024;
 const MAX_BODY_BYTES: usize = 1024 * 1024;
 const ACCEPT_POLL_INTERVAL: Duration = Duration::from_millis(50);
+const QUEUE_POLL_INTERVAL: Duration = Duration::from_millis(10);
 const REQUEST_READ_TIMEOUT: Duration = Duration::from_secs(10);
 
-pub(crate) fn run_render_server(
+pub(crate) fn run_render_server<R, MakeRender>(
     port: u16,
+    workers: usize,
     shutdown: Arc<AtomicBool>,
-    mut render: impl FnMut(&str) -> Result<Vec<u8>>,
-) -> Result<()> {
+    make_render: MakeRender,
+) -> Result<()>
+where
+    R: FnMut(&str) -> Result<Vec<u8>> + Send + 'static,
+    MakeRender: Fn() -> Result<R>,
+{
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     let listener = TcpListener::bind(addr)
         .with_context(|| format!("failed to bind render-server to {addr}"))?;
+    run_render_server_on_listener(listener, workers, shutdown, make_render)
+}
+
+fn run_render_server_on_listener<R, MakeRender>(
+    listener: TcpListener,
+    workers: usize,
+    shutdown: Arc<AtomicBool>,
+    make_render: MakeRender,
+) -> Result<()>
+where
+    R: FnMut(&str) -> Result<Vec<u8>> + Send + 'static,
+    MakeRender: Fn() -> Result<R>,
+{
+    let addr = listener
+        .local_addr()
+        .context("failed to read render-server local address")?;
     listener
         .set_nonblocking(true)
         .context("failed to set listener nonblocking")?;
-    eprintln!("clap-mml-render-server listening on http://{addr}");
+    let workers = workers.max(1);
+    let (connections_tx, connections_rx) = sync_channel(workers);
+    let mut worker_handles = spawn_render_workers(workers, connections_rx, make_render)?;
+    eprintln!("clap-mml-render-server listening on http://{addr} with {workers} workers");
 
+    let accept_result = accept_connections(listener, &connections_tx, &shutdown);
+    drop(connections_tx);
+    join_render_workers(&mut worker_handles)?;
+    accept_result
+}
+
+fn accept_connections(
+    listener: TcpListener,
+    connections_tx: &SyncSender<TcpStream>,
+    shutdown: &AtomicBool,
+) -> Result<()> {
     while !shutdown.load(Ordering::SeqCst) {
         match listener.accept() {
-            Ok((mut stream, _peer)) => {
-                if let Err(error) = handle_connection(&mut stream, &mut render) {
-                    eprintln!("request handling failed: {error:#}");
-                }
-            }
+            Ok((stream, _peer)) => enqueue_connection(connections_tx, stream, shutdown)?,
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                 std::thread::sleep(ACCEPT_POLL_INTERVAL);
             }
@@ -40,6 +74,84 @@ pub(crate) fn run_render_server(
         }
     }
 
+    Ok(())
+}
+
+fn enqueue_connection(
+    connections_tx: &SyncSender<TcpStream>,
+    mut stream: TcpStream,
+    shutdown: &AtomicBool,
+) -> Result<()> {
+    loop {
+        match connections_tx.try_send(stream) {
+            Ok(()) => return Ok(()),
+            Err(TrySendError::Full(returned_stream)) => {
+                stream = returned_stream;
+                if shutdown.load(Ordering::SeqCst) {
+                    return Ok(());
+                }
+                std::thread::sleep(QUEUE_POLL_INTERVAL);
+            }
+            Err(TrySendError::Disconnected(_)) => {
+                anyhow::bail!("render worker pool stopped");
+            }
+        }
+    }
+}
+
+fn spawn_render_workers<R, MakeRender>(
+    workers: usize,
+    connections_rx: Receiver<TcpStream>,
+    make_render: MakeRender,
+) -> Result<Vec<JoinHandle<()>>>
+where
+    R: FnMut(&str) -> Result<Vec<u8>> + Send + 'static,
+    MakeRender: Fn() -> Result<R>,
+{
+    let connections_rx = Arc::new(std::sync::Mutex::new(connections_rx));
+    let mut handles = Vec::with_capacity(workers);
+    for worker_id in 0..workers {
+        let mut render = make_render()
+            .with_context(|| format!("failed to initialize render worker {worker_id}"))?;
+        let connections_rx = Arc::clone(&connections_rx);
+        let handle = std::thread::Builder::new()
+            .name(format!("render-server-worker-{worker_id}"))
+            .spawn(move || {
+                run_render_worker(worker_id, connections_rx, &mut render);
+            })
+            .context("failed to spawn render worker")?;
+        handles.push(handle);
+    }
+    Ok(handles)
+}
+
+fn run_render_worker<R>(
+    worker_id: usize,
+    connections_rx: Arc<std::sync::Mutex<Receiver<TcpStream>>>,
+    render: &mut R,
+) where
+    R: FnMut(&str) -> Result<Vec<u8>>,
+{
+    loop {
+        let stream = match connections_rx.lock() {
+            Ok(receiver) => receiver.recv(),
+            Err(_) => return,
+        };
+        let Ok(mut stream) = stream else {
+            return;
+        };
+        if let Err(error) = handle_connection(&mut stream, render) {
+            eprintln!("worker {worker_id} request handling failed: {error:#}");
+        }
+    }
+}
+
+fn join_render_workers(worker_handles: &mut Vec<JoinHandle<()>>) -> Result<()> {
+    for handle in worker_handles.drain(..) {
+        if handle.join().is_err() {
+            anyhow::bail!("render worker panicked");
+        }
+    }
     Ok(())
 }
 
@@ -341,6 +453,7 @@ fn write_binary_response(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write as _;
 
     #[test]
     fn read_request_accepts_render_post() {
@@ -374,5 +487,92 @@ mod tests {
         assert!(content_type_is_text_plain("text/plain; charset=utf-8"));
         assert!(content_type_is_text_plain("Text/Plain"));
         assert!(!content_type_is_text_plain("application/json"));
+    }
+
+    #[test]
+    fn run_render_server_processes_worker_requests_concurrently() {
+        let listener =
+            TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0))).expect("bind test listener");
+        let addr = listener.local_addr().expect("read test listener address");
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let gate = Arc::new((std::sync::Mutex::new(false), std::sync::Condvar::new()));
+
+        let server_shutdown = Arc::clone(&shutdown);
+        let server_gate = Arc::clone(&gate);
+        let make_render = move || {
+            let started_tx = started_tx.clone();
+            let gate = Arc::clone(&server_gate);
+            Ok(move |_mml: &str| {
+                started_tx.send(()).expect("record render start");
+                let (lock, cvar) = &*gate;
+                let mut released = lock.lock().expect("lock release gate");
+                while !*released {
+                    released = cvar.wait(released).expect("wait release gate");
+                }
+                Ok(b"wav".to_vec())
+            })
+        };
+        let server = std::thread::spawn(move || {
+            run_render_server_on_listener(listener, 2, server_shutdown, make_render)
+        });
+        let client_a = std::thread::spawn(move || send_render_request(addr, "c"));
+        let client_b = std::thread::spawn(move || send_render_request(addr, "d"));
+
+        let first_started = started_rx.recv_timeout(Duration::from_secs(2)).is_ok();
+        let second_started = started_rx.recv_timeout(Duration::from_secs(2)).is_ok();
+        {
+            let (lock, cvar) = &*gate;
+            *lock.lock().expect("lock release gate") = true;
+            cvar.notify_all();
+        }
+
+        let response_a = client_a.join().expect("join first client");
+        let response_b = client_b.join().expect("join second client");
+        shutdown.store(true, Ordering::SeqCst);
+        server.join().expect("join test server").unwrap();
+
+        assert!(
+            first_started && second_started,
+            "two render requests should start before either render is released"
+        );
+        assert!(response_a.starts_with("HTTP/1.1 200 OK"));
+        assert!(response_b.starts_with("HTTP/1.1 200 OK"));
+    }
+
+    #[test]
+    fn run_render_server_reports_worker_initialization_error() {
+        fn render_never_called(_: &str) -> Result<Vec<u8>> {
+            Ok(Vec::new())
+        }
+
+        let listener =
+            TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0))).expect("bind test listener");
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let error = run_render_server_on_listener(listener, 1, shutdown, || {
+            anyhow::bail!("init failed");
+            #[allow(unreachable_code)]
+            Ok(render_never_called as fn(&str) -> Result<Vec<u8>>)
+        })
+        .unwrap_err();
+
+        assert!(error.to_string().contains("worker 0"));
+    }
+
+    fn send_render_request(addr: SocketAddr, body: &str) -> String {
+        let mut stream = TcpStream::connect(addr).expect("connect to test server");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .expect("set read timeout");
+        write!(
+            stream,
+            "POST /render HTTP/1.1\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        )
+        .expect("write request");
+        let mut response = String::new();
+        std::io::Read::read_to_string(&mut stream, &mut response).expect("read response");
+        response
     }
 }

@@ -2,3 +2,4 @@
 - cargoのformatとlinterを使うこと
 - cat2151のライブラリはrevision固定を禁止
 - issue-notes/は更新を禁止
+- README.jaは更新を禁止（README.ja.mdから自動生成される）
