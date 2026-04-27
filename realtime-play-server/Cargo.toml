@@ -1,0 +1,17 @@
+[package]
+name = "clap-mml-realtime-play-server"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "clap-mml-realtime-play-server"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+cmrt-core = { path = "../core-lib" }
+cmrt-runtime = { git = "https://github.com/cat2151/clap-mml-render-tui.git", package = "cmrt-runtime" }
+ctrlc = "3"
+rodio = "0.19"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"

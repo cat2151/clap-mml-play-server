@@ -1,5 +1,5 @@
 [workspace]
-members = ["core-lib", "render-server"]
+members = ["core-lib", "render-server", "realtime-play-server"]
 resolver = "2"
 
 [patch."https://github.com/cat2151/clap-mml-play-server"]

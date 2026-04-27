@@ -256,6 +256,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "clap-mml-realtime-play-server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cmrt-core",
+ "cmrt-runtime",
+ "ctrlc",
+ "rodio",
+ "serde",
+ "toml",
+]
+
+[[package]]
 name = "clap-mml-render-server"
 version = "0.1.0"
 dependencies = [
@@ -325,7 +338,7 @@ dependencies = [
 [[package]]
 name = "cmrt-runtime"
 version = "0.1.0"
-source = "git+https://github.com/cat2151/clap-mml-render-tui.git#57f36f41ccd00ab61ee2113c48f59d8fc31c1f0d"
+source = "git+https://github.com/cat2151/clap-mml-render-tui.git#90e48c025e23af908bd22d0a76403f159cfbd887"
 dependencies = [
  "anyhow",
  "dirs",

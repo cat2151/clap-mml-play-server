@@ -200,6 +200,28 @@ fn prepare_render_inputs_applies_configured_preroll() {
 }
 
 #[test]
+fn prepare_render_inputs_rejects_invalid_smf_bytes() {
+    let config = CoreConfig {
+        output_midi: "out.mid".into(),
+        output_wav: "out.wav".into(),
+        sample_rate: 48_000.0,
+        buffer_size: 512,
+        patch_path: None,
+        patches_dir: None,
+        random_patch: false,
+    };
+
+    let result = prepare_render_inputs(b"not a midi file", config, RenderOptions::default());
+    assert!(
+        result.is_err(),
+        "invalid SMF bytes should fail before plugin rendering"
+    );
+    let error = result.err().unwrap();
+
+    assert!(!error.to_string().is_empty());
+}
+
+#[test]
 fn ensure_cmrt_dir_creates_directory_and_returns_path() {
     // 一時ディレクトリを使ってシステム設定ディレクトリを汚染しない
     let tmp = std::env::temp_dir().join("cmrt_test_ensure_cmrt_dir");

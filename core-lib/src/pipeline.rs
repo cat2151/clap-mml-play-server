@@ -78,6 +78,24 @@ pub fn mml_render_stateless_with_options(
     render_prepared_inputs(inputs, entry)
 }
 
+/// SMF bytes → レンダリングのみ。中間ファイルは生成しない。
+pub fn smf_render_stateless_with_options(
+    smf_bytes: &[u8],
+    cfg: &CoreConfig,
+    entry: &PluginEntry,
+    options: RenderOptions,
+) -> Result<Vec<f32>> {
+    let temp_dir = RenderTempDir::create()?;
+    let patched_cfg = CoreConfig {
+        output_midi: utf8_path_string(&temp_dir.path().join("output.mid"), "一時MIDIパス")?,
+        output_wav: utf8_path_string(&temp_dir.path().join("output.wav"), "一時WAVパス")?,
+        random_patch: false,
+        ..cfg.clone()
+    };
+    let inputs = prepare_render_inputs(smf_bytes, patched_cfg, options)?;
+    render_prepared_inputs(inputs, entry)
+}
+
 /// キャッシュ構築専用の MML → レンダリング。
 /// - `patch_history.txt` への追記は行わない
 /// - MIDI/WAV の出力先は DAW 専用ディレクトリ（`config_local_dir()/clap-mml-render-tui/daw/daw_cache.mid/wav`）を使用
