@@ -9,9 +9,9 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1"
+cpal = "0.15"
 cmrt-core = { path = "../core-lib" }
 cmrt-runtime = { git = "https://github.com/cat2151/clap-mml-render-tui.git", package = "cmrt-runtime" }
 ctrlc = "3"
-rodio = "0.19"
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"

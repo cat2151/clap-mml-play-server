@@ -262,8 +262,8 @@ dependencies = [
  "anyhow",
  "cmrt-core",
  "cmrt-runtime",
+ "cpal",
  "ctrlc",
- "rodio",
  "serde",
  "toml",
 ]

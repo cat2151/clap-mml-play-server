@@ -13,7 +13,7 @@ use config::{
     core_config_from_runtime, validate_realtime_play_server_config, RealtimeServerConfig,
 };
 use http::run_realtime_play_server;
-use player::{PhaseAPlayer, PlayerHandle};
+use player::{PlayerHandle, RealtimePlayer};
 
 const RENDER_PREROLL_MS: u64 = 100;
 
@@ -28,7 +28,7 @@ fn main() -> Result<()> {
     validate_realtime_play_server_config(&cfg, &realtime_cfg)?;
 
     let core_cfg = core_config_from_runtime(&cfg, &realtime_cfg);
-    let player: Arc<dyn PlayerHandle> = Arc::new(PhaseAPlayer::new(
+    let player: Arc<dyn PlayerHandle> = Arc::new(RealtimePlayer::new(
         core_cfg,
         cfg.plugin_path.clone(),
         RenderOptions::new().with_preroll_ms(RENDER_PREROLL_MS),
@@ -59,7 +59,7 @@ fn help_requested() -> Result<bool> {
 
 fn print_help() {
     println!(
-        "clap-mml-realtime-play-server\n\nUSAGE:\n    clap-mml-realtime-play-server\n\nCONFIG:\n    config_local_dir()/clap-mml-render-tui/config.toml\n\nHTTP:\n    GET /health\n    POST /play   request: Standard MIDI File bytes, Content-Type: audio/midi\n    POST /stop"
+        "clap-mml-realtime-play-server\n\nUSAGE:\n    clap-mml-realtime-play-server\n\nCONFIG:\n    config_local_dir()/clap-mml-render-tui/config.toml\n\nHTTP:\n    GET /health\n    POST /play   request: Standard MIDI File bytes, Content-Type: audio/midi | audio/x-midi | application/octet-stream\n    POST /stop"
     );
 }
 

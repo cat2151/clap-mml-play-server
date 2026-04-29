@@ -222,6 +222,31 @@ fn prepare_render_inputs_rejects_invalid_smf_bytes() {
 }
 
 #[test]
+fn smf_playback_schedule_with_options_applies_preroll() {
+    let smf_bytes = mml_str_to_smf_bytes("t120o4c").unwrap();
+
+    let schedule = smf_playback_schedule_with_options(
+        &smf_bytes,
+        1_000.0,
+        RenderOptions::new().with_preroll_ms(100),
+    )
+    .unwrap();
+
+    assert_eq!(schedule.current_sample(), 0);
+    assert_eq!(schedule.events()[0].sample_pos, 100);
+    assert!(schedule.total_samples() > 100);
+}
+
+#[test]
+fn smf_playback_schedule_with_options_rejects_invalid_smf_bytes() {
+    let error =
+        smf_playback_schedule_with_options(b"not a midi file", 48_000.0, RenderOptions::default())
+            .unwrap_err();
+
+    assert!(!error.to_string().is_empty());
+}
+
+#[test]
 fn ensure_cmrt_dir_creates_directory_and_returns_path() {
     // 一時ディレクトリを使ってシステム設定ディレクトリを汚染しない
     let tmp = std::env::temp_dir().join("cmrt_test_ensure_cmrt_dir");

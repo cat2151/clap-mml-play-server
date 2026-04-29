@@ -7,6 +7,7 @@ use rodio::{buffer::SamplesBuffer, OutputStream, Sink};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::patch_list::{collect_patches, to_relative};
+use crate::render::RealtimePlaybackSchedule;
 use crate::CoreConfig;
 
 use mmlabc_to_smf::{mml_preprocessor, raw_mml_to_smf_bytes_with_options, SmfConversionOptions};
@@ -22,7 +23,9 @@ mod pipeline_test_support;
 pub use pipeline_dirs::{ensure_cmrt_dir, ensure_daw_dir, ensure_phrase_dir};
 #[cfg(test)]
 use pipeline_render::{apply_render_preroll, trim_render_preroll};
-use pipeline_render::{prepare_render_inputs, render_prepared_inputs, PreparedRenderInputs};
+use pipeline_render::{
+    prepare_playback_events, prepare_render_inputs, render_prepared_inputs, PreparedRenderInputs,
+};
 pub use pipeline_render::{RenderOptions, RenderPreroll};
 #[cfg(test)]
 pub(crate) use pipeline_test_support::{env_lock, EnvVarGuard};
@@ -94,6 +97,16 @@ pub fn smf_render_stateless_with_options(
     };
     let inputs = prepare_render_inputs(smf_bytes, patched_cfg, options)?;
     render_prepared_inputs(inputs, entry)
+}
+
+/// SMF bytes → realtime playback 用イベント列。中間ファイルは生成しない。
+pub fn smf_playback_schedule_with_options(
+    smf_bytes: &[u8],
+    sample_rate: f64,
+    options: RenderOptions,
+) -> Result<RealtimePlaybackSchedule> {
+    let (events, total_samples) = prepare_playback_events(smf_bytes, sample_rate, options)?;
+    Ok(RealtimePlaybackSchedule::new(events, total_samples))
 }
 
 /// キャッシュ構築専用の MML → レンダリング。

@@ -92,14 +92,27 @@ pub(crate) struct PreparedRenderInputs {
     pub(crate) preroll_samples: u64,
 }
 
+pub(crate) fn prepare_playback_events(
+    smf_bytes: &[u8],
+    sample_rate: f64,
+    options: RenderOptions,
+) -> Result<(Vec<TimedMidiEvent>, u64)> {
+    let (events, total_samples) = parse_smf_bytes(smf_bytes, sample_rate)?;
+    Ok(apply_render_preroll(
+        events,
+        total_samples,
+        options.preroll_samples(sample_rate),
+    ))
+}
+
 pub(crate) fn prepare_render_inputs(
     smf_bytes: &[u8],
     patched_cfg: CoreConfig,
     options: RenderOptions,
 ) -> Result<PreparedRenderInputs> {
-    let (events, total_samples) = parse_smf_bytes(smf_bytes, patched_cfg.sample_rate)?;
     let preroll_samples = options.preroll_samples(patched_cfg.sample_rate);
-    let (events, total_samples) = apply_render_preroll(events, total_samples, preroll_samples);
+    let (events, total_samples) =
+        prepare_playback_events(smf_bytes, patched_cfg.sample_rate, options)?;
     Ok(PreparedRenderInputs {
         patched_cfg,
         events,
