@@ -101,12 +101,12 @@ impl AudioOutputBuffer {
 fn next_stereo_sample(state: &mut AudioOutputState) -> Option<(f32, f32)> {
     loop {
         let chunk = state.chunks.front_mut()?;
-        if chunk.offset + 1 >= chunk.samples.len() {
+        if chunk.offset >= chunk.samples.len() {
             state.chunks.pop_front();
             continue;
         }
         let left = chunk.samples[chunk.offset];
-        let right = chunk.samples[chunk.offset + 1];
+        let right = chunk.samples.get(chunk.offset + 1).copied().unwrap_or(0.0);
         chunk.offset += 2;
         if chunk.offset >= chunk.samples.len() {
             state.chunks.pop_front();
@@ -161,5 +161,17 @@ mod tests {
         buffer.fill_output(&mut output, 4);
 
         assert_eq!(output, [0.25, 0.75, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn fill_output_preserves_last_odd_sample() {
+        let buffer = AudioOutputBuffer::default();
+        buffer.reset(1);
+        assert!(buffer.push_chunk(1, vec![0.25, 0.75, 0.5]));
+        let mut output = [1.0f32; 4];
+
+        buffer.fill_output(&mut output, 2);
+
+        assert_eq!(output, [0.25, 0.75, 0.5, 0.0]);
     }
 }
