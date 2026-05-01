@@ -1,5 +1,6 @@
+mod audio_output;
+
 use std::{
-    collections::VecDeque,
     sync::{Arc, Condvar, Mutex},
     thread::JoinHandle,
     time::Duration,
@@ -15,12 +16,13 @@ use cpal::{
     FromSample, Sample, SampleFormat, SizedSample, Stream, StreamConfig,
 };
 
+use self::audio_output::AudioOutputBuffer;
+
 pub(crate) trait PlayerHandle: Send + Sync + 'static {
     fn play_smf(&self, smf: Vec<u8>) -> Result<()>;
     fn stop(&self) -> Result<()>;
 }
 
-const MAX_BUFFERED_CHUNKS: usize = 8;
 const OUTPUT_WAIT_TIMEOUT: Duration = Duration::from_millis(10);
 
 pub(crate) struct RealtimePlayer {
@@ -43,12 +45,6 @@ struct PlayerState {
     shutdown: bool,
 }
 
-#[derive(Default)]
-struct AudioOutputBuffer {
-    state: Mutex<AudioOutputState>,
-    state_changed: Condvar,
-}
-
 #[derive(Debug)]
 enum PlayerCommand {
     Play {
@@ -58,18 +54,6 @@ enum PlayerCommand {
     Stop {
         generation: u64,
     },
-}
-
-#[derive(Default)]
-struct AudioOutputState {
-    generation: u64,
-    chunks: VecDeque<AudioChunk>,
-    shutdown: bool,
-}
-
-struct AudioChunk {
-    samples: Vec<f32>,
-    offset: usize,
 }
 
 impl RealtimePlayer {
@@ -370,104 +354,6 @@ fn ensure_running(state: &PlayerState) -> Result<()> {
 
 fn next_generation(current: u64) -> u64 {
     current.wrapping_add(1).max(1)
-}
-
-impl AudioOutputBuffer {
-    fn reset(&self, generation: u64) {
-        let mut state = self.state.lock().unwrap();
-        state.generation = generation;
-        state.chunks.clear();
-        self.state_changed.notify_all();
-    }
-
-    fn shutdown(&self) {
-        let mut state = self.state.lock().unwrap();
-        state.shutdown = true;
-        state.chunks.clear();
-        self.state_changed.notify_all();
-    }
-
-    fn wait_for_space_timeout(&self, timeout: Duration) -> bool {
-        let mut state = self.state.lock().unwrap();
-        if state.shutdown || state.chunks.len() < MAX_BUFFERED_CHUNKS {
-            return !state.shutdown;
-        }
-        let (state_after_wait, _) = self.state_changed.wait_timeout(state, timeout).unwrap();
-        state = state_after_wait;
-        !state.shutdown && state.chunks.len() < MAX_BUFFERED_CHUNKS
-    }
-
-    fn push_chunk(&self, generation: u64, samples: Vec<f32>) -> bool {
-        let mut state = self.state.lock().unwrap();
-        while !state.shutdown
-            && state.generation == generation
-            && state.chunks.len() >= MAX_BUFFERED_CHUNKS
-        {
-            state = self.state_changed.wait(state).unwrap();
-        }
-        if state.shutdown || state.generation != generation {
-            return false;
-        }
-        state.chunks.push_back(AudioChunk { samples, offset: 0 });
-        true
-    }
-
-    fn fill_output<T>(&self, output: &mut [T], channels: usize)
-    where
-        T: Sample + FromSample<f32>,
-    {
-        if channels == 0 {
-            return;
-        }
-
-        let Ok(mut state) = self.state.try_lock() else {
-            zero_output(output);
-            return;
-        };
-        let mut consumed = false;
-        for frame in output.chunks_mut(channels) {
-            let (left, right) = next_stereo_sample(&mut state).unwrap_or((0.0, 0.0));
-            consumed = true;
-            if channels == 1 {
-                frame[0] = T::from_sample((left + right) * 0.5);
-                continue;
-            }
-            frame[0] = T::from_sample(left);
-            frame[1] = T::from_sample(right);
-            for sample in &mut frame[2..] {
-                *sample = T::from_sample(0.0);
-            }
-        }
-        if consumed {
-            self.state_changed.notify_all();
-        }
-    }
-}
-
-fn next_stereo_sample(state: &mut AudioOutputState) -> Option<(f32, f32)> {
-    loop {
-        let chunk = state.chunks.front_mut()?;
-        if chunk.offset + 1 >= chunk.samples.len() {
-            state.chunks.pop_front();
-            continue;
-        }
-        let left = chunk.samples[chunk.offset];
-        let right = chunk.samples[chunk.offset + 1];
-        chunk.offset += 2;
-        if chunk.offset >= chunk.samples.len() {
-            state.chunks.pop_front();
-        }
-        return Some((left, right));
-    }
-}
-
-fn zero_output<T>(output: &mut [T])
-where
-    T: Sample + FromSample<f32>,
-{
-    for sample in output {
-        *sample = T::from_sample(0.0);
-    }
 }
 
 #[cfg(test)]
