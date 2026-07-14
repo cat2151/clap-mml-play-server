@@ -7,7 +7,7 @@
 ### install
 
 ```
-cargo install --force --git https://github.com/cat2151/clap-mml-play-server
+cargo install --force --git https://github.com/cat2151/clap-mml-play-server clap-mml-realtime-play-server
 ```
 
 ### 経緯：
