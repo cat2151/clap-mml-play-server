@@ -10,7 +10,9 @@ use std::{
 };
 
 use anyhow::{Context as _, Result};
+use serde::Deserialize;
 
+use crate::fast_ipc::spawn_fast_midi_server;
 use crate::player::PlayerHandle;
 
 const WORKERS: usize = 4;
@@ -43,12 +45,17 @@ fn run_realtime_play_server_on_listener(
         .set_nonblocking(true)
         .context("failed to set listener nonblocking")?;
     let (connections_tx, connections_rx) = sync_channel(WORKERS);
-    let mut worker_handles = spawn_play_workers(connections_rx, player)?;
+    let mut worker_handles = spawn_play_workers(connections_rx, Arc::clone(&player))?;
+    let fast_midi_handle =
+        spawn_fast_midi_server(addr.port(), Arc::clone(&shutdown), Arc::clone(&player))?;
     eprintln!("clap-mml-realtime-play-server listening on http://{addr}");
 
     let accept_result = accept_connections(listener, &connections_tx, &shutdown);
     drop(connections_tx);
     join_play_workers(&mut worker_handles)?;
+    if fast_midi_handle.is_some_and(|handle| handle.join().is_err()) {
+        anyhow::bail!("shared-memory MIDI server panicked");
+    }
     accept_result
 }
 
@@ -159,13 +166,198 @@ fn handle_connection(stream: &mut TcpStream, player: &dyn PlayerHandle) -> Resul
         ("GET", "/health") => write_text_response(stream, StatusCode::Ok, "ok")?,
         ("POST", "/play") => handle_play_request(stream, player, request)?,
         ("POST", "/play-mml") => handle_play_mml_request(stream, player, request)?,
+        ("POST", "/midi") => handle_midi_request(stream, player, request)?,
+        ("POST", "/live-patch") => handle_live_patch_request(stream, player, request)?,
+        ("POST", "/live-buffer") => handle_live_buffer_request(stream, player, request)?,
         ("POST", "/stop") => handle_stop_request(stream, player)?,
-        (_, "/health" | "/play" | "/play-mml" | "/stop") => {
-            write_text_response(stream, StatusCode::MethodNotAllowed, "method not allowed")?
-        }
+        (
+            _,
+            "/health" | "/play" | "/play-mml" | "/midi" | "/live-patch" | "/live-buffer" | "/stop",
+        ) => write_text_response(stream, StatusCode::MethodNotAllowed, "method not allowed")?,
         _ => write_text_response(stream, StatusCode::NotFound, "not found")?,
     }
 
+    Ok(())
+}
+
+#[derive(Deserialize)]
+struct LiveBufferRequestBody {
+    multiplier: u8,
+}
+
+fn handle_live_buffer_request(
+    stream: &mut impl std::io::Write,
+    player: &dyn PlayerHandle,
+    request: HttpRequest,
+) -> Result<()> {
+    if request.header("content-length").is_none() {
+        write_text_response(
+            stream,
+            StatusCode::LengthRequired,
+            "Content-Length required",
+        )?;
+        return Ok(());
+    }
+    if !request
+        .header("content-type")
+        .is_some_and(content_type_is_json)
+    {
+        write_text_response(
+            stream,
+            StatusCode::UnsupportedMediaType,
+            "Content-Type must be application/json",
+        )?;
+        return Ok(());
+    }
+    let body: LiveBufferRequestBody = match serde_json::from_slice(&request.body) {
+        Ok(body) => body,
+        Err(error) => {
+            write_text_response(
+                stream,
+                StatusCode::BadRequest,
+                &format!("invalid live buffer request JSON: {error}"),
+            )?;
+            return Ok(());
+        }
+    };
+    if !matches!(body.multiplier, 1 | 2 | 4 | 8) {
+        write_text_response(
+            stream,
+            StatusCode::BadRequest,
+            "buffer multiplier must be 1, 2, 4, or 8",
+        )?;
+        return Ok(());
+    }
+    match player.set_live_buffer_multiplier(body.multiplier) {
+        Ok(()) => write_text_response(stream, StatusCode::Accepted, "accepted")?,
+        Err(error) => write_text_response(
+            stream,
+            StatusCode::InternalServerError,
+            &format!("{error:#}"),
+        )?,
+    }
+    Ok(())
+}
+
+#[derive(Deserialize)]
+struct MidiRequestBody {
+    messages: Vec<[u8; 3]>,
+    patch: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct LivePatchRequestBody {
+    patch: Option<String>,
+}
+
+fn handle_live_patch_request(
+    stream: &mut impl std::io::Write,
+    player: &dyn PlayerHandle,
+    request: HttpRequest,
+) -> Result<()> {
+    if request.header("content-length").is_none() {
+        write_text_response(
+            stream,
+            StatusCode::LengthRequired,
+            "Content-Length required",
+        )?;
+        return Ok(());
+    }
+    if !request
+        .header("content-type")
+        .is_some_and(content_type_is_json)
+    {
+        write_text_response(
+            stream,
+            StatusCode::UnsupportedMediaType,
+            "Content-Type must be application/json",
+        )?;
+        return Ok(());
+    }
+    let body: LivePatchRequestBody = match serde_json::from_slice(&request.body) {
+        Ok(body) => body,
+        Err(error) => {
+            write_text_response(
+                stream,
+                StatusCode::BadRequest,
+                &format!("invalid live patch request JSON: {error}"),
+            )?;
+            return Ok(());
+        }
+    };
+
+    match player.prepare_live_patch(body.patch) {
+        Ok(()) => write_empty_response(stream, StatusCode::NoContent)?,
+        Err(error) => write_text_response(
+            stream,
+            StatusCode::InternalServerError,
+            &format!("{error:#}"),
+        )?,
+    }
+    Ok(())
+}
+
+fn handle_midi_request(
+    stream: &mut impl std::io::Write,
+    player: &dyn PlayerHandle,
+    request: HttpRequest,
+) -> Result<()> {
+    if request.header("content-length").is_none() {
+        write_text_response(
+            stream,
+            StatusCode::LengthRequired,
+            "Content-Length required",
+        )?;
+        return Ok(());
+    }
+    if !request
+        .header("content-type")
+        .is_some_and(content_type_is_json)
+    {
+        write_text_response(
+            stream,
+            StatusCode::UnsupportedMediaType,
+            "Content-Type must be application/json",
+        )?;
+        return Ok(());
+    }
+    let body: MidiRequestBody = match serde_json::from_slice(&request.body) {
+        Ok(body) => body,
+        Err(error) => {
+            write_text_response(
+                stream,
+                StatusCode::BadRequest,
+                &format!("invalid MIDI request JSON: {error}"),
+            )?;
+            return Ok(());
+        }
+    };
+    if body.messages.is_empty() {
+        write_text_response(stream, StatusCode::BadRequest, "messages must not be empty")?;
+        return Ok(());
+    }
+    if let Some(message) = body.messages.iter().find(|message| {
+        !(0x80..=0xef).contains(&message[0]) || message[1] > 0x7f || message[2] > 0x7f
+    }) {
+        write_text_response(
+            stream,
+            StatusCode::BadRequest,
+            &format!(
+                "invalid MIDI channel voice message: [{}, {}, {}]",
+                message[0], message[1], message[2]
+            ),
+        )?;
+        return Ok(());
+    }
+
+    match player.send_midi(body.messages, body.patch) {
+        Ok(()) => write_text_response(stream, StatusCode::Accepted, "accepted")?,
+        Err(error) => write_text_response(
+            stream,
+            StatusCode::InternalServerError,
+            &format!("{error:#}"),
+        )?,
+    }
     Ok(())
 }
 
@@ -275,6 +467,13 @@ fn content_type_is_text(value: &str) -> bool {
         .split(';')
         .next()
         .is_some_and(|media_type| media_type.trim().eq_ignore_ascii_case("text/plain"))
+}
+
+fn content_type_is_json(value: &str) -> bool {
+    value
+        .split(';')
+        .next()
+        .is_some_and(|media_type| media_type.trim().eq_ignore_ascii_case("application/json"))
 }
 
 #[derive(Debug)]

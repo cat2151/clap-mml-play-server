@@ -267,10 +267,12 @@ dependencies = [
  "anyhow",
  "clap",
  "cmrt-core",
+ "cmrt-realtime-ipc",
  "cmrt-runtime",
  "cpal",
  "ctrlc",
  "serde",
+ "serde_json",
  "toml",
 ]
 
@@ -344,9 +346,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmrt-realtime-ipc"
+version = "0.1.0"
+dependencies = [
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "cmrt-runtime"
 version = "0.1.0"
-source = "git+https://github.com/cat2151/clap-mml-render-tui.git#90e48c025e23af908bd22d0a76403f159cfbd887"
+source = "git+https://github.com/cat2151/clap-mml-render-tui.git#62e79170d2d5283ff56675f79a1db24273742284"
 dependencies = [
  "anyhow",
  "dirs",

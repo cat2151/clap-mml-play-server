@@ -2,8 +2,8 @@
 
 use anyhow::Result;
 use clack_extensions::state::PluginState;
-use clack_host::events::event_types::{NoteOffEvent, NoteOnEvent};
-use clack_host::events::Match;
+use clack_host::events::event_types::{MidiEvent as ClapMidiEvent, NoteOffEvent, NoteOnEvent};
+use clack_host::events::{EventFlags, Match};
 use clack_host::prelude::*;
 use hound::{SampleFormat, WavSpec, WavWriter};
 
@@ -298,7 +298,24 @@ impl RealtimeRenderer {
             playback.event_cursor += 1;
         }
 
-        let input_events = InputEvents::from_buffer(&input_events_raw);
+        let samples = self.process_chunk(frames, &input_events_raw)?;
+        playback.current_sample = buf_end;
+        Ok(Some(samples))
+    }
+
+    /// timestampを持たないlive MIDI 1.0 short message群を、順序を保って
+    /// 次のchunk先頭で処理する。複数のNote Onは同時発音としてpluginへ渡る。
+    pub fn render_live_chunk(&mut self, midi_messages: &[[u8; 3]]) -> Result<Vec<f32>> {
+        let mut input_events_raw = EventBuffer::new();
+        for message in midi_messages {
+            input_events_raw
+                .push(&ClapMidiEvent::new(0, 0, *message).with_flags(EventFlags::IS_LIVE));
+        }
+        self.process_chunk(self.buf_size as u32, &input_events_raw)
+    }
+
+    fn process_chunk(&mut self, frames: u32, input_events_raw: &EventBuffer) -> Result<Vec<f32>> {
+        let input_events = InputEvents::from_buffer(input_events_raw);
         let mut output_events = OutputEvents::from_buffer(&mut self.output_events_buf);
         let frame_len = frames as usize;
         self.out_left[..frame_len].fill(0.0);
@@ -335,8 +352,7 @@ impl RealtimeRenderer {
             samples.push(self.out_left[i]);
             samples.push(self.out_right[i]);
         }
-        playback.current_sample = buf_end;
-        Ok(Some(samples))
+        Ok(samples)
     }
 }
 

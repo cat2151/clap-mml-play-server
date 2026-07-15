@@ -160,6 +160,10 @@ mod tests {
             offline_render_backend: cmrt_runtime::OfflineRenderBackend::InProcess,
             offline_render_server_port: cmrt_runtime::DEFAULT_OFFLINE_RENDER_SERVER_PORT,
             offline_render_server_command: String::new(),
+            realtime_audio_backend: cmrt_runtime::RealtimeAudioBackend::InProcess,
+            realtime_play_server_port: cmrt_runtime::DEFAULT_REALTIME_PLAY_SERVER_PORT,
+            realtime_play_server_command: String::new(),
+            autoplay_on_startup: true,
         }
     }
 

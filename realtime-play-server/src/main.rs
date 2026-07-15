@@ -1,4 +1,5 @@
 mod config;
+mod fast_ipc;
 mod http;
 mod player;
 
@@ -34,7 +35,7 @@ enum CliAction {
     disable_help_subcommand = true,
     disable_version_flag = true,
     args_conflicts_with_subcommands = true,
-    after_help = "CONFIG:\n    config_local_dir()/clap-mml-render-tui/config.toml\n\nHTTP:\n    GET /health\n    POST /play       request: Standard MIDI File bytes, Content-Type: audio/midi | audio/x-midi | application/octet-stream\n    POST /play-mml   request: MML text (leading {\"Surge XT patch\": ...} JSON selects the patch), Content-Type: text/plain\n    POST /stop"
+    after_help = "CONFIG:\n    config_local_dir()/clap-mml-render-tui/config.toml\n\nHTTP:\n    GET /health\n    POST /play         request: Standard MIDI File bytes, Content-Type: audio/midi | audio/x-midi | application/octet-stream\n    POST /play-mml     request: MML text (leading {\"Surge XT patch\": ...} JSON selects the patch), Content-Type: text/plain\n    POST /midi         request: {\"messages\":[[144,60,100]],\"patch\":\"patches_factory/Keys/Piano.fxp\"}, optional patch, Content-Type: application/json\n    POST /live-patch   request: {\"patch\":\"patches_factory/Keys/Piano.fxp\"}, waits for patch load, Content-Type: application/json\n    POST /live-buffer  request: {\"multiplier\":4}, accepted: 1, 2, 4, 8, Content-Type: application/json\n    POST /stop\n\nFAST MIDI (Windows):\n    Named shared memory and event notification on the realtime server port"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -149,6 +150,8 @@ mod tests {
         assert!(help.contains("check"));
         assert!(help.contains("POST /play"));
         assert!(help.contains("POST /play-mml"));
+        assert!(help.contains("POST /live-patch"));
+        assert!(help.contains("FAST MIDI (Windows)"));
     }
 
     #[test]

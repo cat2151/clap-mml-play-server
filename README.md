@@ -4,6 +4,23 @@
 - Utilized as a library by `clap-mml-render-tui`.
 - Utilized by `clap-mml-render-tui` as a separately launched server process.
 
+### Realtime MIDI API
+
+`clap-mml-realtime-play-server` accepts timestamp-free MIDI 1.0 channel voice messages. Messages
+in one request are delivered in order at the start of the next audio chunk. The first request
+switches playback to the plugin's Init Saw state.
+
+```http
+POST /midi
+Content-Type: application/json
+
+{"messages":[[128,60,0],[144,62,100]]}
+```
+
+Each message must contain exactly three bytes. Status bytes `0x80` through `0xEF` are accepted;
+data bytes must be `0x00` through `0x7F`. Pad two-byte messages such as Program Change with a
+zero third byte. SysEx, running status, and MIDI 2.0 are not supported by this endpoint.
+
 ### Install
 
 ```

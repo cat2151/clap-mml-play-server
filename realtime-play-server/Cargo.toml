@@ -12,7 +12,9 @@ anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 cpal = "0.15"
 cmrt-core = { path = "../core-lib" }
+cmrt-realtime-ipc = { path = "../realtime-ipc" }
 cmrt-runtime = { git = "https://github.com/cat2151/clap-mml-render-tui.git", package = "cmrt-runtime" }
 ctrlc = "3"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 toml = "0.8"
