@@ -34,7 +34,7 @@ enum CliAction {
     disable_help_subcommand = true,
     disable_version_flag = true,
     args_conflicts_with_subcommands = true,
-    after_help = "CONFIG:\n    config_local_dir()/clap-mml-render-tui/config.toml\n\nHTTP:\n    GET /health\n    POST /play   request: Standard MIDI File bytes, Content-Type: audio/midi | audio/x-midi | application/octet-stream\n    POST /stop"
+    after_help = "CONFIG:\n    config_local_dir()/clap-mml-render-tui/config.toml\n\nHTTP:\n    GET /health\n    POST /play       request: Standard MIDI File bytes, Content-Type: audio/midi | audio/x-midi | application/octet-stream\n    POST /play-mml   request: MML text (leading {\"Surge XT patch\": ...} JSON selects the patch), Content-Type: text/plain\n    POST /stop"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -148,6 +148,7 @@ mod tests {
         assert!(help.contains("update"));
         assert!(help.contains("check"));
         assert!(help.contains("POST /play"));
+        assert!(help.contains("POST /play-mml"));
     }
 
     #[test]

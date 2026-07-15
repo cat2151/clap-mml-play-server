@@ -26,13 +26,6 @@ fn load_patch(
     plugin_instance: &mut PluginInstance<MidiRenderHost>,
     patch_path: &str,
 ) -> Result<()> {
-    let state_ext: PluginState = {
-        let handle = plugin_instance.plugin_handle();
-        handle
-            .get_extension::<PluginState>()
-            .ok_or_else(|| anyhow::anyhow!("プラグインが state extension をサポートしていない"))?
-    }; // handle をここでドロップ
-
     let raw = std::fs::read(patch_path)
         .map_err(|e| anyhow::anyhow!("パッチファイルを読めない '{}': {}", patch_path, e))?;
 
@@ -62,17 +55,58 @@ fn load_patch(
         &raw[..]
     };
 
-    let mut cursor = std::io::Cursor::new(chunk_data);
+    load_plugin_state(plugin_instance, chunk_data)
+        .map_err(|e| anyhow::anyhow!("パッチのロードに失敗 ({}): {}", patch_path, e))
+}
+
+fn plugin_state_extension(
+    plugin_instance: &mut PluginInstance<MidiRenderHost>,
+) -> Result<PluginState> {
+    plugin_instance
+        .plugin_handle()
+        .get_extension::<PluginState>()
+        .ok_or_else(|| anyhow::anyhow!("プラグインが state extension をサポートしていない"))
+}
+
+/// 現在のプラグイン state をバイト列としてスナップショットする。
+fn save_plugin_state(plugin_instance: &mut PluginInstance<MidiRenderHost>) -> Result<Vec<u8>> {
+    let state_ext = plugin_state_extension(plugin_instance)?;
+    let mut bytes = Vec::new();
+    let mut handle = plugin_instance.plugin_handle();
+    state_ext
+        .save(&mut handle, &mut bytes)
+        .map_err(|_| anyhow::anyhow!("プラグイン state の保存に失敗"))?;
+    Ok(bytes)
+}
+
+/// バイト列の state をプラグインへ流し込む。
+fn load_plugin_state(
+    plugin_instance: &mut PluginInstance<MidiRenderHost>,
+    state: &[u8],
+) -> Result<()> {
+    let state_ext = plugin_state_extension(plugin_instance)?;
+    let mut cursor = std::io::Cursor::new(state);
     let mut handle = plugin_instance.plugin_handle();
     state_ext
         .load(&mut handle, &mut cursor)
-        .map_err(|_| anyhow::anyhow!("パッチのロードに失敗: {}", patch_path))?;
-
+        .map_err(|_| anyhow::anyhow!("プラグイン state のロードに失敗"))?;
     Ok(())
 }
 
 pub fn create_plugin_instance(
     cfg: &CoreConfig,
+    entry: &PluginEntry,
+) -> Result<PluginInstance<MidiRenderHost>> {
+    let mut plugin_instance = create_plugin_instance_without_patch(entry)?;
+
+    if let Some(ref patch) = cfg.patch_path {
+        load_patch(&mut plugin_instance, patch)?;
+    }
+
+    Ok(plugin_instance)
+}
+
+fn create_plugin_instance_without_patch(
     entry: &PluginEntry,
 ) -> Result<PluginInstance<MidiRenderHost>> {
     let plugin_factory = entry
@@ -89,17 +123,13 @@ pub fn create_plugin_instance(
         "https://example.com",
         "0.1.0",
     )?;
-    let mut plugin_instance = PluginInstance::<MidiRenderHost>::new(
+    let plugin_instance = PluginInstance::<MidiRenderHost>::new(
         |_| MidiRenderHostShared,
         |_| (),
         entry,
         plugin_descriptor.id().unwrap(),
         &host_info,
     )?;
-
-    if let Some(ref patch) = cfg.patch_path {
-        load_patch(&mut plugin_instance, patch)?;
-    }
 
     Ok(plugin_instance)
 }
@@ -142,6 +172,10 @@ impl RealtimePlaybackSchedule {
 pub struct RealtimeRenderer {
     plugin_instance: Option<PluginInstance<MidiRenderHost>>,
     processor: Option<StartedPluginAudioProcessor<MidiRenderHost>>,
+    /// パッチロード前の初期 state（Init Saw）。set_patch(None) で復元する。
+    init_state: Option<Vec<u8>>,
+    /// 現在ロードされているパッチのパス。None は初期 state。
+    current_patch: Option<String>,
     buf_size: usize,
     in_left: Vec<f32>,
     in_right: Vec<f32>,
@@ -154,7 +188,13 @@ pub struct RealtimeRenderer {
 
 impl RealtimeRenderer {
     pub fn new(cfg: &CoreConfig, entry: &PluginEntry) -> Result<Self> {
-        let mut plugin_instance = create_plugin_instance(cfg, entry)?;
+        let mut plugin_instance = create_plugin_instance_without_patch(entry)?;
+        // パッチ未指定の再生で初期音色（Init Saw）へ戻せるよう、ロード前の state を取っておく。
+        // state extension が無いプラグインでは None（set_patch(None) がエラーになるだけ）。
+        let init_state = save_plugin_state(&mut plugin_instance).ok();
+        if let Some(ref patch) = cfg.patch_path {
+            load_patch(&mut plugin_instance, patch)?;
+        }
         let audio_config = PluginAudioConfiguration {
             sample_rate: cfg.sample_rate,
             min_frames_count: cfg.buffer_size as u32,
@@ -168,6 +208,8 @@ impl RealtimeRenderer {
         Ok(Self {
             plugin_instance: Some(plugin_instance),
             processor: Some(processor),
+            init_state,
+            current_patch: cfg.patch_path.clone(),
             buf_size: cfg.buffer_size,
             in_left: vec![0.0; cfg.buffer_size],
             in_right: vec![0.0; cfg.buffer_size],
@@ -183,6 +225,31 @@ impl RealtimeRenderer {
         if let Some(processor) = self.processor.as_mut() {
             processor.reset();
         }
+    }
+
+    /// 再生前にパッチを切り替える。同一パッチなら何もしない。
+    /// `None` は生成直後にスナップショットした初期 state（Init Saw）へ戻す。
+    /// state のロードは main-thread 操作のため、process() と直列なスレッドから呼ぶこと。
+    pub fn set_patch(&mut self, patch: Option<&str>) -> Result<()> {
+        if self.current_patch.as_deref() == patch {
+            return Ok(());
+        }
+        let plugin_instance = self
+            .plugin_instance
+            .as_mut()
+            .expect("plugin instance is always present while renderer is alive");
+        match patch {
+            Some(path) => load_patch(plugin_instance, path)?,
+            None => {
+                let init_state = self.init_state.as_ref().ok_or_else(|| {
+                    anyhow::anyhow!("初期 state が未取得のため初期音色へ戻せない")
+                })?;
+                load_plugin_state(plugin_instance, init_state)
+                    .map_err(|e| anyhow::anyhow!("初期 state の復元に失敗: {}", e))?;
+            }
+        }
+        self.current_patch = patch.map(str::to_string);
+        Ok(())
     }
 
     pub fn render_next_chunk(

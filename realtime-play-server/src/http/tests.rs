@@ -7,12 +7,18 @@ use std::{
 #[derive(Default)]
 struct FakePlayer {
     plays: Mutex<Vec<Vec<u8>>>,
+    mml_plays: Mutex<Vec<String>>,
     stops: Mutex<usize>,
 }
 
 impl PlayerHandle for FakePlayer {
     fn play_smf(&self, smf: Vec<u8>) -> Result<()> {
         self.plays.lock().unwrap().push(smf);
+        Ok(())
+    }
+
+    fn play_mml(&self, mml: String) -> Result<()> {
+        self.mml_plays.lock().unwrap().push(mml);
         Ok(())
     }
 
@@ -116,6 +122,69 @@ fn run_realtime_play_server_rejects_text_plain_play() {
 
     assert!(response.starts_with("HTTP/1.1 415 Unsupported Media Type"));
     assert!(player.plays.lock().unwrap().is_empty());
+}
+
+#[test]
+fn run_realtime_play_server_dispatches_play_mml() {
+    let player = Arc::new(FakePlayer::default());
+    let mml = "{\"Surge XT patch\": \"Keys/DX EP.fxp\"}cde";
+    let request = format!(
+        "POST /play-mml HTTP/1.1\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",
+        mml.len(),
+        mml
+    );
+    let response =
+        run_one_request_server(Arc::clone(&player), |addr| send_raw_request(addr, &request));
+
+    assert!(response.starts_with("HTTP/1.1 202 Accepted"));
+    assert_eq!(player.mml_plays.lock().unwrap().as_slice(), &[mml]);
+    assert!(player.plays.lock().unwrap().is_empty());
+}
+
+#[test]
+fn run_realtime_play_server_rejects_midi_content_type_for_play_mml() {
+    let player = Arc::new(FakePlayer::default());
+    let response = run_one_request_server(Arc::clone(&player), |addr| {
+        send_raw_request(
+            addr,
+            "POST /play-mml HTTP/1.1\r\nContent-Type: audio/midi\r\nContent-Length: 3\r\n\r\ncde",
+        )
+    });
+
+    assert!(response.starts_with("HTTP/1.1 415 Unsupported Media Type"));
+    assert!(player.mml_plays.lock().unwrap().is_empty());
+}
+
+#[test]
+fn run_realtime_play_server_rejects_invalid_utf8_play_mml() {
+    let player = Arc::new(FakePlayer::default());
+    let response = run_one_request_server(Arc::clone(&player), |addr| {
+        send_raw_request_bytes(
+            addr,
+            b"POST /play-mml HTTP/1.1\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n\r\n\xff\xfe",
+        )
+    });
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request"));
+    assert!(player.mml_plays.lock().unwrap().is_empty());
+}
+
+#[test]
+fn run_realtime_play_server_rejects_get_play_mml() {
+    let player = Arc::new(FakePlayer::default());
+    let response = run_one_request_server(player, |addr| {
+        send_raw_request(addr, "GET /play-mml HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+    });
+
+    assert!(response.starts_with("HTTP/1.1 405 Method Not Allowed"));
+}
+
+#[test]
+fn content_type_accepts_text_plain_for_play_mml() {
+    assert!(content_type_is_text("text/plain"));
+    assert!(content_type_is_text("Text/Plain; charset=utf-8"));
+    assert!(!content_type_is_text("audio/midi"));
+    assert!(!content_type_is_text("application/octet-stream"));
 }
 
 #[test]

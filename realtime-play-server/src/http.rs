@@ -158,8 +158,9 @@ fn handle_connection(stream: &mut TcpStream, player: &dyn PlayerHandle) -> Resul
     match (request.method.as_str(), request.path.as_str()) {
         ("GET", "/health") => write_text_response(stream, StatusCode::Ok, "ok")?,
         ("POST", "/play") => handle_play_request(stream, player, request)?,
+        ("POST", "/play-mml") => handle_play_mml_request(stream, player, request)?,
         ("POST", "/stop") => handle_stop_request(stream, player)?,
-        (_, "/health" | "/play" | "/stop") => {
+        (_, "/health" | "/play" | "/play-mml" | "/stop") => {
             write_text_response(stream, StatusCode::MethodNotAllowed, "method not allowed")?
         }
         _ => write_text_response(stream, StatusCode::NotFound, "not found")?,
@@ -204,6 +205,50 @@ fn handle_play_request(
     Ok(())
 }
 
+fn handle_play_mml_request(
+    stream: &mut impl std::io::Write,
+    player: &dyn PlayerHandle,
+    request: HttpRequest,
+) -> Result<()> {
+    if request.header("content-length").is_none() {
+        write_text_response(
+            stream,
+            StatusCode::LengthRequired,
+            "Content-Length required",
+        )?;
+        return Ok(());
+    }
+    if !request
+        .header("content-type")
+        .is_some_and(content_type_is_text)
+    {
+        write_text_response(
+            stream,
+            StatusCode::UnsupportedMediaType,
+            "Content-Type must be text/plain",
+        )?;
+        return Ok(());
+    }
+    let Ok(mml) = String::from_utf8(request.body) else {
+        write_text_response(
+            stream,
+            StatusCode::BadRequest,
+            "request body must be valid UTF-8",
+        )?;
+        return Ok(());
+    };
+
+    match player.play_mml(mml) {
+        Ok(()) => write_text_response(stream, StatusCode::Accepted, "accepted")?,
+        Err(error) => write_text_response(
+            stream,
+            StatusCode::InternalServerError,
+            &format!("{error:#}"),
+        )?,
+    }
+    Ok(())
+}
+
 fn handle_stop_request(stream: &mut impl std::io::Write, player: &dyn PlayerHandle) -> Result<()> {
     match player.stop() {
         Ok(()) => write_empty_response(stream, StatusCode::NoContent)?,
@@ -223,6 +268,13 @@ fn content_type_is_midi(value: &str) -> bool {
             "audio/midi" | "audio/x-midi" | "application/octet-stream"
         )
     })
+}
+
+fn content_type_is_text(value: &str) -> bool {
+    value
+        .split(';')
+        .next()
+        .is_some_and(|media_type| media_type.trim().eq_ignore_ascii_case("text/plain"))
 }
 
 #[derive(Debug)]

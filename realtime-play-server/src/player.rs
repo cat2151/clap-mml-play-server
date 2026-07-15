@@ -20,6 +20,7 @@ use self::audio_output::AudioOutputBuffer;
 
 pub(crate) trait PlayerHandle: Send + Sync + 'static {
     fn play_smf(&self, smf: Vec<u8>) -> Result<()>;
+    fn play_mml(&self, mml: String) -> Result<()>;
     fn stop(&self) -> Result<()>;
 }
 
@@ -28,6 +29,7 @@ const OUTPUT_WAIT_TIMEOUT: Duration = Duration::from_millis(10);
 pub(crate) struct RealtimePlayer {
     sample_rate: f64,
     render_options: RenderOptions,
+    core_cfg: CoreConfig,
     inner: Arc<PlayerInner>,
     audio_output: Arc<AudioOutputBuffer>,
     worker: Mutex<Option<JoinHandle<()>>>,
@@ -50,6 +52,8 @@ enum PlayerCommand {
     Play {
         generation: u64,
         schedule: RealtimePlaybackSchedule,
+        /// 再生前にロードするパッチ。None は初期音色（Init Saw）。
+        patch: Option<String>,
     },
     Stop {
         generation: u64,
@@ -67,6 +71,7 @@ impl RealtimePlayer {
         let inner = Arc::new(PlayerInner::default());
         let worker_inner = Arc::clone(&inner);
         let worker_audio_output = Arc::clone(&audio_output);
+        let worker_core_cfg = core_cfg.clone();
         let (init_tx, init_rx) = std::sync::mpsc::channel();
         let worker = std::thread::Builder::new()
             .name("realtime-play-server-player".to_string())
@@ -74,7 +79,7 @@ impl RealtimePlayer {
                 run_player_worker(
                     worker_inner,
                     worker_audio_output,
-                    core_cfg,
+                    worker_core_cfg,
                     plugin_path,
                     init_tx,
                 );
@@ -92,6 +97,7 @@ impl RealtimePlayer {
         Ok(Self {
             sample_rate,
             render_options,
+            core_cfg,
             inner,
             audio_output,
             worker: Mutex::new(Some(worker)),
@@ -103,8 +109,26 @@ impl PlayerHandle for RealtimePlayer {
     fn play_smf(&self, smf: Vec<u8>) -> Result<()> {
         let schedule =
             smf_playback_schedule_with_options(&smf, self.sample_rate, self.render_options)?;
-        self.inner
-            .submit_play(schedule, Arc::clone(&self.audio_output))
+        // SMF にはパッチ情報が無いため config のパッチ（起動時と同じ）を維持する
+        self.inner.submit_play(
+            schedule,
+            self.core_cfg.patch_path.clone(),
+            Arc::clone(&self.audio_output),
+        )
+    }
+
+    fn play_mml(&self, mml: String) -> Result<()> {
+        let prepared = cmrt_core::prepare_realtime_play(&mml, &self.core_cfg)?;
+        let schedule = smf_playback_schedule_with_options(
+            &prepared.smf_bytes,
+            self.sample_rate,
+            self.render_options,
+        )?;
+        self.inner.submit_play(
+            schedule,
+            prepared.patch_path,
+            Arc::clone(&self.audio_output),
+        )
     }
 
     fn stop(&self) -> Result<()> {
@@ -125,6 +149,7 @@ impl PlayerInner {
     fn submit_play(
         &self,
         schedule: RealtimePlaybackSchedule,
+        patch: Option<String>,
         audio_output: Arc<AudioOutputBuffer>,
     ) -> Result<()> {
         let mut state = self.state.lock().unwrap();
@@ -135,6 +160,7 @@ impl PlayerInner {
         state.pending = Some(PlayerCommand::Play {
             generation,
             schedule,
+            patch,
         });
         self.command_available.notify_one();
         Ok(())
@@ -270,7 +296,14 @@ fn apply_command(
         PlayerCommand::Play {
             generation,
             schedule,
-        } => *current_playback = Some((generation, schedule)),
+            patch,
+        } => {
+            // パッチロード失敗時は現在の音色のまま再生を続ける
+            if let Err(error) = renderer.set_patch(patch.as_deref()) {
+                eprintln!("realtime play patch load failed: {error:#}");
+            }
+            *current_playback = Some((generation, schedule));
+        }
         PlayerCommand::Stop { generation } => {
             let _ = generation;
             *current_playback = None;
@@ -368,12 +401,14 @@ mod tests {
         inner
             .submit_play(
                 RealtimePlaybackSchedule::new(vec![], 10),
+                Some("first.fxp".to_string()),
                 Arc::clone(&audio_output),
             )
             .unwrap();
         inner
             .submit_play(
                 RealtimePlaybackSchedule::new(vec![], 20),
+                Some("second.fxp".to_string()),
                 Arc::clone(&audio_output),
             )
             .unwrap();
@@ -382,9 +417,11 @@ mod tests {
             Some(PlayerCommand::Play {
                 generation,
                 schedule,
+                patch,
             }) => {
                 assert_eq!(generation, 2);
                 assert_eq!(schedule.total_samples(), 20);
+                assert_eq!(patch.as_deref(), Some("second.fxp"));
             }
             other => panic!("expected latest play command, got {other:?}"),
         }
@@ -398,6 +435,7 @@ mod tests {
         inner
             .submit_play(
                 RealtimePlaybackSchedule::new(vec![], 10),
+                None,
                 Arc::clone(&audio_output),
             )
             .unwrap();
@@ -418,6 +456,7 @@ mod tests {
         let error = inner
             .submit_play(
                 RealtimePlaybackSchedule::new(vec![], 10),
+                None,
                 Arc::new(AudioOutputBuffer::default()),
             )
             .unwrap_err();

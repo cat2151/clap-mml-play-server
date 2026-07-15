@@ -361,6 +361,28 @@ pub fn mml_to_smf_bytes(mml: &str) -> Result<Vec<u8>> {
     mml_str_to_smf_bytes(&preprocessed.remaining_mml)
 }
 
+/// realtime play 用の MML 前処理結果。
+#[derive(Debug)]
+pub struct PreparedRealtimePlay {
+    pub smf_bytes: Vec<u8>,
+    /// 解決済みパッチのパス。None は Init Saw（初期 state）。
+    pub patch_path: Option<String>,
+}
+
+/// MML（JSON込み）→ SMFバイト列 + 解決済みパッチパス。
+/// パッチの優先順位は offline render と同じ（MML先頭JSON → random_patch → config patch_path）。
+/// patch_history.txt への追記や中間ファイルの生成は行わない。
+pub fn prepare_realtime_play(mml: &str, cfg: &CoreConfig) -> Result<PreparedRealtimePlay> {
+    let preprocessed = mml_preprocessor::extract_embedded_json(mml);
+    let patch_path =
+        resolve_effective_patch(preprocessed.embedded_json.as_deref(), cfg, cfg.random_patch)?;
+    let smf_bytes = mml_str_to_smf_bytes(&preprocessed.remaining_mml)?;
+    Ok(PreparedRealtimePlay {
+        smf_bytes,
+        patch_path,
+    })
+}
+
 /// Vec<f32>（インターリーブステレオ）を WAVファイルに書き出す
 pub fn write_wav(
     samples: &[f32],
