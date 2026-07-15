@@ -3,6 +3,7 @@ pub mod midi;
 pub mod patch_list;
 pub mod pipeline;
 pub mod render;
+mod workspace_update;
 
 #[derive(Debug, Clone)]
 pub struct CoreConfig {
@@ -25,3 +26,4 @@ pub use pipeline::{
     smf_render_stateless_with_options, write_wav, RenderOptions, RenderPreroll,
 };
 pub use render::{create_plugin_instance, RealtimePlaybackSchedule, RealtimeRenderer};
+pub use workspace_update::{check_workspace_update, run_workspace_update};

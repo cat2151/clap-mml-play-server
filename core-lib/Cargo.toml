@@ -28,3 +28,6 @@ dirs = "5"
 
 # Error handling
 anyhow = "1"
+
+# Self update
+cat-self-update-lib = { git = "https://github.com/cat2151/cat-self-update", package = "cat-self-update-lib" }
