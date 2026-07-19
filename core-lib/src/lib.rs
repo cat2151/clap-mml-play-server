@@ -3,6 +3,7 @@ pub mod midi;
 pub mod patch_list;
 pub mod pipeline;
 pub mod render;
+pub mod voicing;
 mod workspace_update;
 
 #[derive(Debug, Clone)]
@@ -27,4 +28,5 @@ pub use pipeline::{
     PreparedRealtimePlay, RenderOptions, RenderPreroll,
 };
 pub use render::{create_plugin_instance, RealtimePlaybackSchedule, RealtimeRenderer};
+pub use voicing::{PatchVoicing, VoicingReport};
 pub use workspace_update::{check_workspace_update, run_workspace_update};

@@ -3,6 +3,7 @@
 use anyhow::Result;
 use clack_extensions::state::PluginState;
 use clack_host::events::event_types::{MidiEvent as ClapMidiEvent, NoteOffEvent, NoteOnEvent};
+use clack_host::events::spaces::CoreEventSpace;
 use clack_host::events::{EventFlags, Match};
 use clack_host::prelude::*;
 use hound::{SampleFormat, WavSpec, WavWriter};
@@ -10,6 +11,9 @@ use hound::{SampleFormat, WavSpec, WavWriter};
 use crate::host::{MidiRenderHost, MidiRenderHostShared};
 use crate::midi::{MidiEvent, TimedMidiEvent};
 use crate::CoreConfig;
+
+mod voicing_probe;
+use voicing_probe::first_plugin_id;
 
 /// .fxp ファイルを clap state として plugin にロードする
 ///
@@ -176,6 +180,7 @@ pub struct RealtimeRenderer {
     init_state: Option<Vec<u8>>,
     /// 現在ロードされているパッチのパス。None は初期 state。
     current_patch: Option<String>,
+    plugin_id: String,
     buf_size: usize,
     in_left: Vec<f32>,
     in_right: Vec<f32>,
@@ -188,6 +193,7 @@ pub struct RealtimeRenderer {
 
 impl RealtimeRenderer {
     pub fn new(cfg: &CoreConfig, entry: &PluginEntry) -> Result<Self> {
+        let plugin_id = first_plugin_id(entry)?;
         let mut plugin_instance = create_plugin_instance_without_patch(entry)?;
         // パッチ未指定の再生で初期音色（Init Saw）へ戻せるよう、ロード前の state を取っておく。
         // state extension が無いプラグインでは None（set_patch(None) がエラーになるだけ）。
@@ -210,6 +216,7 @@ impl RealtimeRenderer {
             processor: Some(processor),
             init_state,
             current_patch: cfg.patch_path.clone(),
+            plugin_id,
             buf_size: cfg.buffer_size,
             in_left: vec![0.0; cfg.buffer_size],
             in_right: vec![0.0; cfg.buffer_size],
@@ -315,8 +322,17 @@ impl RealtimeRenderer {
     }
 
     fn process_chunk(&mut self, frames: u32, input_events_raw: &EventBuffer) -> Result<Vec<f32>> {
+        self.process_chunk_with_events(frames, input_events_raw)
+            .map(|processed| processed.samples)
+    }
+
+    fn process_chunk_with_events(
+        &mut self,
+        frames: u32,
+        input_events_raw: &EventBuffer,
+    ) -> Result<ProcessedChunk> {
         let input_events = InputEvents::from_buffer(input_events_raw);
-        let mut output_events = OutputEvents::from_buffer(&mut self.output_events_buf);
+        self.output_events_buf.clear();
         let frame_len = frames as usize;
         self.out_left[..frame_len].fill(0.0);
         self.out_right[..frame_len].fill(0.0);
@@ -334,26 +350,46 @@ impl RealtimeRenderer {
             latency: 0,
             channels: AudioPortBufferType::f32_output_only([out_l, out_r].into_iter()),
         }]);
-        self.processor
-            .as_mut()
-            .expect("processor is always present while renderer is alive")
-            .process(
-                &input_audio,
-                &mut output_audio,
-                &input_events,
-                &mut output_events,
-                None,
-                None,
-            )
-            .map_err(|e| anyhow::anyhow!("process() 失敗: {:?}", e))?;
+        {
+            let mut output_events = OutputEvents::from_buffer(&mut self.output_events_buf);
+            self.processor
+                .as_mut()
+                .expect("processor is always present while renderer is alive")
+                .process(
+                    &input_audio,
+                    &mut output_audio,
+                    &input_events,
+                    &mut output_events,
+                    None,
+                    None,
+                )
+                .map_err(|e| anyhow::anyhow!("process() 失敗: {:?}", e))?;
+        }
+
+        let ended_note_ids = self
+            .output_events_buf
+            .iter()
+            .filter_map(|event| match event.as_core_event() {
+                Some(CoreEventSpace::NoteEnd(note_end)) => note_end.pckn().note_id.into_specific(),
+                _ => None,
+            })
+            .collect();
 
         let mut samples = Vec::with_capacity(frame_len * 2);
         for i in 0..frame_len {
             samples.push(self.out_left[i]);
             samples.push(self.out_right[i]);
         }
-        Ok(samples)
+        Ok(ProcessedChunk {
+            samples,
+            ended_note_ids,
+        })
     }
+}
+
+struct ProcessedChunk {
+    samples: Vec<f32>,
+    ended_note_ids: Vec<u32>,
 }
 
 impl Drop for RealtimeRenderer {

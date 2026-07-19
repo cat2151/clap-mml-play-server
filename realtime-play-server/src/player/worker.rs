@@ -180,5 +180,29 @@ fn apply_command(
                 }
             }
         }
+        PlayerCommand::ProbeLivePatch {
+            generation,
+            patch,
+            completion,
+        } => {
+            renderer.reset();
+            let result = renderer
+                .set_patch(patch.as_deref())
+                .and_then(|()| renderer.probe_voicing());
+            match result {
+                Ok(report) => {
+                    *playback_mode = Some(PlaybackMode::Live {
+                        generation,
+                        pending_messages: Vec::new(),
+                    });
+                    let _ = completion.send(Ok(report));
+                }
+                Err(error) => {
+                    renderer.reset();
+                    *playback_mode = None;
+                    let _ = completion.send(Err(format!("{error:#}")));
+                }
+            }
+        }
     }
 }

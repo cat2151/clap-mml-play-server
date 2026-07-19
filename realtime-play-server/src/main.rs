@@ -9,8 +9,10 @@ use std::sync::{
 };
 
 use anyhow::{Context as _, Result};
-use clap::{error::ErrorKind, Parser, Subcommand};
-use cmrt_core::{check_workspace_update, run_workspace_update, RenderOptions};
+use clap::{error::ErrorKind, Parser, Subcommand, ValueEnum};
+use cmrt_core::{
+    check_workspace_update, run_workspace_update, PatchVoicing, RealtimeRenderer, RenderOptions,
+};
 use config::{
     core_config_from_runtime, validate_realtime_play_server_config, RealtimeServerConfig,
 };
@@ -25,7 +27,30 @@ enum CliAction {
     Run,
     Update,
     Check,
+    ProbeVoicing {
+        patch: String,
+        previous_patch: Option<String>,
+        json: bool,
+        expect: Option<ExpectedVoicing>,
+    },
     PrintHelp(String),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+enum ExpectedVoicing {
+    Mono,
+    Poly,
+    Unknown,
+}
+
+impl From<ExpectedVoicing> for PatchVoicing {
+    fn from(value: ExpectedVoicing) -> Self {
+        match value {
+            ExpectedVoicing::Mono => Self::Mono,
+            ExpectedVoicing::Poly => Self::Poly,
+            ExpectedVoicing::Unknown => Self::Unknown,
+        }
+    }
 }
 
 #[derive(Debug, Parser)]
@@ -35,7 +60,7 @@ enum CliAction {
     disable_help_subcommand = true,
     disable_version_flag = true,
     args_conflicts_with_subcommands = true,
-    after_help = "CONFIG:\n    config_local_dir()/clap-mml-render-tui/config.toml\n\nHTTP:\n    GET /health\n    POST /play         request: Standard MIDI File bytes, Content-Type: audio/midi | audio/x-midi | application/octet-stream\n    POST /play-mml     request: MML text (leading {\"Surge XT patch\": ...} JSON selects the patch), Content-Type: text/plain\n    POST /midi         request: {\"messages\":[[144,60,100]],\"patch\":\"patches_factory/Keys/Piano.fxp\"}, optional patch, Content-Type: application/json\n    POST /live-patch   request: {\"patch\":\"patches_factory/Keys/Piano.fxp\"}, waits for patch load, Content-Type: application/json\n    POST /live-buffer  request: {\"multiplier\":4}, accepted: 1, 2, 4, 8, Content-Type: application/json\n    POST /stop\n\nFAST MIDI (Windows):\n    Named shared memory and event notification on the realtime server port"
+    after_help = "CONFIG:\n    config_local_dir()/clap-mml-render-tui/config.toml\n\nHTTP:\n    GET /health\n    POST /play               request: Standard MIDI File bytes, Content-Type: audio/midi | audio/x-midi | application/octet-stream\n    POST /play-mml           request: MML text (leading {\"Surge XT patch\": ...} JSON selects the patch), Content-Type: text/plain\n    POST /midi               request: {\"messages\":[[144,60,100]],\"patch\":\"patches_factory/Keys/Piano.fxp\"}, optional patch, Content-Type: application/json\n    POST /live-patch         request: {\"patch\":\"patches_factory/Keys/Piano.fxp\"}, waits for patch load, Content-Type: application/json\n    POST /live-patch-probe   request: same as /live-patch, response: voicing report JSON\n    POST /live-buffer        request: {\"multiplier\":4}, accepted: 1, 2, 4, 8, Content-Type: application/json\n    POST /stop\n\nFAST MIDI (Windows):\n    Named shared memory and event notification on the realtime server port"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -48,6 +73,21 @@ enum Commands {
     Update,
     /// Compare the embedded commit hash with the remote main branch
     Check,
+    /// Probe a patch for mono/poly voicing without opening an audio device
+    ProbeVoicing {
+        /// Patch path relative to patches_dir, or an absolute path
+        #[arg(long)]
+        patch: String,
+        /// Probe this patch first on the same plugin instance
+        #[arg(long)]
+        previous_patch: Option<String>,
+        /// Print the complete report as JSON
+        #[arg(long)]
+        json: bool,
+        /// Fail unless the final decision matches this value
+        #[arg(long, value_enum)]
+        expect: Option<ExpectedVoicing>,
+    },
 }
 
 fn parse_cli<I, T>(args: I) -> Result<CliAction>
@@ -59,6 +99,17 @@ where
         Ok(cli) => match cli.command {
             Some(Commands::Update) => Ok(CliAction::Update),
             Some(Commands::Check) => Ok(CliAction::Check),
+            Some(Commands::ProbeVoicing {
+                patch,
+                previous_patch,
+                json,
+                expect,
+            }) => Ok(CliAction::ProbeVoicing {
+                patch,
+                previous_patch,
+                json,
+                expect,
+            }),
             None => Ok(CliAction::Run),
         },
         Err(error) if error.kind() == ErrorKind::DisplayHelp => {
@@ -77,6 +128,15 @@ fn main() -> Result<()> {
         }
         CliAction::Check => {
             println!("{}", check_workspace_update(BUILD_COMMIT_HASH)?);
+            return Ok(());
+        }
+        CliAction::ProbeVoicing {
+            patch,
+            previous_patch,
+            json,
+            expect,
+        } => {
+            run_voicing_probe(&patch, previous_patch.as_deref(), json, expect)?;
             return Ok(());
         }
         CliAction::PrintHelp(help) => {
@@ -100,6 +160,61 @@ fn main() -> Result<()> {
     install_shutdown_handler(Arc::clone(&shutdown))?;
 
     run_realtime_play_server(realtime_cfg.realtime_play_server_port, shutdown, player)
+}
+
+fn run_voicing_probe(
+    patch: &str,
+    previous_patch: Option<&str>,
+    json: bool,
+    expect: Option<ExpectedVoicing>,
+) -> Result<()> {
+    let cfg = cmrt_runtime::Config::load()?;
+    let realtime_cfg = RealtimeServerConfig::load()?;
+    validate_realtime_play_server_config(&cfg, &realtime_cfg)?;
+    let mut core_cfg = core_config_from_runtime(&cfg, &realtime_cfg);
+    core_cfg.patch_path = None;
+    let resolve_patch = |patch: &str| match (
+        &core_cfg.patches_dir,
+        std::path::Path::new(patch).is_absolute(),
+    ) {
+        (_, true) | (None, false) => patch.to_string(),
+        (Some(base), false) => std::path::Path::new(base)
+            .join(patch)
+            .to_string_lossy()
+            .into_owned(),
+    };
+    let patch_path = resolve_patch(patch);
+    let entry = cmrt_core::load_entry(&cfg.plugin_path)?;
+    let mut renderer = RealtimeRenderer::new(&core_cfg, &entry)?;
+    if let Some(previous_patch) = previous_patch {
+        renderer.set_patch(Some(&resolve_patch(previous_patch)))?;
+        let _ = renderer.probe_voicing()?;
+    }
+    renderer.set_patch(Some(&patch_path))?;
+    let report = renderer.probe_voicing()?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        println!(
+            "patch={} decision={:?} probe={:?} ended_note_ids={:?} disagreement={}",
+            patch,
+            report.decision,
+            report.probe.result,
+            report.probe.ended_note_ids,
+            report.disagreement
+        );
+    }
+    if let Some(expect) = expect {
+        let expected = PatchVoicing::from(expect);
+        if report.decision != expected {
+            anyhow::bail!(
+                "voicing expectation failed: expected {:?}, got {:?}",
+                expected,
+                report.decision
+            );
+        }
+    }
+    Ok(())
 }
 
 fn install_shutdown_handler(shutdown: Arc<AtomicBool>) -> Result<()> {
@@ -138,6 +253,30 @@ mod tests {
     }
 
     #[test]
+    fn probe_voicing_subcommand_parses_automation_options() {
+        assert_eq!(
+            parse_cli([
+                "clap-mml-realtime-play-server",
+                "probe-voicing",
+                "--patch",
+                "Leads/Mono.fxp",
+                "--previous-patch",
+                "Pads/Poly.fxp",
+                "--json",
+                "--expect",
+                "mono",
+            ])
+            .unwrap(),
+            CliAction::ProbeVoicing {
+                patch: "Leads/Mono.fxp".into(),
+                previous_patch: Some("Pads/Poly.fxp".into()),
+                json: true,
+                expect: Some(ExpectedVoicing::Mono),
+            }
+        );
+    }
+
+    #[test]
     fn help_lists_self_update_commands_and_server_details() {
         let CliAction::PrintHelp(help) =
             parse_cli(["clap-mml-realtime-play-server", "--help"]).unwrap()
@@ -148,9 +287,11 @@ mod tests {
         assert!(help.contains("Commands:"));
         assert!(help.contains("update"));
         assert!(help.contains("check"));
+        assert!(help.contains("probe-voicing"));
         assert!(help.contains("POST /play"));
         assert!(help.contains("POST /play-mml"));
         assert!(help.contains("POST /live-patch"));
+        assert!(help.contains("POST /live-patch-probe"));
         assert!(help.contains("FAST MIDI (Windows)"));
     }
 

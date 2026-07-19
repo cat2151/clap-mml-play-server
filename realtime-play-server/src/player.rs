@@ -14,6 +14,7 @@ use self::worker::run_player_worker;
 use anyhow::{Context as _, Result};
 use cmrt_core::{
     smf_playback_schedule_with_options, CoreConfig, RealtimePlaybackSchedule, RenderOptions,
+    VoicingReport,
 };
 
 pub(crate) trait PlayerHandle: Send + Sync + 'static {
@@ -21,6 +22,9 @@ pub(crate) trait PlayerHandle: Send + Sync + 'static {
     fn play_mml(&self, mml: String) -> Result<()>;
     fn send_midi(&self, messages: Vec<[u8; 3]>, patch: Option<String>) -> Result<()>;
     fn prepare_live_patch(&self, patch: Option<String>) -> Result<()>;
+    fn prepare_live_patch_with_voicing(&self, _patch: Option<String>) -> Result<VoicingReport> {
+        anyhow::bail!("voicing probe is not supported by this player")
+    }
     fn set_live_buffer_multiplier(&self, multiplier: u8) -> Result<()>;
     fn stop(&self) -> Result<()>;
 }
@@ -68,6 +72,11 @@ enum PlayerCommand {
         generation: u64,
         patch: Option<String>,
         completion: std::sync::mpsc::SyncSender<std::result::Result<(), String>>,
+    },
+    ProbeLivePatch {
+        generation: u64,
+        patch: Option<String>,
+        completion: std::sync::mpsc::SyncSender<std::result::Result<VoicingReport, String>>,
     },
 }
 
@@ -176,6 +185,17 @@ impl PlayerHandle for RealtimePlayer {
             .map_err(anyhow::Error::msg)
     }
 
+    fn prepare_live_patch_with_voicing(&self, patch: Option<String>) -> Result<VoicingReport> {
+        let patch = resolve_live_patch(patch, self.core_cfg.patches_dir.as_deref());
+        let (completion_tx, completion_rx) = std::sync::mpsc::sync_channel(0);
+        self.inner
+            .submit_probe_live_patch(patch, completion_tx, Arc::clone(&self.audio_output))?;
+        completion_rx
+            .recv()
+            .context("realtime play worker exited while probing live patch")?
+            .map_err(anyhow::Error::msg)
+    }
+
     fn set_live_buffer_multiplier(&self, multiplier: u8) -> Result<()> {
         self.audio_output.set_buffer_multiplier(multiplier)
     }
@@ -273,6 +293,28 @@ impl PlayerInner {
         state.pending.clear();
         state.live_requested = true;
         state.pending.push_back(PlayerCommand::PrepareLivePatch {
+            generation,
+            patch,
+            completion,
+        });
+        self.command_available.notify_one();
+        Ok(())
+    }
+
+    fn submit_probe_live_patch(
+        &self,
+        patch: Option<String>,
+        completion: std::sync::mpsc::SyncSender<std::result::Result<VoicingReport, String>>,
+        audio_output: Arc<AudioOutputControl>,
+    ) -> Result<()> {
+        let mut state = self.state.lock().unwrap();
+        ensure_running(&state)?;
+        state.generation = next_generation(state.generation);
+        let generation = state.generation;
+        audio_output.start_generation(generation);
+        state.pending.clear();
+        state.live_requested = true;
+        state.pending.push_back(PlayerCommand::ProbeLivePatch {
             generation,
             patch,
             completion,

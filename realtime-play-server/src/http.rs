@@ -9,11 +9,15 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Context as _, Result};
-use serde::Deserialize;
-
 use crate::fast_ipc::spawn_fast_midi_server;
 use crate::player::PlayerHandle;
+use anyhow::{Context as _, Result};
+
+mod response;
+mod routes;
+
+use response::*;
+use routes::*;
 
 const WORKERS: usize = 4;
 const MAX_HEADER_BYTES: usize = 16 * 1024;
@@ -168,312 +172,18 @@ fn handle_connection(stream: &mut TcpStream, player: &dyn PlayerHandle) -> Resul
         ("POST", "/play-mml") => handle_play_mml_request(stream, player, request)?,
         ("POST", "/midi") => handle_midi_request(stream, player, request)?,
         ("POST", "/live-patch") => handle_live_patch_request(stream, player, request)?,
+        ("POST", "/live-patch-probe") => handle_live_patch_probe_request(stream, player, request)?,
         ("POST", "/live-buffer") => handle_live_buffer_request(stream, player, request)?,
         ("POST", "/stop") => handle_stop_request(stream, player)?,
         (
             _,
-            "/health" | "/play" | "/play-mml" | "/midi" | "/live-patch" | "/live-buffer" | "/stop",
+            "/health" | "/play" | "/play-mml" | "/midi" | "/live-patch" | "/live-patch-probe"
+            | "/live-buffer" | "/stop",
         ) => write_text_response(stream, StatusCode::MethodNotAllowed, "method not allowed")?,
         _ => write_text_response(stream, StatusCode::NotFound, "not found")?,
     }
 
     Ok(())
-}
-
-#[derive(Deserialize)]
-struct LiveBufferRequestBody {
-    multiplier: u8,
-}
-
-fn handle_live_buffer_request(
-    stream: &mut impl std::io::Write,
-    player: &dyn PlayerHandle,
-    request: HttpRequest,
-) -> Result<()> {
-    if request.header("content-length").is_none() {
-        write_text_response(
-            stream,
-            StatusCode::LengthRequired,
-            "Content-Length required",
-        )?;
-        return Ok(());
-    }
-    if !request
-        .header("content-type")
-        .is_some_and(content_type_is_json)
-    {
-        write_text_response(
-            stream,
-            StatusCode::UnsupportedMediaType,
-            "Content-Type must be application/json",
-        )?;
-        return Ok(());
-    }
-    let body: LiveBufferRequestBody = match serde_json::from_slice(&request.body) {
-        Ok(body) => body,
-        Err(error) => {
-            write_text_response(
-                stream,
-                StatusCode::BadRequest,
-                &format!("invalid live buffer request JSON: {error}"),
-            )?;
-            return Ok(());
-        }
-    };
-    if !matches!(body.multiplier, 1 | 2 | 4 | 8) {
-        write_text_response(
-            stream,
-            StatusCode::BadRequest,
-            "buffer multiplier must be 1, 2, 4, or 8",
-        )?;
-        return Ok(());
-    }
-    match player.set_live_buffer_multiplier(body.multiplier) {
-        Ok(()) => write_text_response(stream, StatusCode::Accepted, "accepted")?,
-        Err(error) => write_text_response(
-            stream,
-            StatusCode::InternalServerError,
-            &format!("{error:#}"),
-        )?,
-    }
-    Ok(())
-}
-
-#[derive(Deserialize)]
-struct MidiRequestBody {
-    messages: Vec<[u8; 3]>,
-    patch: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct LivePatchRequestBody {
-    patch: Option<String>,
-}
-
-fn handle_live_patch_request(
-    stream: &mut impl std::io::Write,
-    player: &dyn PlayerHandle,
-    request: HttpRequest,
-) -> Result<()> {
-    if request.header("content-length").is_none() {
-        write_text_response(
-            stream,
-            StatusCode::LengthRequired,
-            "Content-Length required",
-        )?;
-        return Ok(());
-    }
-    if !request
-        .header("content-type")
-        .is_some_and(content_type_is_json)
-    {
-        write_text_response(
-            stream,
-            StatusCode::UnsupportedMediaType,
-            "Content-Type must be application/json",
-        )?;
-        return Ok(());
-    }
-    let body: LivePatchRequestBody = match serde_json::from_slice(&request.body) {
-        Ok(body) => body,
-        Err(error) => {
-            write_text_response(
-                stream,
-                StatusCode::BadRequest,
-                &format!("invalid live patch request JSON: {error}"),
-            )?;
-            return Ok(());
-        }
-    };
-
-    match player.prepare_live_patch(body.patch) {
-        Ok(()) => write_empty_response(stream, StatusCode::NoContent)?,
-        Err(error) => write_text_response(
-            stream,
-            StatusCode::InternalServerError,
-            &format!("{error:#}"),
-        )?,
-    }
-    Ok(())
-}
-
-fn handle_midi_request(
-    stream: &mut impl std::io::Write,
-    player: &dyn PlayerHandle,
-    request: HttpRequest,
-) -> Result<()> {
-    if request.header("content-length").is_none() {
-        write_text_response(
-            stream,
-            StatusCode::LengthRequired,
-            "Content-Length required",
-        )?;
-        return Ok(());
-    }
-    if !request
-        .header("content-type")
-        .is_some_and(content_type_is_json)
-    {
-        write_text_response(
-            stream,
-            StatusCode::UnsupportedMediaType,
-            "Content-Type must be application/json",
-        )?;
-        return Ok(());
-    }
-    let body: MidiRequestBody = match serde_json::from_slice(&request.body) {
-        Ok(body) => body,
-        Err(error) => {
-            write_text_response(
-                stream,
-                StatusCode::BadRequest,
-                &format!("invalid MIDI request JSON: {error}"),
-            )?;
-            return Ok(());
-        }
-    };
-    if body.messages.is_empty() {
-        write_text_response(stream, StatusCode::BadRequest, "messages must not be empty")?;
-        return Ok(());
-    }
-    if let Some(message) = body.messages.iter().find(|message| {
-        !(0x80..=0xef).contains(&message[0]) || message[1] > 0x7f || message[2] > 0x7f
-    }) {
-        write_text_response(
-            stream,
-            StatusCode::BadRequest,
-            &format!(
-                "invalid MIDI channel voice message: [{}, {}, {}]",
-                message[0], message[1], message[2]
-            ),
-        )?;
-        return Ok(());
-    }
-
-    match player.send_midi(body.messages, body.patch) {
-        Ok(()) => write_text_response(stream, StatusCode::Accepted, "accepted")?,
-        Err(error) => write_text_response(
-            stream,
-            StatusCode::InternalServerError,
-            &format!("{error:#}"),
-        )?,
-    }
-    Ok(())
-}
-
-fn handle_play_request(
-    stream: &mut impl std::io::Write,
-    player: &dyn PlayerHandle,
-    request: HttpRequest,
-) -> Result<()> {
-    if request.header("content-length").is_none() {
-        write_text_response(
-            stream,
-            StatusCode::LengthRequired,
-            "Content-Length required",
-        )?;
-        return Ok(());
-    }
-    if !request
-        .header("content-type")
-        .is_some_and(content_type_is_midi)
-    {
-        write_text_response(
-            stream,
-            StatusCode::UnsupportedMediaType,
-            "Content-Type must be audio/midi, audio/x-midi, or application/octet-stream",
-        )?;
-        return Ok(());
-    }
-
-    match player.play_smf(request.body) {
-        Ok(()) => write_text_response(stream, StatusCode::Accepted, "accepted")?,
-        Err(error) => write_text_response(
-            stream,
-            StatusCode::InternalServerError,
-            &format!("{error:#}"),
-        )?,
-    }
-    Ok(())
-}
-
-fn handle_play_mml_request(
-    stream: &mut impl std::io::Write,
-    player: &dyn PlayerHandle,
-    request: HttpRequest,
-) -> Result<()> {
-    if request.header("content-length").is_none() {
-        write_text_response(
-            stream,
-            StatusCode::LengthRequired,
-            "Content-Length required",
-        )?;
-        return Ok(());
-    }
-    if !request
-        .header("content-type")
-        .is_some_and(content_type_is_text)
-    {
-        write_text_response(
-            stream,
-            StatusCode::UnsupportedMediaType,
-            "Content-Type must be text/plain",
-        )?;
-        return Ok(());
-    }
-    let Ok(mml) = String::from_utf8(request.body) else {
-        write_text_response(
-            stream,
-            StatusCode::BadRequest,
-            "request body must be valid UTF-8",
-        )?;
-        return Ok(());
-    };
-
-    match player.play_mml(mml) {
-        Ok(()) => write_text_response(stream, StatusCode::Accepted, "accepted")?,
-        Err(error) => write_text_response(
-            stream,
-            StatusCode::InternalServerError,
-            &format!("{error:#}"),
-        )?,
-    }
-    Ok(())
-}
-
-fn handle_stop_request(stream: &mut impl std::io::Write, player: &dyn PlayerHandle) -> Result<()> {
-    match player.stop() {
-        Ok(()) => write_empty_response(stream, StatusCode::NoContent)?,
-        Err(error) => write_text_response(
-            stream,
-            StatusCode::InternalServerError,
-            &format!("{error:#}"),
-        )?,
-    }
-    Ok(())
-}
-
-fn content_type_is_midi(value: &str) -> bool {
-    value.split(';').next().is_some_and(|media_type| {
-        matches!(
-            media_type.trim().to_ascii_lowercase().as_str(),
-            "audio/midi" | "audio/x-midi" | "application/octet-stream"
-        )
-    })
-}
-
-fn content_type_is_text(value: &str) -> bool {
-    value
-        .split(';')
-        .next()
-        .is_some_and(|media_type| media_type.trim().eq_ignore_ascii_case("text/plain"))
-}
-
-fn content_type_is_json(value: &str) -> bool {
-    value
-        .split(';')
-        .next()
-        .is_some_and(|media_type| media_type.trim().eq_ignore_ascii_case("application/json"))
 }
 
 #[derive(Debug)]
@@ -646,91 +356,7 @@ fn find_header_end(bytes: &[u8]) -> Option<usize> {
         .map(|index| index + 4)
 }
 
-#[derive(Clone, Copy, Debug)]
-enum StatusCode {
-    Ok,
-    Accepted,
-    NoContent,
-    BadRequest,
-    NotFound,
-    MethodNotAllowed,
-    LengthRequired,
-    PayloadTooLarge,
-    UnsupportedMediaType,
-    RequestHeaderFieldsTooLarge,
-    InternalServerError,
-}
-
-impl StatusCode {
-    fn code(self) -> u16 {
-        match self {
-            Self::Ok => 200,
-            Self::Accepted => 202,
-            Self::NoContent => 204,
-            Self::BadRequest => 400,
-            Self::NotFound => 404,
-            Self::MethodNotAllowed => 405,
-            Self::LengthRequired => 411,
-            Self::PayloadTooLarge => 413,
-            Self::UnsupportedMediaType => 415,
-            Self::RequestHeaderFieldsTooLarge => 431,
-            Self::InternalServerError => 500,
-        }
-    }
-
-    fn reason(self) -> &'static str {
-        match self {
-            Self::Ok => "OK",
-            Self::Accepted => "Accepted",
-            Self::NoContent => "No Content",
-            Self::BadRequest => "Bad Request",
-            Self::NotFound => "Not Found",
-            Self::MethodNotAllowed => "Method Not Allowed",
-            Self::LengthRequired => "Length Required",
-            Self::PayloadTooLarge => "Payload Too Large",
-            Self::UnsupportedMediaType => "Unsupported Media Type",
-            Self::RequestHeaderFieldsTooLarge => "Request Header Fields Too Large",
-            Self::InternalServerError => "Internal Server Error",
-        }
-    }
-}
-
-fn write_text_response(
-    stream: &mut impl std::io::Write,
-    status: StatusCode,
-    message: &str,
-) -> Result<()> {
-    write_binary_response(
-        stream,
-        status,
-        Some("text/plain; charset=utf-8"),
-        message.as_bytes(),
-    )
-}
-
-fn write_empty_response(stream: &mut impl std::io::Write, status: StatusCode) -> Result<()> {
-    write_binary_response(stream, status, None, &[])
-}
-
-fn write_binary_response(
-    stream: &mut impl std::io::Write,
-    status: StatusCode,
-    content_type: Option<&str>,
-    body: &[u8],
-) -> Result<()> {
-    write!(stream, "HTTP/1.1 {} {}\r\n", status.code(), status.reason())?;
-    if let Some(content_type) = content_type {
-        write!(stream, "Content-Type: {content_type}\r\n")?;
-    }
-    write!(
-        stream,
-        "Content-Length: {}\r\nConnection: close\r\n\r\n",
-        body.len()
-    )?;
-    stream.write_all(body)?;
-    stream.flush()?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod voicing_tests;

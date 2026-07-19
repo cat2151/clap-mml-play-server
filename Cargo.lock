@@ -342,6 +342,7 @@ dependencies = [
  "midly",
  "mmlabc-to-smf",
  "rodio",
+ "serde",
  "serde_json",
 ]
 
@@ -355,7 +356,7 @@ dependencies = [
 [[package]]
 name = "cmrt-runtime"
 version = "0.1.0"
-source = "git+https://github.com/cat2151/clap-mml-render-tui.git#62e79170d2d5283ff56675f79a1db24273742284"
+source = "git+https://github.com/cat2151/clap-mml-render-tui.git#ffb6f328b3e8892c28be68ce9501bdbb9ca186c8"
 dependencies = [
  "anyhow",
  "dirs",
