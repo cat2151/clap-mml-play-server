@@ -137,7 +137,7 @@ fn read_surge_params(
         let Some(value) = extension.get_value(&mut plugin_instance.plugin_handle(), id) else {
             continue;
         };
-        let mut text_buffer = [std::mem::MaybeUninit::<u8>::uninit(); 128];
+        let mut text_buffer = [0_u8; 128];
         let Ok(text) = extension.value_to_text(
             &mut plugin_instance.plugin_handle(),
             id,
