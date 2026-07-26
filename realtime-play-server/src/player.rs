@@ -20,7 +20,14 @@ use cmrt_core::{
 pub(crate) trait PlayerHandle: Send + Sync + 'static {
     fn play_smf(&self, smf: Vec<u8>) -> Result<()>;
     fn play_mml(&self, mml: String) -> Result<()>;
-    fn send_midi(&self, messages: Vec<[u8; 3]>, patch: Option<String>) -> Result<()>;
+    /// live MIDI を送る。`offsets` は各メッセージの発音位置（現在の live 位置からのフレーム数）。
+    /// 空の場合は全て 0（＝次 chunk 先頭でまとめて発音）として扱う。
+    fn send_midi(
+        &self,
+        messages: Vec<[u8; 3]>,
+        offsets: Vec<u32>,
+        patch: Option<String>,
+    ) -> Result<()>;
     fn prepare_live_patch(&self, patch: Option<String>) -> Result<()>;
     fn prepare_live_patch_with_voicing(&self, _patch: Option<String>) -> Result<VoicingReport> {
         anyhow::bail!("voicing probe is not supported by this player")
@@ -65,6 +72,8 @@ enum PlayerCommand {
     Midi {
         generation: u64,
         messages: Vec<[u8; 3]>,
+        /// `messages` と同数、または空（全て 0 扱い）。
+        offsets: Vec<u32>,
         patch: Option<String>,
         enter_live: bool,
     },
@@ -87,8 +96,18 @@ enum PlaybackMode {
     },
     Live {
         generation: u64,
-        pending_messages: Vec<[u8; 3]>,
+        /// この live session で描画済みのフレーム数。イベントの絶対位置の基準。
+        clock_samples: u64,
+        /// `at_sample` 昇順で並ぶ未発音イベント。
+        queue: Vec<LiveQueuedEvent>,
     },
+}
+
+/// live キューに積まれた1イベント。`at_sample` は live session 先頭からの絶対フレーム位置。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct LiveQueuedEvent {
+    pub(crate) at_sample: u64,
+    pub(crate) message: [u8; 3],
 }
 
 impl RealtimePlayer {
@@ -165,10 +184,18 @@ impl PlayerHandle for RealtimePlayer {
         )
     }
 
-    fn send_midi(&self, messages: Vec<[u8; 3]>, patch: Option<String>) -> Result<()> {
+    fn send_midi(
+        &self,
+        messages: Vec<[u8; 3]>,
+        offsets: Vec<u32>,
+        patch: Option<String>,
+    ) -> Result<()> {
+        if !offsets.is_empty() && offsets.len() != messages.len() {
+            anyhow::bail!("offsets must be empty or the same length as messages");
+        }
         let patch = resolve_live_patch(patch, self.core_cfg.patches_dir.as_deref());
         self.inner
-            .submit_midi(messages, patch, Arc::clone(&self.audio_output))
+            .submit_midi(messages, offsets, patch, Arc::clone(&self.audio_output))
     }
 
     fn prepare_live_patch(&self, patch: Option<String>) -> Result<()> {
@@ -253,6 +280,7 @@ impl PlayerInner {
     fn submit_midi(
         &self,
         messages: Vec<[u8; 3]>,
+        offsets: Vec<u32>,
         patch: Option<String>,
         audio_output: Arc<AudioOutputControl>,
     ) -> Result<()> {
@@ -272,6 +300,7 @@ impl PlayerInner {
         state.pending.push_back(PlayerCommand::Midi {
             generation,
             messages,
+            offsets,
             patch,
             enter_live,
         });

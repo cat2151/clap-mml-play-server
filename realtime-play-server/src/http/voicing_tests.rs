@@ -17,7 +17,12 @@ impl PlayerHandle for ProbePlayer {
         Ok(())
     }
 
-    fn send_midi(&self, _messages: Vec<[u8; 3]>, _patch: Option<String>) -> Result<()> {
+    fn send_midi(
+        &self,
+        _messages: Vec<[u8; 3]>,
+        _offsets: Vec<u32>,
+        _patch: Option<String>,
+    ) -> Result<()> {
         Ok(())
     }
 

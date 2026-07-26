@@ -20,6 +20,7 @@ fn round_trip_preserves_midi_patch_buffer_multiplier_and_stop() {
         server.recv_timeout(Duration::from_secs(1)).unwrap(),
         Some(FastMidiCommand::Midi {
             messages: vec![[0x90, 60, 100], [0x80, 60, 0]],
+            offsets: vec![0, 0],
             patch: Some("Keys/Piano.fxp".to_string()),
         })
     );
@@ -94,6 +95,27 @@ fn server_restart_invalidates_old_client_ownership() {
             .unwrap(),
         Some(FastMidiCommand::Midi {
             messages: vec![[0x90, 64, 100]],
+            offsets: vec![0],
+            patch: None,
+        })
+    );
+}
+
+#[test]
+fn round_trip_preserves_midi_offsets() {
+    let port = test_port(5);
+    let mut server = FastMidiServer::create(port).unwrap();
+    let mut client = FastMidiClient::connect(port).unwrap();
+
+    client
+        .send_midi_with_offsets(&[(0, [0x80, 60, 0]), (5538, [0x90, 64, 100])], None)
+        .unwrap();
+
+    assert_eq!(
+        server.recv_timeout(Duration::from_secs(1)).unwrap(),
+        Some(FastMidiCommand::Midi {
+            messages: vec![[0x80, 60, 0], [0x90, 64, 100]],
+            offsets: vec![0, 5538],
             patch: None,
         })
     );

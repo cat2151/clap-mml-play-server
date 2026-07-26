@@ -54,7 +54,11 @@ fn run_fast_midi_server(
 
 fn dispatch(command: FastMidiCommand, player: &dyn PlayerHandle) {
     let result = match command {
-        FastMidiCommand::Midi { messages, patch } => player.send_midi(messages, patch),
+        FastMidiCommand::Midi {
+            messages,
+            offsets,
+            patch,
+        } => player.send_midi(messages, offsets, patch),
         FastMidiCommand::SetBufferMultiplier { multiplier } => {
             player.set_live_buffer_multiplier(multiplier)
         }
@@ -84,11 +88,17 @@ mod tests {
             Ok(())
         }
 
-        fn send_midi(&self, messages: Vec<[u8; 3]>, patch: Option<String>) -> Result<()> {
-            self.commands
-                .lock()
-                .unwrap()
-                .push(FastMidiCommand::Midi { messages, patch });
+        fn send_midi(
+            &self,
+            messages: Vec<[u8; 3]>,
+            offsets: Vec<u32>,
+            patch: Option<String>,
+        ) -> Result<()> {
+            self.commands.lock().unwrap().push(FastMidiCommand::Midi {
+                messages,
+                offsets,
+                patch,
+            });
             Ok(())
         }
 
@@ -115,6 +125,7 @@ mod tests {
         let player = MockPlayer::default();
         let midi = FastMidiCommand::Midi {
             messages: vec![[0x90, 60, 100]],
+            offsets: vec![5538],
             patch: Some("Keys/Piano.fxp".to_string()),
         };
         dispatch(midi.clone(), &player);

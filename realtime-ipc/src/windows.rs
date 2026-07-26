@@ -28,7 +28,9 @@ use windows_sys::Win32::{
 use super::{FastIpcError, FastMidiCommand, MAX_MIDI_MESSAGES, MAX_PATCH_BYTES};
 
 const MAGIC: [u8; 8] = *b"CMRTMIDI";
-const VERSION: u32 = 2;
+/// v3: `CommandSlot` に `offsets` を追加し、`MAX_MIDI_MESSAGES` を 128 へ拡張。
+/// clap-mml-render-tui 側の `realtime-play/src/fast_midi_ipc.rs` と1バイトも違わないこと。
+const VERSION: u32 = 3;
 const SLOT_COUNT: usize = 64;
 const KIND_MIDI: u32 = 1;
 const KIND_STOP: u32 = 2;
@@ -43,6 +45,7 @@ struct CommandSlot {
     has_patch: u32,
     buffer_multiplier: u32,
     messages: [[u8; 3]; MAX_MIDI_MESSAGES],
+    offsets: [u32; MAX_MIDI_MESSAGES],
     patch: [u8; MAX_PATCH_BYTES],
 }
 
@@ -60,6 +63,12 @@ struct SharedRing {
 }
 
 unsafe impl Sync for SharedRing {}
+
+// 共有メモリのレイアウトは2 repo に手書きで二重定義されている。片方だけ変えると
+// 実行時に ProtocolMismatch で落ちるため、サイズをここで固定してコンパイル時に検出する。
+// 変更するときは clap-mml-render-tui 側の `realtime-play/src/fast_midi_ipc.rs` も同じ値へ。
+const _: () = assert!(size_of::<CommandSlot>() == 5012);
+const _: () = assert!(size_of::<SharedRing>() == 320_832);
 
 struct Mapping {
     handle: HANDLE,
@@ -209,23 +218,41 @@ impl FastMidiClient {
         })
     }
 
+    /// 全メッセージをオフセット 0（次 chunk 先頭）で送る。
     pub fn send_midi(
         &mut self,
         messages: &[[u8; 3]],
         patch: Option<&str>,
     ) -> Result<(), FastIpcError> {
-        if messages.is_empty() {
+        let events = messages
+            .iter()
+            .map(|message| (0, *message))
+            .collect::<Vec<_>>();
+        self.send_midi_with_offsets(&events, patch)
+    }
+
+    /// `(offset_frames, message)` の並びで送る。オフセットは現在の live 位置からのフレーム数。
+    pub fn send_midi_with_offsets(
+        &mut self,
+        events: &[(u32, [u8; 3])],
+        patch: Option<&str>,
+    ) -> Result<(), FastIpcError> {
+        if events.is_empty() {
             return Err(FastIpcError::InvalidPayload(
                 "messages must not be empty".into(),
             ));
         }
-        if messages.len() > MAX_MIDI_MESSAGES {
+        if events.len() > MAX_MIDI_MESSAGES {
             return Err(FastIpcError::TooManyMidiMessages {
-                count: messages.len(),
+                count: events.len(),
                 max: MAX_MIDI_MESSAGES,
             });
         }
-        validate_midi_messages(messages)?;
+        let messages = events
+            .iter()
+            .map(|(_, message)| *message)
+            .collect::<Vec<_>>();
+        validate_midi_messages(&messages)?;
         let patch_bytes = patch.map(str::as_bytes).unwrap_or_default();
         if patch_bytes.len() > MAX_PATCH_BYTES {
             return Err(FastIpcError::PatchTooLong {
@@ -235,8 +262,11 @@ impl FastMidiClient {
         }
         let mut slot = zeroed_slot();
         slot.kind = KIND_MIDI;
-        slot.message_count = messages.len() as u32;
-        slot.messages[..messages.len()].copy_from_slice(messages);
+        slot.message_count = events.len() as u32;
+        for (index, (offset, message)) in events.iter().enumerate() {
+            slot.messages[index] = *message;
+            slot.offsets[index] = *offset;
+        }
         if patch.is_some() {
             slot.has_patch = 1;
             slot.patch_len = patch_bytes.len() as u32;
@@ -350,6 +380,7 @@ fn decode_slot(slot: CommandSlot) -> Result<FastMidiCommand, FastIpcError> {
             validate_midi_messages(&slot.messages[..count])?;
             Ok(FastMidiCommand::Midi {
                 messages: slot.messages[..count].to_vec(),
+                offsets: slot.offsets[..count].to_vec(),
                 patch,
             })
         }

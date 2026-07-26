@@ -27,6 +27,8 @@ pub use pipeline::{
     smf_playback_schedule_with_options, smf_render_stateless_with_options, write_wav,
     PreparedRealtimePlay, RenderOptions, RenderPreroll,
 };
-pub use render::{create_plugin_instance, RealtimePlaybackSchedule, RealtimeRenderer};
+pub use render::{
+    create_plugin_instance, LiveMidiEvent, RealtimePlaybackSchedule, RealtimeRenderer,
+};
 pub use voicing::{PatchVoicing, VoicingReport};
 pub use workspace_update::{check_workspace_update, run_workspace_update};

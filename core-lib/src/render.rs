@@ -173,6 +173,16 @@ impl RealtimePlaybackSchedule {
     }
 }
 
+/// live MIDI 1.0 short message と、その chunk 先頭からのフレームオフセット。
+///
+/// オフセットは呼び出し側が chunk 境界へ割り付け済みであること。`render_live_chunk_with_offsets`
+/// は `buf_size - 1` を超えるオフセットをクランプするだけで、次 chunk へ持ち越さない。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LiveMidiEvent {
+    pub offset_frames: u32,
+    pub message: [u8; 3],
+}
+
 pub struct RealtimeRenderer {
     plugin_instance: Option<PluginInstance<MidiRenderHost>>,
     processor: Option<StartedPluginAudioProcessor<MidiRenderHost>>,
@@ -310,13 +320,35 @@ impl RealtimeRenderer {
         Ok(Some(samples))
     }
 
+    /// 1 chunk のフレーム数。live のスケジューラが chunk 境界を計算するのに使う。
+    pub fn buf_size(&self) -> usize {
+        self.buf_size
+    }
+
     /// timestampを持たないlive MIDI 1.0 short message群を、順序を保って
     /// 次のchunk先頭で処理する。複数のNote Onは同時発音としてpluginへ渡る。
     pub fn render_live_chunk(&mut self, midi_messages: &[[u8; 3]]) -> Result<Vec<f32>> {
+        let events = midi_messages
+            .iter()
+            .map(|message| LiveMidiEvent {
+                offset_frames: 0,
+                message: *message,
+            })
+            .collect::<Vec<_>>();
+        self.render_live_chunk_with_offsets(&events)
+    }
+
+    /// chunk 内オフセット付きの live 描画。オフセットはサンプル精度でpluginへ渡る。
+    ///
+    /// イベントは `offset_frames` 昇順で渡すこと（CLAP のイベントリストは時刻順が前提）。
+    pub fn render_live_chunk_with_offsets(&mut self, events: &[LiveMidiEvent]) -> Result<Vec<f32>> {
+        let last_frame = self.buf_size.saturating_sub(1) as u32;
         let mut input_events_raw = EventBuffer::new();
-        for message in midi_messages {
-            input_events_raw
-                .push(&ClapMidiEvent::new(0, 0, *message).with_flags(EventFlags::IS_LIVE));
+        for event in events {
+            let offset = event.offset_frames.min(last_frame);
+            input_events_raw.push(
+                &ClapMidiEvent::new(offset, 0, event.message).with_flags(EventFlags::IS_LIVE),
+            );
         }
         self.process_chunk(self.buf_size as u32, &input_events_raw)
     }

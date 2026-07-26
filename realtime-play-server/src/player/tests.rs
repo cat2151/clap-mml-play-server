@@ -63,6 +63,7 @@ fn live_midi_batches_keep_one_generation_and_fifo_order() {
     inner
         .submit_midi(
             vec![[0x90, 60, 100]],
+            Vec::new(),
             Some("keys.fxp".to_string()),
             Arc::clone(&audio_output),
         )
@@ -70,12 +71,18 @@ fn live_midi_batches_keep_one_generation_and_fifo_order() {
     inner
         .submit_midi(
             vec![[0x90, 64, 100]],
+            Vec::new(),
             Some("ignored.fxp".to_string()),
             Arc::clone(&audio_output),
         )
         .unwrap();
     inner
-        .submit_midi(vec![[0x80, 60, 0]], None, Arc::clone(&audio_output))
+        .submit_midi(
+            vec![[0x80, 60, 0]],
+            Vec::new(),
+            None,
+            Arc::clone(&audio_output),
+        )
         .unwrap();
 
     assert_eq!(audio_output.generation(), 1);
@@ -107,6 +114,7 @@ fn assert_midi_command(
             messages,
             patch,
             enter_live,
+            ..
         }) => {
             assert_eq!(generation, 1);
             assert_eq!(messages, expected_messages);
@@ -122,7 +130,12 @@ fn submit_play_discards_pending_live_midi() {
     let inner = PlayerInner::default();
     let audio_output = audio_control();
     inner
-        .submit_midi(vec![[0x90, 60, 100]], None, Arc::clone(&audio_output))
+        .submit_midi(
+            vec![[0x90, 60, 100]],
+            Vec::new(),
+            None,
+            Arc::clone(&audio_output),
+        )
         .unwrap();
     inner
         .submit_play(
@@ -144,7 +157,12 @@ fn submit_prepare_live_patch_replaces_pending_commands_and_returns_completion() 
     let inner = PlayerInner::default();
     let audio_output = audio_control();
     inner
-        .submit_midi(vec![[0x90, 60, 100]], None, Arc::clone(&audio_output))
+        .submit_midi(
+            vec![[0x90, 60, 100]],
+            Vec::new(),
+            None,
+            Arc::clone(&audio_output),
+        )
         .unwrap();
     let (completion_tx, completion_rx) = std::sync::mpsc::sync_channel(1);
     inner

@@ -1,15 +1,19 @@
 use std::{sync::Arc, time::Duration};
 
-use cmrt_core::{CoreConfig, RealtimeRenderer};
+use cmrt_core::{CoreConfig, LiveMidiEvent, RealtimeRenderer};
 use cpal::traits::StreamTrait;
 
 use super::{
     audio_output::{AudioOutputConsumer, AudioOutputControl, AudioOutputProducer},
     output_stream::build_output_stream,
-    PlaybackMode, PlayerCommand, PlayerInner,
+    LiveQueuedEvent, PlaybackMode, PlayerCommand, PlayerInner,
 };
 
 const OUTPUT_WAIT_TIMEOUT: Duration = Duration::from_millis(10);
+
+/// live キューに積める未発音イベントの上限。暴走クライアントでメモリを食い潰さないための蓋。
+/// BPM130 の16分音符で 16 行なら1ステップ最大32イベントなので、64ステップ先まで積める勘定。
+const MAX_LIVE_QUEUE_EVENTS: usize = 2048;
 
 pub(super) fn run_player_worker(
     inner: Arc<PlayerInner>,
@@ -91,11 +95,15 @@ pub(super) fn run_player_worker(
             },
             PlaybackMode::Live {
                 generation,
-                pending_messages,
+                clock_samples,
+                queue,
             } => {
-                let messages = std::mem::take(pending_messages);
-                match renderer.render_live_chunk(&messages) {
+                let buf_size = renderer.buf_size() as u64;
+                let chunk_start = *clock_samples;
+                let events = take_chunk_events(queue, chunk_start, buf_size);
+                match renderer.render_live_chunk_with_offsets(&events) {
                     Ok(chunk) => {
+                        *clock_samples = chunk_start + buf_size;
                         let _ = output_producer.push_chunk(*generation, chunk);
                     }
                     Err(error) => {
@@ -108,6 +116,65 @@ pub(super) fn run_player_worker(
             }
         }
     }
+}
+
+/// patch 切替のたびに live session を作り直す。切替で音は切れるため `clock_samples` は 0 で良い。
+fn new_live_mode(generation: u64) -> PlaybackMode {
+    PlaybackMode::Live {
+        generation,
+        clock_samples: 0,
+        queue: Vec::new(),
+    }
+}
+
+/// live キューへ `at_sample` 昇順を保って積む。同じ位置のイベントは受け取った順を保つ。
+///
+/// `offsets` は空（全て 0）か `messages` と同数。上限を超えたぶんは捨てる。
+pub(super) fn enqueue_live_events(
+    queue: &mut Vec<LiveQueuedEvent>,
+    clock_samples: u64,
+    messages: &[[u8; 3]],
+    offsets: &[u32],
+) {
+    for (index, message) in messages.iter().enumerate() {
+        if queue.len() >= MAX_LIVE_QUEUE_EVENTS {
+            eprintln!(
+                "realtime live MIDI queue is full ({MAX_LIVE_QUEUE_EVENTS} events); dropping the rest"
+            );
+            return;
+        }
+        let offset = offsets.get(index).copied().unwrap_or(0);
+        let at_sample = clock_samples.saturating_add(u64::from(offset));
+        // 同位置のイベントの後ろへ挿す（note off → note on の順序が保たれる）。
+        let insert_at = queue.partition_point(|queued| queued.at_sample <= at_sample);
+        queue.insert(
+            insert_at,
+            LiveQueuedEvent {
+                at_sample,
+                message: *message,
+            },
+        );
+    }
+}
+
+/// このチャンクで鳴らすイベントをキューから取り出し、chunk 内オフセットへ変換する。
+///
+/// チャンク開始より過去のイベント（遅刻ぶん）は捨てずにオフセット 0 へクランプする。
+pub(super) fn take_chunk_events(
+    queue: &mut Vec<LiveQueuedEvent>,
+    chunk_start: u64,
+    buf_size: u64,
+) -> Vec<LiveMidiEvent> {
+    let chunk_end = chunk_start.saturating_add(buf_size);
+    let last_frame = buf_size.saturating_sub(1);
+    let take = queue.partition_point(|queued| queued.at_sample < chunk_end);
+    queue
+        .drain(..take)
+        .map(|queued| LiveMidiEvent {
+            offset_frames: queued.at_sample.saturating_sub(chunk_start).min(last_frame) as u32,
+            message: queued.message,
+        })
+        .collect()
 }
 
 fn apply_command(
@@ -138,6 +205,7 @@ fn apply_command(
         PlayerCommand::Midi {
             generation,
             messages,
+            offsets,
             patch,
             enter_live,
         } => {
@@ -146,18 +214,16 @@ fn apply_command(
                 if let Err(error) = renderer.set_patch(patch.as_deref()) {
                     eprintln!("realtime live MIDI patch load failed: {error:#}");
                 }
-                *playback_mode = Some(PlaybackMode::Live {
-                    generation,
-                    pending_messages: Vec::new(),
-                });
+                *playback_mode = Some(new_live_mode(generation));
             }
             if let Some(PlaybackMode::Live {
                 generation: live_generation,
-                pending_messages,
+                clock_samples,
+                queue,
             }) = playback_mode
             {
                 *live_generation = generation;
-                pending_messages.extend(messages);
+                enqueue_live_events(queue, *clock_samples, &messages, &offsets);
             }
         }
         PlayerCommand::PrepareLivePatch {
@@ -168,10 +234,7 @@ fn apply_command(
             renderer.reset();
             match renderer.set_patch(patch.as_deref()) {
                 Ok(()) => {
-                    *playback_mode = Some(PlaybackMode::Live {
-                        generation,
-                        pending_messages: Vec::new(),
-                    });
+                    *playback_mode = Some(new_live_mode(generation));
                     let _ = completion.send(Ok(()));
                 }
                 Err(error) => {
@@ -191,10 +254,7 @@ fn apply_command(
                 .and_then(|()| renderer.probe_voicing());
             match result {
                 Ok(report) => {
-                    *playback_mode = Some(PlaybackMode::Live {
-                        generation,
-                        pending_messages: Vec::new(),
-                    });
+                    *playback_mode = Some(new_live_mode(generation));
                     let _ = completion.send(Ok(report));
                 }
                 Err(error) => {
@@ -206,3 +266,6 @@ fn apply_command(
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

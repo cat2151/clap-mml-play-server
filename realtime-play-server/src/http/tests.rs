@@ -9,6 +9,7 @@ struct FakePlayer {
     plays: Mutex<Vec<Vec<u8>>>,
     mml_plays: Mutex<Vec<String>>,
     midi_batches: Mutex<Vec<Vec<[u8; 3]>>>,
+    midi_offsets: Mutex<Vec<Vec<u32>>>,
     midi_patches: Mutex<Vec<Option<String>>>,
     prepared_live_patches: Mutex<Vec<Option<String>>>,
     buffer_multipliers: Mutex<Vec<u8>>,
@@ -26,8 +27,14 @@ impl PlayerHandle for FakePlayer {
         Ok(())
     }
 
-    fn send_midi(&self, messages: Vec<[u8; 3]>, patch: Option<String>) -> Result<()> {
+    fn send_midi(
+        &self,
+        messages: Vec<[u8; 3]>,
+        offsets: Vec<u32>,
+        patch: Option<String>,
+    ) -> Result<()> {
         self.midi_batches.lock().unwrap().push(messages);
+        self.midi_offsets.lock().unwrap().push(offsets);
         self.midi_patches.lock().unwrap().push(patch);
         Ok(())
     }
@@ -244,6 +251,60 @@ fn run_realtime_play_server_dispatches_midi_patch() {
         player.midi_patches.lock().unwrap().as_slice(),
         &[Some("patches_factory/Keys/Piano.fxp".to_string())]
     );
+}
+
+#[test]
+fn run_realtime_play_server_dispatches_midi_offsets() {
+    let player = Arc::new(FakePlayer::default());
+    let body = r#"{"messages":[[144,60,100],[144,64,100]],"offsets":[0,5538]}"#;
+    let request = format!(
+        "POST /midi HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    let response =
+        run_one_request_server(Arc::clone(&player), |addr| send_raw_request(addr, &request));
+
+    assert!(response.starts_with("HTTP/1.1 202 Accepted"));
+    assert_eq!(
+        player.midi_offsets.lock().unwrap().as_slice(),
+        &[vec![0, 5538]]
+    );
+}
+
+#[test]
+fn run_realtime_play_server_defaults_midi_offsets_to_empty() {
+    let player = Arc::new(FakePlayer::default());
+    let body = r#"{"messages":[[144,60,100]]}"#;
+    let request = format!(
+        "POST /midi HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    let response =
+        run_one_request_server(Arc::clone(&player), |addr| send_raw_request(addr, &request));
+
+    assert!(response.starts_with("HTTP/1.1 202 Accepted"));
+    assert_eq!(
+        player.midi_offsets.lock().unwrap().as_slice(),
+        &[Vec::<u32>::new()]
+    );
+}
+
+#[test]
+fn run_realtime_play_server_rejects_midi_offsets_length_mismatch() {
+    let player = Arc::new(FakePlayer::default());
+    let body = r#"{"messages":[[144,60,100],[144,64,100]],"offsets":[0]}"#;
+    let request = format!(
+        "POST /midi HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    let response =
+        run_one_request_server(Arc::clone(&player), |addr| send_raw_request(addr, &request));
+
+    assert!(response.starts_with("HTTP/1.1 400 Bad Request"));
+    assert!(player.midi_batches.lock().unwrap().is_empty());
 }
 
 #[test]

@@ -2,13 +2,17 @@
 
 use std::fmt;
 
-pub const MAX_MIDI_MESSAGES: usize = 32;
+/// 1スロットに詰められる MIDI メッセージ数。grid sequencer の1ステップは
+/// note off 16 + retrigger 込みの note on 32 まで膨らむため、32 では足りない。
+pub const MAX_MIDI_MESSAGES: usize = 128;
 pub const MAX_PATCH_BYTES: usize = 4096;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FastMidiCommand {
     Midi {
         messages: Vec<[u8; 3]>,
+        /// 各メッセージの発音位置（現在の live 位置からのフレーム数）。`messages` と同数。
+        offsets: Vec<u32>,
         patch: Option<String>,
     },
     SetBufferMultiplier {
@@ -79,6 +83,14 @@ mod unsupported {
         pub fn send_midi(
             &mut self,
             _messages: &[[u8; 3]],
+            _patch: Option<&str>,
+        ) -> Result<(), FastIpcError> {
+            Err(FastIpcError::UnsupportedPlatform)
+        }
+
+        pub fn send_midi_with_offsets(
+            &mut self,
+            _events: &[(u32, [u8; 3])],
             _patch: Option<&str>,
         ) -> Result<(), FastIpcError> {
             Err(FastIpcError::UnsupportedPlatform)

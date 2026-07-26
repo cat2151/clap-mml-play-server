@@ -9,6 +9,9 @@ struct LiveBufferRequestBody {
 #[derive(Deserialize)]
 struct MidiRequestBody {
     messages: Vec<[u8; 3]>,
+    /// 各メッセージの発音位置（現在の live 位置からのフレーム数）。空なら全て 0。
+    #[serde(default)]
+    offsets: Vec<u32>,
     patch: Option<String>,
 }
 
@@ -103,7 +106,15 @@ pub(super) fn handle_midi_request(
         )?;
         return Ok(());
     }
-    match player.send_midi(body.messages, body.patch) {
+    if !body.offsets.is_empty() && body.offsets.len() != body.messages.len() {
+        write_text_response(
+            stream,
+            StatusCode::BadRequest,
+            "offsets must be empty or the same length as messages",
+        )?;
+        return Ok(());
+    }
+    match player.send_midi(body.messages, body.offsets, body.patch) {
         Ok(()) => write_text_response(stream, StatusCode::Accepted, "accepted")?,
         Err(error) => write_internal_error(stream, error)?,
     }
