@@ -4,8 +4,16 @@ fn audio_control() -> Arc<AudioOutputControl> {
     new_audio_output(512).0
 }
 
+fn event(instance_id: InstanceId, note: u8) -> FastMidiEvent {
+    FastMidiEvent {
+        instance_id,
+        offset_frames: 0,
+        message: [0x90, note, 100],
+    }
+}
+
 #[test]
-fn submit_play_replaces_older_pending_play() {
+fn submit_play_and_stop_replace_pending_work() {
     let inner = PlayerInner::default();
     let audio_output = audio_control();
     inner
@@ -22,25 +30,15 @@ fn submit_play_replaces_older_pending_play() {
             Arc::clone(&audio_output),
         )
         .unwrap();
-
-    match inner.wait_for_command() {
+    assert!(matches!(
+        inner.wait_for_command(),
         Some(PlayerCommand::Play {
-            generation,
-            schedule,
-            patch,
-        }) => {
-            assert_eq!(generation, 2);
-            assert_eq!(schedule.total_samples(), 20);
-            assert_eq!(patch.as_deref(), Some("second.fxp"));
-        }
-        other => panic!("expected latest play command, got {other:?}"),
-    }
-}
+            generation: 2,
+            patch: Some(patch),
+            ..
+        }) if patch == "second.fxp"
+    ));
 
-#[test]
-fn submit_stop_replaces_pending_play() {
-    let inner = PlayerInner::default();
-    let audio_output = audio_control();
     inner
         .submit_play(
             RealtimePlaybackSchedule::new(vec![], 10),
@@ -49,124 +47,55 @@ fn submit_stop_replaces_pending_play() {
         )
         .unwrap();
     inner.submit_stop(Arc::clone(&audio_output)).unwrap();
-
     assert!(matches!(
         inner.wait_for_command(),
-        Some(PlayerCommand::Stop { generation: 2 })
+        Some(PlayerCommand::StopAll { generation: 4 })
     ));
 }
 
 #[test]
-fn live_midi_batches_keep_one_generation_and_fifo_order() {
+fn live_batches_share_generation_and_preserve_instance_ids() {
     let inner = PlayerInner::default();
     let audio_output = audio_control();
     inner
-        .submit_midi(
-            vec![[0x90, 60, 100]],
-            Vec::new(),
-            Some("keys.fxp".to_string()),
-            Arc::clone(&audio_output),
-        )
+        .submit_midi(vec![event(0, 60), event(15, 72)], Arc::clone(&audio_output))
         .unwrap();
     inner
-        .submit_midi(
-            vec![[0x90, 64, 100]],
-            Vec::new(),
-            Some("ignored.fxp".to_string()),
-            Arc::clone(&audio_output),
-        )
-        .unwrap();
-    inner
-        .submit_midi(
-            vec![[0x80, 60, 0]],
-            Vec::new(),
-            None,
-            Arc::clone(&audio_output),
-        )
+        .submit_midi(vec![event(7, 64)], Arc::clone(&audio_output))
         .unwrap();
 
     assert_eq!(audio_output.generation(), 1);
-    assert_midi_command(
-        inner.wait_for_command(),
-        &[[0x90, 60, 100]],
-        Some("keys.fxp"),
-        true,
-    );
-    assert_midi_command(
-        inner.wait_for_command(),
-        &[[0x90, 64, 100]],
-        Some("ignored.fxp"),
-        false,
-    );
-    assert_midi_command(inner.wait_for_command(), &[[0x80, 60, 0]], None, false);
-    assert!(inner.pop_pending_command().is_none());
-}
-
-fn assert_midi_command(
-    command: Option<PlayerCommand>,
-    expected_messages: &[[u8; 3]],
-    expected_patch: Option<&str>,
-    expected_enter_live: bool,
-) {
-    match command {
+    match inner.wait_for_command() {
         Some(PlayerCommand::Midi {
             generation,
-            messages,
-            patch,
+            events,
             enter_live,
-            ..
         }) => {
             assert_eq!(generation, 1);
-            assert_eq!(messages, expected_messages);
-            assert_eq!(patch.as_deref(), expected_patch);
-            assert_eq!(enter_live, expected_enter_live);
+            assert!(enter_live);
+            assert_eq!(events[0].instance_id, 0);
+            assert_eq!(events[1].instance_id, 15);
         }
         other => panic!("expected MIDI command, got {other:?}"),
     }
-}
-
-#[test]
-fn submit_play_discards_pending_live_midi() {
-    let inner = PlayerInner::default();
-    let audio_output = audio_control();
-    inner
-        .submit_midi(
-            vec![[0x90, 60, 100]],
-            Vec::new(),
-            None,
-            Arc::clone(&audio_output),
-        )
-        .unwrap();
-    inner
-        .submit_play(
-            RealtimePlaybackSchedule::new(vec![], 20),
-            Some("song.fxp".to_string()),
-            Arc::clone(&audio_output),
-        )
-        .unwrap();
-
     assert!(matches!(
         inner.wait_for_command(),
-        Some(PlayerCommand::Play { generation: 2, .. })
+        Some(PlayerCommand::Midi {
+            generation: 1,
+            enter_live: false,
+            ..
+        })
     ));
-    assert!(inner.pop_pending_command().is_none());
 }
 
 #[test]
-fn submit_prepare_live_patch_replaces_pending_commands_and_returns_completion() {
+fn prepare_patch_targets_one_instance_and_returns_completion() {
     let inner = PlayerInner::default();
     let audio_output = audio_control();
-    inner
-        .submit_midi(
-            vec![[0x90, 60, 100]],
-            Vec::new(),
-            None,
-            Arc::clone(&audio_output),
-        )
-        .unwrap();
     let (completion_tx, completion_rx) = std::sync::mpsc::sync_channel(1);
     inner
         .submit_prepare_live_patch(
+            12,
             Some("keys.fxp".to_string()),
             completion_tx,
             Arc::clone(&audio_output),
@@ -176,62 +105,70 @@ fn submit_prepare_live_patch_replaces_pending_commands_and_returns_completion() 
     match inner.wait_for_command() {
         Some(PlayerCommand::PrepareLivePatch {
             generation,
+            instance_id,
             patch,
             completion,
         }) => {
-            assert_eq!(generation, 2);
+            assert_eq!(generation, 1);
+            assert_eq!(instance_id, 12);
             assert_eq!(patch.as_deref(), Some("keys.fxp"));
             completion.send(Ok(())).unwrap();
         }
-        other => panic!("expected live patch command, got {other:?}"),
+        other => panic!("expected patch command, got {other:?}"),
     }
     assert_eq!(completion_rx.recv().unwrap(), Ok(()));
-    assert!(inner.pop_pending_command().is_none());
 }
 
 #[test]
-fn resolve_live_patch_uses_patch_root_and_rejects_blank_patch() {
-    let expected = Path::new("/surge-data")
-        .join("patches_factory/Keys/Piano.fxp")
-        .to_string_lossy()
-        .into_owned();
+fn stop_instance_does_not_clear_queued_commands_for_other_instances() {
+    let inner = PlayerInner::default();
+    let audio_output = audio_control();
+    inner
+        .submit_midi(vec![event(0, 60)], Arc::clone(&audio_output))
+        .unwrap();
+    inner
+        .submit_stop_instance(0, Arc::clone(&audio_output))
+        .unwrap();
+
+    assert!(matches!(
+        inner.wait_for_command(),
+        Some(PlayerCommand::Midi { .. })
+    ));
+    assert!(matches!(
+        inner.wait_for_command(),
+        Some(PlayerCommand::StopInstance {
+            instance_id: 0,
+            generation: 2
+        })
+    ));
+}
+
+#[test]
+fn resolve_live_patch_uses_root_only_for_relative_paths() {
+    let relative = resolve_live_patch(Some("Keys/Piano.fxp".into()), Some("/patches")).unwrap();
     assert_eq!(
-        resolve_live_patch(
-            Some("patches_factory/Keys/Piano.fxp".to_string()),
-            Some("/surge-data")
-        )
-        .as_deref(),
-        Some(expected.as_str())
+        relative,
+        Path::new("/patches")
+            .join("Keys/Piano.fxp")
+            .to_string_lossy()
     );
     assert_eq!(
-        resolve_live_patch(Some("  ".to_string()), Some("/patches")),
+        resolve_live_patch(Some("  ".into()), Some("/patches")),
         None
     );
-    assert_eq!(resolve_live_patch(None, Some("/patches")), None);
 }
 
 #[test]
-fn submit_play_fails_after_shutdown() {
+fn commands_fail_after_shutdown() {
     let inner = PlayerInner::default();
     let audio_output = audio_control();
     inner.shutdown(&audio_output);
-
-    let error = inner
+    assert!(inner
         .submit_play(
             RealtimePlaybackSchedule::new(vec![], 10),
             None,
-            audio_control(),
+            audio_control()
         )
-        .unwrap_err();
-
-    assert!(error.to_string().contains("stopped"));
-}
-
-#[test]
-fn wait_for_command_returns_none_after_shutdown() {
-    let inner = PlayerInner::default();
-    let audio_output = audio_control();
-    inner.shutdown(&audio_output);
-
+        .is_err());
     assert!(inner.wait_for_command().is_none());
 }

@@ -12,7 +12,7 @@ use anyhow::Result;
 use cpal::{FromSample, Sample};
 
 pub(super) const DEFAULT_BUFFER_MULTIPLIER: u8 = 4;
-const MAX_BUFFER_MULTIPLIER: usize = 8;
+const MAX_BUFFER_MULTIPLIER: usize = 16;
 const PRODUCER_RETRY_INTERVAL: Duration = Duration::from_millis(1);
 
 #[derive(Clone, Copy)]
@@ -112,8 +112,8 @@ impl AudioOutputControl {
     }
 
     pub(super) fn set_buffer_multiplier(&self, multiplier: u8) -> Result<()> {
-        if !matches!(multiplier, 1 | 2 | 4 | 8) {
-            anyhow::bail!("live buffer multiplier must be 1, 2, 4, or 8");
+        if !matches!(multiplier, 1 | 2 | 4 | 8 | 16) {
+            anyhow::bail!("live buffer multiplier must be 1, 2, 4, 8, or 16");
         }
         self.multiplier.store(multiplier, Ordering::Release);
         Ok(())
@@ -127,8 +127,7 @@ impl AudioOutputControl {
         self.buffer_frames * self.buffer_multiplier() as usize
     }
 
-    #[cfg(test)]
-    fn underrun_frames(&self) -> u64 {
+    pub(super) fn underrun_frames(&self) -> u64 {
         self.underrun_frames.load(Ordering::Acquire)
     }
 
@@ -318,7 +317,7 @@ mod tests {
     fn multiplier_accepts_only_supported_depths() {
         let (control, _producer, _consumer) = new_audio_output(512);
         assert_eq!(control.buffer_multiplier(), 4);
-        for multiplier in [1, 2, 4, 8] {
+        for multiplier in [1, 2, 4, 8, 16] {
             control.set_buffer_multiplier(multiplier).unwrap();
             assert_eq!(control.buffer_multiplier(), multiplier);
         }

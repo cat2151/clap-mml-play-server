@@ -44,104 +44,53 @@ fn run_fast_midi_server(
     player: Arc<dyn PlayerHandle>,
 ) {
     while !shutdown.load(Ordering::SeqCst) {
+        server.publish_limiter_meter(player.limiter_meter());
+        server.publish_underrun_frames(player.underrun_frames());
         match server.recv_timeout(IPC_WAIT_TIMEOUT) {
-            Ok(Some(command)) => dispatch(command, player.as_ref()),
+            Ok(Some(command)) => dispatch(command, player.as_ref(), &server),
             Ok(None) => {}
             Err(error) => eprintln!("shared-memory MIDI receive failed: {error}"),
         }
     }
 }
 
-fn dispatch(command: FastMidiCommand, player: &dyn PlayerHandle) {
+fn dispatch(command: FastMidiCommand, player: &dyn PlayerHandle, server: &FastMidiServer) {
     let result = match command {
-        FastMidiCommand::Midi {
-            messages,
-            offsets,
+        FastMidiCommand::Midi { events } => player.send_midi(events),
+        FastMidiCommand::PreparePatch {
+            request_id,
+            instance_id,
             patch,
-        } => player.send_midi(messages, offsets, patch),
+            probe,
+        } => {
+            let response = if probe {
+                player
+                    .prepare_live_patch_with_voicing(instance_id, patch)
+                    .and_then(|report| serde_json::to_vec(&report).map_err(Into::into))
+            } else {
+                player
+                    .prepare_live_patch(instance_id, patch)
+                    .map(|()| Vec::new())
+            };
+            let completion = match &response {
+                Ok(payload) => server.complete_request(request_id, Ok(payload)),
+                Err(error) => {
+                    let message = format!("{error:#}");
+                    server.complete_request(request_id, Err(&message))
+                }
+            };
+            if let Err(error) = completion {
+                eprintln!("shared-memory response failed: {error}");
+            }
+            response.map(|_| ())
+        }
         FastMidiCommand::SetBufferMultiplier { multiplier } => {
             player.set_live_buffer_multiplier(multiplier)
         }
-        FastMidiCommand::Stop => player.stop(),
+        FastMidiCommand::Stop { instance_id } => player.stop_instance(instance_id),
+        FastMidiCommand::StopAll => player.stop(),
     };
     if let Err(error) = result {
         eprintln!("shared-memory MIDI command failed: {error:#}");
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::Mutex;
-
-    #[derive(Default)]
-    struct MockPlayer {
-        commands: Mutex<Vec<FastMidiCommand>>,
-    }
-
-    impl PlayerHandle for MockPlayer {
-        fn play_smf(&self, _smf: Vec<u8>) -> Result<()> {
-            Ok(())
-        }
-
-        fn play_mml(&self, _mml: String) -> Result<()> {
-            Ok(())
-        }
-
-        fn send_midi(
-            &self,
-            messages: Vec<[u8; 3]>,
-            offsets: Vec<u32>,
-            patch: Option<String>,
-        ) -> Result<()> {
-            self.commands.lock().unwrap().push(FastMidiCommand::Midi {
-                messages,
-                offsets,
-                patch,
-            });
-            Ok(())
-        }
-
-        fn prepare_live_patch(&self, _patch: Option<String>) -> Result<()> {
-            Ok(())
-        }
-
-        fn set_live_buffer_multiplier(&self, multiplier: u8) -> Result<()> {
-            self.commands
-                .lock()
-                .unwrap()
-                .push(FastMidiCommand::SetBufferMultiplier { multiplier });
-            Ok(())
-        }
-
-        fn stop(&self) -> Result<()> {
-            self.commands.lock().unwrap().push(FastMidiCommand::Stop);
-            Ok(())
-        }
-    }
-
-    #[test]
-    fn dispatch_uses_existing_player_interface() {
-        let player = MockPlayer::default();
-        let midi = FastMidiCommand::Midi {
-            messages: vec![[0x90, 60, 100]],
-            offsets: vec![5538],
-            patch: Some("Keys/Piano.fxp".to_string()),
-        };
-        dispatch(midi.clone(), &player);
-        dispatch(
-            FastMidiCommand::SetBufferMultiplier { multiplier: 4 },
-            &player,
-        );
-        dispatch(FastMidiCommand::Stop, &player);
-
-        assert_eq!(
-            *player.commands.lock().unwrap(),
-            vec![
-                midi,
-                FastMidiCommand::SetBufferMultiplier { multiplier: 4 },
-                FastMidiCommand::Stop
-            ]
-        );
     }
 }

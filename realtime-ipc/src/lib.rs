@@ -2,23 +2,54 @@
 
 use std::fmt;
 
-/// 1スロットに詰められる MIDI メッセージ数。grid sequencer の1ステップは
-/// note off 16 + retrigger 込みの note on 32 まで膨らむため、32 では足りない。
+pub const INSTANCE_COUNT: usize = 16;
 pub const MAX_MIDI_MESSAGES: usize = 128;
 pub const MAX_PATCH_BYTES: usize = 4096;
+pub const MAX_RESPONSE_BYTES: usize = 16 * 1024;
+
+pub type InstanceId = u8;
+
+pub fn validate_instance_id(instance_id: InstanceId) -> Result<(), FastIpcError> {
+    if usize::from(instance_id) >= INSTANCE_COUNT {
+        return Err(FastIpcError::InvalidInstance {
+            instance_id,
+            count: INSTANCE_COUNT,
+        });
+    }
+    Ok(())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FastMidiEvent {
+    pub instance_id: InstanceId,
+    pub offset_frames: u32,
+    pub message: [u8; 3],
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct LimiterMeter {
+    pub current_reduction_db: f32,
+    pub peak_reduction_db: f32,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FastMidiCommand {
     Midi {
-        messages: Vec<[u8; 3]>,
-        /// 各メッセージの発音位置（現在の live 位置からのフレーム数）。`messages` と同数。
-        offsets: Vec<u32>,
+        events: Vec<FastMidiEvent>,
+    },
+    PreparePatch {
+        request_id: u32,
+        instance_id: InstanceId,
         patch: Option<String>,
+        probe: bool,
     },
     SetBufferMultiplier {
         multiplier: u8,
     },
-    Stop,
+    Stop {
+        instance_id: InstanceId,
+    },
+    StopAll,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -29,10 +60,29 @@ pub enum FastIpcError {
     ProtocolMismatch,
     ServerStopped,
     QueueFull,
-    TooManyMidiMessages { count: usize, max: usize },
-    PatchTooLong { bytes: usize, max: usize },
+    ResponseTimeout,
+    RequestFailed(String),
+    TooManyMidiMessages {
+        count: usize,
+        max: usize,
+    },
+    PatchTooLong {
+        bytes: usize,
+        max: usize,
+    },
+    ResponseTooLong {
+        bytes: usize,
+        max: usize,
+    },
+    InvalidInstance {
+        instance_id: InstanceId,
+        count: usize,
+    },
     InvalidPayload(String),
-    Os { operation: &'static str, code: u32 },
+    Os {
+        operation: &'static str,
+        code: u32,
+    },
 }
 
 impl fmt::Display for FastIpcError {
@@ -46,11 +96,19 @@ impl fmt::Display for FastIpcError {
             Self::ProtocolMismatch => write!(f, "shared-memory MIDI protocol mismatch"),
             Self::ServerStopped => write!(f, "shared-memory MIDI server stopped responding"),
             Self::QueueFull => write!(f, "shared-memory MIDI queue is full"),
+            Self::ResponseTimeout => write!(f, "shared-memory MIDI response timed out"),
+            Self::RequestFailed(message) => write!(f, "shared-memory request failed: {message}"),
             Self::TooManyMidiMessages { count, max } => {
                 write!(f, "too many MIDI messages ({count}; max {max})")
             }
             Self::PatchTooLong { bytes, max } => {
                 write!(f, "patch path is too long ({bytes} bytes; max {max})")
+            }
+            Self::ResponseTooLong { bytes, max } => {
+                write!(f, "response is too long ({bytes} bytes; max {max})")
+            }
+            Self::InvalidInstance { instance_id, count } => {
+                write!(f, "instance {instance_id} is outside 0..{count}")
             }
             Self::InvalidPayload(message) => write!(f, "invalid shared-memory payload: {message}"),
             Self::Os { operation, code } => {
@@ -68,6 +126,9 @@ mod windows;
 #[cfg(windows)]
 pub use windows::{FastMidiClient, FastMidiServer};
 
+#[cfg(all(test, windows))]
+mod windows_tests;
+
 #[cfg(not(windows))]
 mod unsupported {
     use super::*;
@@ -80,28 +141,44 @@ mod unsupported {
             Err(FastIpcError::UnsupportedPlatform)
         }
 
-        pub fn send_midi(
+        pub fn send_events(&mut self, _events: &[FastMidiEvent]) -> Result<(), FastIpcError> {
+            Err(FastIpcError::UnsupportedPlatform)
+        }
+
+        pub fn prepare_patch(
             &mut self,
-            _messages: &[[u8; 3]],
+            _instance_id: InstanceId,
             _patch: Option<&str>,
         ) -> Result<(), FastIpcError> {
             Err(FastIpcError::UnsupportedPlatform)
         }
 
-        pub fn send_midi_with_offsets(
+        pub fn probe_patch(
             &mut self,
-            _events: &[(u32, [u8; 3])],
+            _instance_id: InstanceId,
             _patch: Option<&str>,
-        ) -> Result<(), FastIpcError> {
+        ) -> Result<Vec<u8>, FastIpcError> {
             Err(FastIpcError::UnsupportedPlatform)
         }
 
-        pub fn stop(&mut self) -> Result<(), FastIpcError> {
+        pub fn stop(&mut self, _instance_id: InstanceId) -> Result<(), FastIpcError> {
+            Err(FastIpcError::UnsupportedPlatform)
+        }
+
+        pub fn stop_all(&mut self) -> Result<(), FastIpcError> {
             Err(FastIpcError::UnsupportedPlatform)
         }
 
         pub fn set_buffer_multiplier(&mut self, _multiplier: u8) -> Result<(), FastIpcError> {
             Err(FastIpcError::UnsupportedPlatform)
+        }
+
+        pub fn limiter_meter(&self) -> LimiterMeter {
+            LimiterMeter::default()
+        }
+
+        pub fn underrun_frames(&self) -> u64 {
+            0
         }
     }
 
@@ -118,6 +195,18 @@ mod unsupported {
         ) -> Result<Option<FastMidiCommand>, FastIpcError> {
             Err(FastIpcError::UnsupportedPlatform)
         }
+
+        pub fn complete_request(
+            &self,
+            _request_id: u32,
+            _result: Result<&[u8], &str>,
+        ) -> Result<(), FastIpcError> {
+            Err(FastIpcError::UnsupportedPlatform)
+        }
+
+        pub fn publish_limiter_meter(&self, _meter: LimiterMeter) {}
+
+        pub fn publish_underrun_frames(&self, _frames: u64) {}
     }
 }
 

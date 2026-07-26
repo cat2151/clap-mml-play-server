@@ -170,16 +170,10 @@ fn handle_connection(stream: &mut TcpStream, player: &dyn PlayerHandle) -> Resul
         ("GET", "/health") => write_text_response(stream, StatusCode::Ok, "ok")?,
         ("POST", "/play") => handle_play_request(stream, player, request)?,
         ("POST", "/play-mml") => handle_play_mml_request(stream, player, request)?,
-        ("POST", "/midi") => handle_midi_request(stream, player, request)?,
-        ("POST", "/live-patch") => handle_live_patch_request(stream, player, request)?,
-        ("POST", "/live-patch-probe") => handle_live_patch_probe_request(stream, player, request)?,
-        ("POST", "/live-buffer") => handle_live_buffer_request(stream, player, request)?,
         ("POST", "/stop") => handle_stop_request(stream, player)?,
-        (
-            _,
-            "/health" | "/play" | "/play-mml" | "/midi" | "/live-patch" | "/live-patch-probe"
-            | "/live-buffer" | "/stop",
-        ) => write_text_response(stream, StatusCode::MethodNotAllowed, "method not allowed")?,
+        (_, "/health" | "/play" | "/play-mml" | "/stop") => {
+            write_text_response(stream, StatusCode::MethodNotAllowed, "method not allowed")?
+        }
         _ => write_text_response(stream, StatusCode::NotFound, "not found")?,
     }
 
@@ -358,5 +352,3 @@ fn find_header_end(bytes: &[u8]) -> Option<usize> {
 
 #[cfg(test)]
 mod tests;
-#[cfg(test)]
-mod voicing_tests;

@@ -1,124 +1,43 @@
 use std::{
-    cell::UnsafeCell,
-    ffi::c_void,
     mem::size_of,
-    ptr::{self, NonNull},
-    sync::atomic::{AtomicU32, AtomicU64, Ordering},
-    time::Duration,
+    ptr,
+    sync::atomic::{AtomicU32, Ordering},
+    time::{Duration, Instant},
 };
 
 use windows_sys::Win32::{
-    Foundation::{
-        CloseHandle, GetLastError, ERROR_INVALID_PARAMETER, HANDLE, INVALID_HANDLE_VALUE,
-        STILL_ACTIVE, WAIT_OBJECT_0, WAIT_TIMEOUT,
-    },
+    Foundation::{INVALID_HANDLE_VALUE, WAIT_OBJECT_0, WAIT_TIMEOUT},
     System::{
-        Memory::{
-            CreateFileMappingW, MapViewOfFile, OpenFileMappingW, UnmapViewOfFile,
-            FILE_MAP_ALL_ACCESS, MEMORY_MAPPED_VIEW_ADDRESS, PAGE_READWRITE,
-        },
+        Memory::{CreateFileMappingW, OpenFileMappingW, FILE_MAP_ALL_ACCESS, PAGE_READWRITE},
         SystemInformation::GetTickCount64,
-        Threading::{
-            CreateEventW, GetCurrentProcessId, GetExitCodeProcess, OpenEventW, OpenProcess,
-            SetEvent, WaitForSingleObject, EVENT_MODIFY_STATE, PROCESS_QUERY_LIMITED_INFORMATION,
-        },
+        Threading::{GetCurrentProcessId, SetEvent, WaitForSingleObject, EVENT_MODIFY_STATE},
     },
 };
 
-use super::{FastIpcError, FastMidiCommand, MAX_MIDI_MESSAGES, MAX_PATCH_BYTES};
+use super::{
+    validate_instance_id, FastIpcError, FastMidiCommand, FastMidiEvent, InstanceId, LimiterMeter,
+    MAX_MIDI_MESSAGES, MAX_PATCH_BYTES, MAX_RESPONSE_BYTES,
+};
 
-const MAGIC: [u8; 8] = *b"CMRTMIDI";
-/// v3: `CommandSlot` に `offsets` を追加し、`MAX_MIDI_MESSAGES` を 128 へ拡張。
-/// clap-mml-render-tui 側の `realtime-play/src/fast_midi_ipc.rs` と1バイトも違わないこと。
-const VERSION: u32 = 3;
-const SLOT_COUNT: usize = 64;
-const KIND_MIDI: u32 = 1;
-const KIND_STOP: u32 = 2;
-const KIND_SET_BUFFER_MULTIPLIER: u32 = 3;
-const SERVER_STALE_MS: u64 = 1_000;
+mod command;
+mod handles;
+mod protocol;
 
-#[repr(C)]
-struct CommandSlot {
-    kind: u32,
-    message_count: u32,
-    patch_len: u32,
-    has_patch: u32,
-    buffer_multiplier: u32,
-    messages: [[u8; 3]; MAX_MIDI_MESSAGES],
-    offsets: [u32; MAX_MIDI_MESSAGES],
-    patch: [u8; MAX_PATCH_BYTES],
-}
-
-#[repr(C, align(64))]
-struct SharedRing {
-    magic: [u8; 8],
-    version: u32,
-    _reserved: u32,
-    server_pid: AtomicU32,
-    client_pid: AtomicU32,
-    write_index: AtomicU32,
-    read_index: AtomicU32,
-    heartbeat_ms: AtomicU64,
-    slots: [UnsafeCell<CommandSlot>; SLOT_COUNT],
-}
-
-unsafe impl Sync for SharedRing {}
-
-// 共有メモリのレイアウトは2 repo に手書きで二重定義されている。片方だけ変えると
-// 実行時に ProtocolMismatch で落ちるため、サイズをここで固定してコンパイル時に検出する。
-// 変更するときは clap-mml-render-tui 側の `realtime-play/src/fast_midi_ipc.rs` も同じ値へ。
-const _: () = assert!(size_of::<CommandSlot>() == 5012);
-const _: () = assert!(size_of::<SharedRing>() == 320_832);
-
-struct Mapping {
-    handle: HANDLE,
-    view: NonNull<SharedRing>,
-}
-
-unsafe impl Send for Mapping {}
-
-impl Mapping {
-    fn ring(&self) -> &SharedRing {
-        // SAFETY: the mapping is valid for this object's lifetime. Shared mutations use atomics
-        // and the SPSC ownership protocol.
-        unsafe { self.view.as_ref() }
-    }
-}
-
-impl Drop for Mapping {
-    fn drop(&mut self) {
-        // SAFETY: both handles were created by the matching Win32 APIs and are owned here.
-        unsafe {
-            UnmapViewOfFile(MEMORY_MAPPED_VIEW_ADDRESS {
-                Value: self.view.as_ptr().cast::<c_void>(),
-            });
-            CloseHandle(self.handle);
-        }
-    }
-}
-
-struct OwnedHandle(HANDLE);
-
-unsafe impl Send for OwnedHandle {}
-
-impl Drop for OwnedHandle {
-    fn drop(&mut self) {
-        // SAFETY: this object owns the handle.
-        unsafe {
-            CloseHandle(self.0);
-        }
-    }
-}
+use command::{pop_command, validate_midi_message, zeroed_slot};
+use handles::*;
+use protocol::*;
 
 pub struct FastMidiServer {
     mapping: Mapping,
-    event: OwnedHandle,
+    command_event: OwnedHandle,
+    response_event: OwnedHandle,
 }
 
 impl FastMidiServer {
     pub fn create(port: u16) -> Result<Self, FastIpcError> {
         let mapping_name = wide_name(port, "map");
-        let event_name = wide_name(port, "event");
+        let command_event_name = wide_name(port, "command-event");
+        let response_event_name = wide_name(port, "response-event");
         let mapping_handle = unsafe {
             CreateFileMappingW(
                 INVALID_HANDLE_VALUE,
@@ -133,13 +52,9 @@ impl FastMidiServer {
             return Err(last_os_error("CreateFileMappingW"));
         }
         let mapping = map_handle(mapping_handle)?;
-        let event_handle = unsafe { CreateEventW(ptr::null(), 0, 0, event_name.as_ptr()) };
-        if event_handle.is_null() {
-            return Err(last_os_error("CreateEventW"));
-        }
-        let event = OwnedHandle(event_handle);
+        let command_event = create_event(&command_event_name)?;
+        let response_event = create_event(&response_event_name)?;
 
-        // SAFETY: the server exclusively initializes the mapping before publishing magic/version.
         unsafe {
             ptr::write_bytes(
                 mapping.view.as_ptr().cast::<u8>(),
@@ -157,24 +72,82 @@ impl FastMidiServer {
             (*ring).magic = MAGIC;
         }
 
-        Ok(Self { mapping, event })
+        Ok(Self {
+            mapping,
+            command_event,
+            response_event,
+        })
     }
 
     pub fn recv_timeout(
         &mut self,
         timeout: Duration,
     ) -> Result<Option<FastMidiCommand>, FastIpcError> {
+        let deadline = Instant::now() + timeout;
         self.touch_heartbeat();
-        if let Some(command) = pop_command(self.mapping.ring())? {
-            return Ok(Some(command));
+        loop {
+            if let Some(command) = pop_command(self.mapping.ring())? {
+                return Ok(Some(command));
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                return Ok(None);
+            }
+            let wait_ms = (deadline - now).as_millis().min(u32::MAX as u128) as u32;
+            let wait = unsafe { WaitForSingleObject(self.command_event.0, wait_ms) };
+            self.touch_heartbeat();
+            match wait {
+                // A command can be popped before its auto-reset event is consumed. In that
+                // case the next wait observes a stale signal, so loop and check the ring again.
+                WAIT_OBJECT_0 => {}
+                WAIT_TIMEOUT => return Ok(None),
+                _ => return Err(last_os_error("WaitForSingleObject")),
+            }
         }
-        let wait_ms = timeout.as_millis().min(u32::MAX as u128) as u32;
-        let wait = unsafe { WaitForSingleObject(self.event.0, wait_ms) };
-        self.touch_heartbeat();
-        match wait {
-            WAIT_OBJECT_0 | WAIT_TIMEOUT => pop_command(self.mapping.ring()),
-            _ => Err(last_os_error("WaitForSingleObject")),
+    }
+
+    pub fn complete_request(
+        &self,
+        request_id: u32,
+        result: Result<&[u8], &str>,
+    ) -> Result<(), FastIpcError> {
+        let (status, payload) = match result {
+            Ok(payload) => (RESPONSE_OK, payload),
+            Err(message) => (RESPONSE_ERROR, message.as_bytes()),
+        };
+        if payload.len() > MAX_RESPONSE_BYTES {
+            return Err(FastIpcError::ResponseTooLong {
+                bytes: payload.len(),
+                max: MAX_RESPONSE_BYTES,
+            });
         }
+        let ring = self.mapping.ring();
+        unsafe {
+            let response = &mut *ring.response.get();
+            response.request_id = request_id;
+            response.status = status;
+            response.payload_len = payload.len() as u32;
+            response.payload[..payload.len()].copy_from_slice(payload);
+        }
+        ring.response_sequence.fetch_add(1, Ordering::Release);
+        if unsafe { SetEvent(self.response_event.0) } == 0 {
+            return Err(last_os_error("SetEvent"));
+        }
+        Ok(())
+    }
+
+    pub fn publish_limiter_meter(&self, meter: LimiterMeter) {
+        let ring = self.mapping.ring();
+        ring.limiter_current_bits
+            .store(meter.current_reduction_db.to_bits(), Ordering::Release);
+        update_atomic_max(&ring.limiter_peak_bits, meter.peak_reduction_db);
+    }
+
+    pub fn publish_underrun_frames(&self, frames: u64) {
+        self.mapping
+            .ring()
+            .underrun_frames
+            .store(frames, Ordering::Release);
     }
 
     fn touch_heartbeat(&self) {
@@ -187,14 +160,17 @@ impl FastMidiServer {
 
 pub struct FastMidiClient {
     mapping: Mapping,
-    event: OwnedHandle,
+    command_event: OwnedHandle,
+    response_event: OwnedHandle,
     pid: u32,
+    next_request_id: u32,
 }
 
 impl FastMidiClient {
     pub fn connect(port: u16) -> Result<Self, FastIpcError> {
         let mapping_name = wide_name(port, "map");
-        let event_name = wide_name(port, "event");
+        let command_event_name = wide_name(port, "command-event");
+        let response_event_name = wide_name(port, "response-event");
         let mapping_handle =
             unsafe { OpenFileMappingW(FILE_MAP_ALL_ACCESS, 0, mapping_name.as_ptr()) };
         if mapping_handle.is_null() {
@@ -202,44 +178,25 @@ impl FastMidiClient {
         }
         let mapping = map_handle(mapping_handle)?;
         validate_ring(mapping.ring())?;
-        let event_handle = unsafe { OpenEventW(EVENT_MODIFY_STATE, 0, event_name.as_ptr()) };
-        if event_handle.is_null() {
-            return Err(FastIpcError::NotAvailable);
-        }
-        let event = OwnedHandle(event_handle);
+        let command_event = open_event(&command_event_name, EVENT_MODIFY_STATE)?;
+        let response_event = open_event(&response_event_name, SYNCHRONIZE_ACCESS)?;
         let pid = unsafe { GetCurrentProcessId() };
         claim_client(mapping.ring(), pid)?;
         let write = mapping.ring().write_index.load(Ordering::Acquire);
         mapping.ring().read_index.store(write, Ordering::Release);
         Ok(Self {
             mapping,
-            event,
+            command_event,
+            response_event,
             pid,
+            next_request_id: 1,
         })
     }
 
-    /// 全メッセージをオフセット 0（次 chunk 先頭）で送る。
-    pub fn send_midi(
-        &mut self,
-        messages: &[[u8; 3]],
-        patch: Option<&str>,
-    ) -> Result<(), FastIpcError> {
-        let events = messages
-            .iter()
-            .map(|message| (0, *message))
-            .collect::<Vec<_>>();
-        self.send_midi_with_offsets(&events, patch)
-    }
-
-    /// `(offset_frames, message)` の並びで送る。オフセットは現在の live 位置からのフレーム数。
-    pub fn send_midi_with_offsets(
-        &mut self,
-        events: &[(u32, [u8; 3])],
-        patch: Option<&str>,
-    ) -> Result<(), FastIpcError> {
+    pub fn send_events(&mut self, events: &[FastMidiEvent]) -> Result<(), FastIpcError> {
         if events.is_empty() {
             return Err(FastIpcError::InvalidPayload(
-                "messages must not be empty".into(),
+                "events must not be empty".into(),
             ));
         }
         if events.len() > MAX_MIDI_MESSAGES {
@@ -248,11 +205,83 @@ impl FastMidiClient {
                 max: MAX_MIDI_MESSAGES,
             });
         }
-        let messages = events
-            .iter()
-            .map(|(_, message)| *message)
-            .collect::<Vec<_>>();
-        validate_midi_messages(&messages)?;
+        for event in events {
+            validate_instance_id(event.instance_id)?;
+            validate_midi_message(event.message)?;
+        }
+        let mut slot = zeroed_slot();
+        slot.kind = KIND_MIDI;
+        slot.message_count = events.len() as u32;
+        for (index, event) in events.iter().enumerate() {
+            slot.messages[index] = event.message;
+            slot.offsets[index] = event.offset_frames;
+            slot.instance_ids[index] = event.instance_id;
+        }
+        self.push(slot)
+    }
+
+    pub fn prepare_patch(
+        &mut self,
+        instance_id: InstanceId,
+        patch: Option<&str>,
+    ) -> Result<(), FastIpcError> {
+        self.patch_request(KIND_PREPARE_PATCH, instance_id, patch)
+            .map(|_| ())
+    }
+
+    pub fn probe_patch(
+        &mut self,
+        instance_id: InstanceId,
+        patch: Option<&str>,
+    ) -> Result<Vec<u8>, FastIpcError> {
+        self.patch_request(KIND_PROBE_PATCH, instance_id, patch)
+    }
+
+    pub fn stop(&mut self, instance_id: InstanceId) -> Result<(), FastIpcError> {
+        validate_instance_id(instance_id)?;
+        let mut slot = zeroed_slot();
+        slot.kind = KIND_STOP;
+        slot.instance_id = u32::from(instance_id);
+        self.push(slot)
+    }
+
+    pub fn stop_all(&mut self) -> Result<(), FastIpcError> {
+        let mut slot = zeroed_slot();
+        slot.kind = KIND_STOP_ALL;
+        self.push(slot)
+    }
+
+    pub fn set_buffer_multiplier(&mut self, multiplier: u8) -> Result<(), FastIpcError> {
+        if !matches!(multiplier, 1 | 2 | 4 | 8 | 16) {
+            return Err(FastIpcError::InvalidPayload(
+                "buffer multiplier must be 1, 2, 4, 8, or 16".into(),
+            ));
+        }
+        let mut slot = zeroed_slot();
+        slot.kind = KIND_SET_BUFFER_MULTIPLIER;
+        slot.buffer_multiplier = u32::from(multiplier);
+        self.push(slot)
+    }
+
+    pub fn limiter_meter(&self) -> LimiterMeter {
+        let ring = self.mapping.ring();
+        LimiterMeter {
+            current_reduction_db: f32::from_bits(ring.limiter_current_bits.load(Ordering::Acquire)),
+            peak_reduction_db: f32::from_bits(ring.limiter_peak_bits.swap(0, Ordering::AcqRel)),
+        }
+    }
+
+    pub fn underrun_frames(&self) -> u64 {
+        self.mapping.ring().underrun_frames.load(Ordering::Acquire)
+    }
+
+    fn patch_request(
+        &mut self,
+        kind: u32,
+        instance_id: InstanceId,
+        patch: Option<&str>,
+    ) -> Result<Vec<u8>, FastIpcError> {
+        validate_instance_id(instance_id)?;
         let patch_bytes = patch.map(str::as_bytes).unwrap_or_default();
         if patch_bytes.len() > MAX_PATCH_BYTES {
             return Err(FastIpcError::PatchTooLong {
@@ -260,37 +289,83 @@ impl FastMidiClient {
                 max: MAX_PATCH_BYTES,
             });
         }
+        let request_id = self.next_request_id;
+        self.next_request_id = self.next_request_id.wrapping_add(1).max(1);
         let mut slot = zeroed_slot();
-        slot.kind = KIND_MIDI;
-        slot.message_count = events.len() as u32;
-        for (index, (offset, message)) in events.iter().enumerate() {
-            slot.messages[index] = *message;
-            slot.offsets[index] = *offset;
-        }
+        slot.kind = kind;
+        slot.request_id = request_id;
+        slot.instance_id = u32::from(instance_id);
         if patch.is_some() {
             slot.has_patch = 1;
             slot.patch_len = patch_bytes.len() as u32;
             slot.patch[..patch_bytes.len()].copy_from_slice(patch_bytes);
         }
-        self.push(slot)
+        self.push(slot)?;
+        self.wait_for_response(request_id)
     }
 
-    pub fn stop(&mut self) -> Result<(), FastIpcError> {
-        let mut slot = zeroed_slot();
-        slot.kind = KIND_STOP;
-        self.push(slot)
+    fn wait_for_response(&self, request_id: u32) -> Result<Vec<u8>, FastIpcError> {
+        let deadline = Instant::now() + RESPONSE_TIMEOUT;
+        let mut observed = self
+            .mapping
+            .ring()
+            .response_sequence
+            .load(Ordering::Acquire);
+        loop {
+            if let Some(response) = self.read_response(request_id, observed)? {
+                return response;
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                return Err(FastIpcError::ResponseTimeout);
+            }
+            let wait_ms = (deadline - now).as_millis().min(u32::MAX as u128) as u32;
+            let wait = unsafe { WaitForSingleObject(self.response_event.0, wait_ms) };
+            match wait {
+                WAIT_OBJECT_0 => {
+                    observed = self
+                        .mapping
+                        .ring()
+                        .response_sequence
+                        .load(Ordering::Acquire);
+                }
+                WAIT_TIMEOUT => return Err(FastIpcError::ResponseTimeout),
+                _ => return Err(last_os_error("WaitForSingleObject")),
+            }
+        }
     }
 
-    pub fn set_buffer_multiplier(&mut self, multiplier: u8) -> Result<(), FastIpcError> {
-        if !matches!(multiplier, 1 | 2 | 4 | 8) {
+    fn read_response(
+        &self,
+        request_id: u32,
+        sequence: u32,
+    ) -> Result<Option<Result<Vec<u8>, FastIpcError>>, FastIpcError> {
+        if sequence == 0 {
+            return Ok(None);
+        }
+        let response = unsafe { &*self.mapping.ring().response.get() };
+        if response.request_id != request_id {
+            return Ok(None);
+        }
+        let len = response.payload_len as usize;
+        if len > MAX_RESPONSE_BYTES {
             return Err(FastIpcError::InvalidPayload(
-                "buffer multiplier must be 1, 2, 4, or 8".into(),
+                "response payload length is invalid".into(),
             ));
         }
-        let mut slot = zeroed_slot();
-        slot.kind = KIND_SET_BUFFER_MULTIPLIER;
-        slot.buffer_multiplier = u32::from(multiplier);
-        self.push(slot)
+        let payload = response.payload[..len].to_vec();
+        let result = match response.status {
+            RESPONSE_OK => Ok(payload),
+            RESPONSE_ERROR => Err(FastIpcError::RequestFailed(
+                String::from_utf8_lossy(&payload).into_owned(),
+            )),
+            _ => {
+                return Err(FastIpcError::InvalidPayload(
+                    "response status is invalid".into(),
+                ))
+            }
+        };
+        Ok(Some(result))
     }
 
     fn push(&mut self, slot: CommandSlot) -> Result<(), FastIpcError> {
@@ -310,13 +385,10 @@ impl FastMidiClient {
             return Err(FastIpcError::QueueFull);
         }
         let index = (write as usize) % SLOT_COUNT;
-        // SAFETY: the client is the sole producer and release publishes the complete slot.
-        unsafe {
-            ptr::write(ring.slots[index].get(), slot);
-        }
+        unsafe { ptr::write(ring.slots[index].get(), slot) };
         ring.write_index
             .store(write.wrapping_add(1), Ordering::Release);
-        if unsafe { SetEvent(self.event.0) } == 0 {
+        if unsafe { SetEvent(self.command_event.0) } == 0 {
             return Err(last_os_error("SetEvent"));
         }
         Ok(())
@@ -334,75 +406,22 @@ impl Drop for FastMidiClient {
     }
 }
 
-fn pop_command(ring: &SharedRing) -> Result<Option<FastMidiCommand>, FastIpcError> {
-    validate_ring(ring)?;
-    let read = ring.read_index.load(Ordering::Relaxed);
-    let write = ring.write_index.load(Ordering::Acquire);
-    if read == write {
-        return Ok(None);
-    }
-    let index = (read as usize) % SLOT_COUNT;
-    // SAFETY: the server is the sole consumer and acquire observes the published slot.
-    let slot = unsafe { ptr::read(ring.slots[index].get()) };
-    ring.read_index
-        .store(read.wrapping_add(1), Ordering::Release);
-    decode_slot(slot).map(Some)
-}
-
-fn decode_slot(slot: CommandSlot) -> Result<FastMidiCommand, FastIpcError> {
-    match slot.kind {
-        KIND_STOP => Ok(FastMidiCommand::Stop),
-        KIND_SET_BUFFER_MULTIPLIER => {
-            let multiplier = u8::try_from(slot.buffer_multiplier)
-                .map_err(|_| FastIpcError::InvalidPayload("invalid buffer multiplier".into()))?;
-            if !matches!(multiplier, 1 | 2 | 4 | 8) {
-                return Err(FastIpcError::InvalidPayload(
-                    "buffer multiplier must be 1, 2, 4, or 8".into(),
-                ));
-            }
-            Ok(FastMidiCommand::SetBufferMultiplier { multiplier })
+fn update_atomic_max(value: &AtomicU32, candidate: f32) {
+    let mut current = value.load(Ordering::Acquire);
+    loop {
+        if f32::from_bits(current) >= candidate {
+            return;
         }
-        KIND_MIDI => {
-            let count = slot.message_count as usize;
-            let patch_len = slot.patch_len as usize;
-            if count == 0 || count > MAX_MIDI_MESSAGES || patch_len > MAX_PATCH_BYTES {
-                return Err(FastIpcError::InvalidPayload("invalid field length".into()));
-            }
-            let patch = if slot.has_patch == 0 {
-                None
-            } else {
-                Some(
-                    std::str::from_utf8(&slot.patch[..patch_len])
-                        .map_err(|_| FastIpcError::InvalidPayload("patch is not UTF-8".into()))?
-                        .to_string(),
-                )
-            };
-            validate_midi_messages(&slot.messages[..count])?;
-            Ok(FastMidiCommand::Midi {
-                messages: slot.messages[..count].to_vec(),
-                offsets: slot.offsets[..count].to_vec(),
-                patch,
-            })
+        match value.compare_exchange_weak(
+            current,
+            candidate.to_bits(),
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        ) {
+            Ok(_) => return,
+            Err(observed) => current = observed,
         }
-        _ => Err(FastIpcError::InvalidPayload("unknown command kind".into())),
     }
-}
-
-fn validate_midi_messages(messages: &[[u8; 3]]) -> Result<(), FastIpcError> {
-    if let Some(message) = messages.iter().find(|message| {
-        !(0x80..=0xef).contains(&message[0]) || message[1] > 0x7f || message[2] > 0x7f
-    }) {
-        return Err(FastIpcError::InvalidPayload(format!(
-            "invalid MIDI channel voice message: [{}, {}, {}]",
-            message[0], message[1], message[2]
-        )));
-    }
-    Ok(())
-}
-
-fn zeroed_slot() -> CommandSlot {
-    // SAFETY: CommandSlot contains only integer and byte-array fields, for which zero is valid.
-    unsafe { std::mem::zeroed() }
 }
 
 fn validate_ring(ring: &SharedRing) -> Result<(), FastIpcError> {
@@ -411,62 +430,3 @@ fn validate_ring(ring: &SharedRing) -> Result<(), FastIpcError> {
     }
     Ok(())
 }
-
-fn claim_client(ring: &SharedRing, pid: u32) -> Result<(), FastIpcError> {
-    loop {
-        let owner = ring.client_pid.load(Ordering::Acquire);
-        if owner == 0 {
-            if ring
-                .client_pid
-                .compare_exchange(0, pid, Ordering::AcqRel, Ordering::Acquire)
-                .is_ok()
-            {
-                return Ok(());
-            }
-            continue;
-        }
-        if process_is_running(owner) {
-            return Err(FastIpcError::AlreadyConnected);
-        }
-        let _ = ring
-            .client_pid
-            .compare_exchange(owner, 0, Ordering::AcqRel, Ordering::Acquire);
-    }
-}
-
-fn process_is_running(pid: u32) -> bool {
-    let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
-    if process.is_null() {
-        return unsafe { GetLastError() } != ERROR_INVALID_PARAMETER;
-    }
-    let mut exit_code = 0;
-    let read_ok = unsafe { GetExitCodeProcess(process, &mut exit_code) } != 0;
-    unsafe { CloseHandle(process) };
-    read_ok && exit_code == STILL_ACTIVE as u32
-}
-
-fn map_handle(handle: HANDLE) -> Result<Mapping, FastIpcError> {
-    let view = unsafe { MapViewOfFile(handle, FILE_MAP_ALL_ACCESS, 0, 0, size_of::<SharedRing>()) };
-    let Some(view) = NonNull::new(view.Value.cast::<SharedRing>()) else {
-        unsafe { CloseHandle(handle) };
-        return Err(last_os_error("MapViewOfFile"));
-    };
-    Ok(Mapping { handle, view })
-}
-
-fn wide_name(port: u16, suffix: &str) -> Vec<u16> {
-    format!("Local\\cmrt-realtime-midi-v{VERSION}-{port}-{suffix}\0")
-        .encode_utf16()
-        .collect()
-}
-
-fn last_os_error(operation: &'static str) -> FastIpcError {
-    FastIpcError::Os {
-        operation,
-        code: unsafe { GetLastError() },
-    }
-}
-
-#[cfg(test)]
-#[path = "windows_tests.rs"]
-mod tests;

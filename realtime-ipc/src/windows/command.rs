@@ -1,0 +1,107 @@
+use std::{ptr, sync::atomic::Ordering};
+
+use super::{
+    protocol::{
+        CommandSlot, SharedRing, KIND_MIDI, KIND_PREPARE_PATCH, KIND_PROBE_PATCH,
+        KIND_SET_BUFFER_MULTIPLIER, KIND_STOP, KIND_STOP_ALL, SLOT_COUNT,
+    },
+    validate_instance_id, validate_ring, FastIpcError, FastMidiCommand, FastMidiEvent, InstanceId,
+    MAX_MIDI_MESSAGES, MAX_PATCH_BYTES,
+};
+
+pub(super) fn pop_command(ring: &SharedRing) -> Result<Option<FastMidiCommand>, FastIpcError> {
+    validate_ring(ring)?;
+    let read = ring.read_index.load(Ordering::Relaxed);
+    let write = ring.write_index.load(Ordering::Acquire);
+    if read == write {
+        return Ok(None);
+    }
+    let index = (read as usize) % SLOT_COUNT;
+    let slot = unsafe { ptr::read(ring.slots[index].get()) };
+    ring.read_index
+        .store(read.wrapping_add(1), Ordering::Release);
+    decode_slot(slot).map(Some)
+}
+
+fn decode_slot(slot: CommandSlot) -> Result<FastMidiCommand, FastIpcError> {
+    match slot.kind {
+        KIND_STOP => Ok(FastMidiCommand::Stop {
+            instance_id: decode_instance(slot.instance_id)?,
+        }),
+        KIND_STOP_ALL => Ok(FastMidiCommand::StopAll),
+        KIND_SET_BUFFER_MULTIPLIER => {
+            let multiplier = u8::try_from(slot.buffer_multiplier)
+                .map_err(|_| FastIpcError::InvalidPayload("invalid buffer multiplier".into()))?;
+            if !matches!(multiplier, 1 | 2 | 4 | 8 | 16) {
+                return Err(FastIpcError::InvalidPayload(
+                    "buffer multiplier must be 1, 2, 4, 8, or 16".into(),
+                ));
+            }
+            Ok(FastMidiCommand::SetBufferMultiplier { multiplier })
+        }
+        KIND_PREPARE_PATCH | KIND_PROBE_PATCH => Ok(FastMidiCommand::PreparePatch {
+            request_id: slot.request_id,
+            instance_id: decode_instance(slot.instance_id)?,
+            patch: decode_patch(&slot)?,
+            probe: slot.kind == KIND_PROBE_PATCH,
+        }),
+        KIND_MIDI => {
+            let count = slot.message_count as usize;
+            if count == 0 || count > MAX_MIDI_MESSAGES {
+                return Err(FastIpcError::InvalidPayload("invalid event count".into()));
+            }
+            let mut events = Vec::with_capacity(count);
+            for index in 0..count {
+                let instance_id = slot.instance_ids[index];
+                validate_instance_id(instance_id)?;
+                let message = slot.messages[index];
+                validate_midi_message(message)?;
+                events.push(FastMidiEvent {
+                    instance_id,
+                    offset_frames: slot.offsets[index],
+                    message,
+                });
+            }
+            Ok(FastMidiCommand::Midi { events })
+        }
+        _ => Err(FastIpcError::InvalidPayload("unknown command kind".into())),
+    }
+}
+
+fn decode_patch(slot: &CommandSlot) -> Result<Option<String>, FastIpcError> {
+    let patch_len = slot.patch_len as usize;
+    if patch_len > MAX_PATCH_BYTES {
+        return Err(FastIpcError::InvalidPayload(
+            "patch payload length is invalid".into(),
+        ));
+    }
+    if slot.has_patch == 0 {
+        return Ok(None);
+    }
+    Ok(Some(
+        std::str::from_utf8(&slot.patch[..patch_len])
+            .map_err(|_| FastIpcError::InvalidPayload("patch is not UTF-8".into()))?
+            .to_string(),
+    ))
+}
+
+fn decode_instance(raw: u32) -> Result<InstanceId, FastIpcError> {
+    let instance_id = u8::try_from(raw)
+        .map_err(|_| FastIpcError::InvalidPayload("instance id is invalid".into()))?;
+    validate_instance_id(instance_id)?;
+    Ok(instance_id)
+}
+
+pub(super) fn validate_midi_message(message: [u8; 3]) -> Result<(), FastIpcError> {
+    if !(0x80..=0xef).contains(&message[0]) || message[1] > 0x7f || message[2] > 0x7f {
+        return Err(FastIpcError::InvalidPayload(format!(
+            "invalid MIDI channel voice message: [{}, {}, {}]",
+            message[0], message[1], message[2]
+        )));
+    }
+    Ok(())
+}
+
+pub(super) fn zeroed_slot() -> CommandSlot {
+    unsafe { std::mem::zeroed() }
+}

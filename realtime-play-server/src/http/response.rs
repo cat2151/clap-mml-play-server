@@ -69,15 +69,6 @@ pub(super) fn write_empty_response(
     write_binary_response(stream, status, None, &[])
 }
 
-pub(super) fn write_json_response(
-    stream: &mut impl std::io::Write,
-    status: StatusCode,
-    value: &impl serde::Serialize,
-) -> Result<()> {
-    let body = serde_json::to_vec(value)?;
-    write_binary_response(stream, status, Some("application/json"), &body)
-}
-
 fn write_binary_response(
     stream: &mut impl std::io::Write,
     status: StatusCode,

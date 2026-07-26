@@ -1,5 +1,7 @@
 mod audio_output;
+mod limiter;
 mod output_stream;
+mod runtime;
 mod worker;
 
 use std::{
@@ -10,30 +12,32 @@ use std::{
 };
 
 use self::audio_output::{new_audio_output, AudioOutputControl};
-use self::worker::run_player_worker;
+use self::runtime::{LimiterMeterState, LiveInstanceState, LiveQueuedEvent, PlaybackMode};
+use self::worker::{run_player_worker, WorkerOutput};
 use anyhow::{Context as _, Result};
 use cmrt_core::{
     smf_playback_schedule_with_options, CoreConfig, RealtimePlaybackSchedule, RenderOptions,
     VoicingReport,
 };
+use cmrt_realtime_ipc::{
+    validate_instance_id, FastMidiEvent, InstanceId, LimiterMeter, INSTANCE_COUNT,
+};
 
 pub(crate) trait PlayerHandle: Send + Sync + 'static {
     fn play_smf(&self, smf: Vec<u8>) -> Result<()>;
     fn play_mml(&self, mml: String) -> Result<()>;
-    /// live MIDI を送る。`offsets` は各メッセージの発音位置（現在の live 位置からのフレーム数）。
-    /// 空の場合は全て 0（＝次 chunk 先頭でまとめて発音）として扱う。
-    fn send_midi(
+    fn send_midi(&self, events: Vec<FastMidiEvent>) -> Result<()>;
+    fn prepare_live_patch(&self, instance_id: InstanceId, patch: Option<String>) -> Result<()>;
+    fn prepare_live_patch_with_voicing(
         &self,
-        messages: Vec<[u8; 3]>,
-        offsets: Vec<u32>,
+        instance_id: InstanceId,
         patch: Option<String>,
-    ) -> Result<()>;
-    fn prepare_live_patch(&self, patch: Option<String>) -> Result<()>;
-    fn prepare_live_patch_with_voicing(&self, _patch: Option<String>) -> Result<VoicingReport> {
-        anyhow::bail!("voicing probe is not supported by this player")
-    }
+    ) -> Result<VoicingReport>;
     fn set_live_buffer_multiplier(&self, multiplier: u8) -> Result<()>;
+    fn stop_instance(&self, instance_id: InstanceId) -> Result<()>;
     fn stop(&self) -> Result<()>;
+    fn limiter_meter(&self) -> LimiterMeter;
+    fn underrun_frames(&self) -> u64;
 }
 
 pub(crate) struct RealtimePlayer {
@@ -42,6 +46,7 @@ pub(crate) struct RealtimePlayer {
     core_cfg: CoreConfig,
     inner: Arc<PlayerInner>,
     audio_output: Arc<AudioOutputControl>,
+    limiter_meter: Arc<LimiterMeterState>,
     worker: Mutex<Option<JoinHandle<()>>>,
 }
 
@@ -63,51 +68,32 @@ enum PlayerCommand {
     Play {
         generation: u64,
         schedule: RealtimePlaybackSchedule,
-        /// 再生前にロードするパッチ。None は初期音色（Init Saw）。
         patch: Option<String>,
     },
-    Stop {
+    StopAll {
         generation: u64,
+    },
+    StopInstance {
+        generation: u64,
+        instance_id: InstanceId,
     },
     Midi {
         generation: u64,
-        messages: Vec<[u8; 3]>,
-        /// `messages` と同数、または空（全て 0 扱い）。
-        offsets: Vec<u32>,
-        patch: Option<String>,
+        events: Vec<FastMidiEvent>,
         enter_live: bool,
     },
     PrepareLivePatch {
         generation: u64,
+        instance_id: InstanceId,
         patch: Option<String>,
         completion: std::sync::mpsc::SyncSender<std::result::Result<(), String>>,
     },
     ProbeLivePatch {
         generation: u64,
+        instance_id: InstanceId,
         patch: Option<String>,
         completion: std::sync::mpsc::SyncSender<std::result::Result<VoicingReport, String>>,
     },
-}
-
-enum PlaybackMode {
-    Scheduled {
-        generation: u64,
-        playback: RealtimePlaybackSchedule,
-    },
-    Live {
-        generation: u64,
-        /// この live session で描画済みのフレーム数。イベントの絶対位置の基準。
-        clock_samples: u64,
-        /// `at_sample` 昇順で並ぶ未発音イベント。
-        queue: Vec<LiveQueuedEvent>,
-    },
-}
-
-/// live キューに積まれた1イベント。`at_sample` は live session 先頭からの絶対フレーム位置。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct LiveQueuedEvent {
-    pub(crate) at_sample: u64,
-    pub(crate) message: [u8; 3],
 }
 
 impl RealtimePlayer {
@@ -120,8 +106,10 @@ impl RealtimePlayer {
         let (audio_output, output_producer, output_consumer) =
             new_audio_output(core_cfg.buffer_size);
         let inner = Arc::new(PlayerInner::default());
+        let limiter_meter = Arc::new(LimiterMeterState::default());
         let worker_inner = Arc::clone(&inner);
         let worker_audio_output = Arc::clone(&audio_output);
+        let worker_limiter_meter = Arc::clone(&limiter_meter);
         let worker_core_cfg = core_cfg.clone();
         let (init_tx, init_rx) = std::sync::mpsc::channel();
         let worker = std::thread::Builder::new()
@@ -129,11 +117,14 @@ impl RealtimePlayer {
             .spawn(move || {
                 run_player_worker(
                     worker_inner,
-                    worker_audio_output,
+                    WorkerOutput {
+                        control: worker_audio_output,
+                        limiter_meter: worker_limiter_meter,
+                        producer: output_producer,
+                        consumer: output_consumer,
+                    },
                     worker_core_cfg,
                     plugin_path,
-                    output_producer,
-                    output_consumer,
                     init_tx,
                 );
             })
@@ -153,6 +144,7 @@ impl RealtimePlayer {
             core_cfg,
             inner,
             audio_output,
+            limiter_meter,
             worker: Mutex::new(Some(worker)),
         })
     }
@@ -162,7 +154,6 @@ impl PlayerHandle for RealtimePlayer {
     fn play_smf(&self, smf: Vec<u8>) -> Result<()> {
         let schedule =
             smf_playback_schedule_with_options(&smf, self.sample_rate, self.render_options)?;
-        // SMF にはパッチ情報が無いため config のパッチ（起動時と同じ）を維持する
         self.inner.submit_play(
             schedule,
             self.core_cfg.patch_path.clone(),
@@ -184,24 +175,23 @@ impl PlayerHandle for RealtimePlayer {
         )
     }
 
-    fn send_midi(
-        &self,
-        messages: Vec<[u8; 3]>,
-        offsets: Vec<u32>,
-        patch: Option<String>,
-    ) -> Result<()> {
-        if !offsets.is_empty() && offsets.len() != messages.len() {
-            anyhow::bail!("offsets must be empty or the same length as messages");
+    fn send_midi(&self, events: Vec<FastMidiEvent>) -> Result<()> {
+        if events.is_empty() {
+            anyhow::bail!("MIDI events must not be empty");
         }
-        let patch = resolve_live_patch(patch, self.core_cfg.patches_dir.as_deref());
+        for event in &events {
+            validate_instance_id(event.instance_id)?;
+        }
         self.inner
-            .submit_midi(messages, offsets, patch, Arc::clone(&self.audio_output))
+            .submit_midi(events, Arc::clone(&self.audio_output))
     }
 
-    fn prepare_live_patch(&self, patch: Option<String>) -> Result<()> {
+    fn prepare_live_patch(&self, instance_id: InstanceId, patch: Option<String>) -> Result<()> {
+        validate_instance_id(instance_id)?;
         let patch = resolve_live_patch(patch, self.core_cfg.patches_dir.as_deref());
         let (completion_tx, completion_rx) = std::sync::mpsc::sync_channel(0);
         self.inner.submit_prepare_live_patch(
+            instance_id,
             patch,
             completion_tx,
             Arc::clone(&self.audio_output),
@@ -212,11 +202,20 @@ impl PlayerHandle for RealtimePlayer {
             .map_err(anyhow::Error::msg)
     }
 
-    fn prepare_live_patch_with_voicing(&self, patch: Option<String>) -> Result<VoicingReport> {
+    fn prepare_live_patch_with_voicing(
+        &self,
+        instance_id: InstanceId,
+        patch: Option<String>,
+    ) -> Result<VoicingReport> {
+        validate_instance_id(instance_id)?;
         let patch = resolve_live_patch(patch, self.core_cfg.patches_dir.as_deref());
         let (completion_tx, completion_rx) = std::sync::mpsc::sync_channel(0);
-        self.inner
-            .submit_probe_live_patch(patch, completion_tx, Arc::clone(&self.audio_output))?;
+        self.inner.submit_probe_live_patch(
+            instance_id,
+            patch,
+            completion_tx,
+            Arc::clone(&self.audio_output),
+        )?;
         completion_rx
             .recv()
             .context("realtime play worker exited while probing live patch")?
@@ -227,8 +226,22 @@ impl PlayerHandle for RealtimePlayer {
         self.audio_output.set_buffer_multiplier(multiplier)
     }
 
+    fn stop_instance(&self, instance_id: InstanceId) -> Result<()> {
+        validate_instance_id(instance_id)?;
+        self.inner
+            .submit_stop_instance(instance_id, Arc::clone(&self.audio_output))
+    }
+
     fn stop(&self) -> Result<()> {
         self.inner.submit_stop(Arc::clone(&self.audio_output))
+    }
+
+    fn limiter_meter(&self) -> LimiterMeter {
+        self.limiter_meter.snapshot()
+    }
+
+    fn underrun_frames(&self) -> u64 {
+        self.audio_output.underrun_frames()
     }
 }
 
@@ -249,10 +262,7 @@ impl PlayerInner {
         audio_output: Arc<AudioOutputControl>,
     ) -> Result<()> {
         let mut state = self.state.lock().unwrap();
-        ensure_running(&state)?;
-        state.generation = next_generation(state.generation);
-        let generation = state.generation;
-        audio_output.start_generation(generation);
+        let generation = begin_new_generation(&mut state, &audio_output)?;
         state.live_requested = false;
         state.pending.clear();
         state.pending.push_back(PlayerCommand::Play {
@@ -272,16 +282,31 @@ impl PlayerInner {
         audio_output.stop_generation(generation);
         state.live_requested = false;
         state.pending.clear();
-        state.pending.push_back(PlayerCommand::Stop { generation });
+        state
+            .pending
+            .push_back(PlayerCommand::StopAll { generation });
+        self.command_available.notify_one();
+        Ok(())
+    }
+
+    fn submit_stop_instance(
+        &self,
+        instance_id: InstanceId,
+        audio_output: Arc<AudioOutputControl>,
+    ) -> Result<()> {
+        let mut state = self.state.lock().unwrap();
+        let generation = begin_new_generation(&mut state, &audio_output)?;
+        state.pending.push_back(PlayerCommand::StopInstance {
+            generation,
+            instance_id,
+        });
         self.command_available.notify_one();
         Ok(())
     }
 
     fn submit_midi(
         &self,
-        messages: Vec<[u8; 3]>,
-        offsets: Vec<u32>,
-        patch: Option<String>,
+        events: Vec<FastMidiEvent>,
         audio_output: Arc<AudioOutputControl>,
     ) -> Result<()> {
         let mut state = self.state.lock().unwrap();
@@ -289,19 +314,14 @@ impl PlayerInner {
         let enter_live = !state.live_requested;
         if enter_live {
             state.generation = next_generation(state.generation);
-            // live MIDIは未処理の曲再生/停止requestより優先する。
             state.pending.clear();
             state.live_requested = true;
             audio_output.start_generation(state.generation);
         }
         let generation = state.generation;
-        // 2回目以降も置換せずFIFOへ積む。これにより、別requestで届く複数の
-        // Note On/Offを同じlive sessionの独立したvoiceとしてpluginへ渡せる。
         state.pending.push_back(PlayerCommand::Midi {
             generation,
-            messages,
-            offsets,
-            patch,
+            events,
             enter_live,
         });
         self.command_available.notify_one();
@@ -310,19 +330,17 @@ impl PlayerInner {
 
     fn submit_prepare_live_patch(
         &self,
+        instance_id: InstanceId,
         patch: Option<String>,
         completion: std::sync::mpsc::SyncSender<std::result::Result<(), String>>,
         audio_output: Arc<AudioOutputControl>,
     ) -> Result<()> {
         let mut state = self.state.lock().unwrap();
-        ensure_running(&state)?;
-        state.generation = next_generation(state.generation);
-        let generation = state.generation;
-        audio_output.start_generation(generation);
-        state.pending.clear();
+        let generation = begin_new_generation(&mut state, &audio_output)?;
         state.live_requested = true;
         state.pending.push_back(PlayerCommand::PrepareLivePatch {
             generation,
+            instance_id,
             patch,
             completion,
         });
@@ -332,19 +350,17 @@ impl PlayerInner {
 
     fn submit_probe_live_patch(
         &self,
+        instance_id: InstanceId,
         patch: Option<String>,
         completion: std::sync::mpsc::SyncSender<std::result::Result<VoicingReport, String>>,
         audio_output: Arc<AudioOutputControl>,
     ) -> Result<()> {
         let mut state = self.state.lock().unwrap();
-        ensure_running(&state)?;
-        state.generation = next_generation(state.generation);
-        let generation = state.generation;
-        audio_output.start_generation(generation);
-        state.pending.clear();
+        let generation = begin_new_generation(&mut state, &audio_output)?;
         state.live_requested = true;
         state.pending.push_back(PlayerCommand::ProbeLivePatch {
             generation,
+            instance_id,
             patch,
             completion,
         });
@@ -388,12 +404,27 @@ impl Drop for RealtimePlayer {
     }
 }
 
+fn begin_new_generation(state: &mut PlayerState, audio_output: &AudioOutputControl) -> Result<u64> {
+    ensure_running(state)?;
+    state.generation = next_generation(state.generation);
+    audio_output.start_generation(state.generation);
+    Ok(state.generation)
+}
+
+fn new_live_instances() -> Vec<LiveInstanceState> {
+    (0..INSTANCE_COUNT)
+        .map(|_| LiveInstanceState::default())
+        .collect()
+}
+
 fn resolve_live_patch(patch: Option<String>, patches_dir: Option<&str>) -> Option<String> {
     patch
         .filter(|patch| !patch.trim().is_empty())
         .map(|patch| match patches_dir {
-            Some(base) => Path::new(base).join(&patch).to_string_lossy().into_owned(),
-            None => patch,
+            Some(base) if !Path::new(&patch).is_absolute() => {
+                Path::new(base).join(&patch).to_string_lossy().into_owned()
+            }
+            _ => patch,
         })
 }
 
@@ -409,5 +440,4 @@ fn next_generation(current: u64) -> u64 {
 }
 
 #[cfg(test)]
-#[path = "player/tests.rs"]
 mod tests;

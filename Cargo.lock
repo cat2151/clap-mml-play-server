@@ -266,7 +266,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "cmrt-core",
+ "cmrt-core 0.1.0",
  "cmrt-realtime-ipc",
  "cmrt-runtime",
  "cpal",
@@ -282,7 +282,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "cmrt-core",
+ "cmrt-core 0.1.0",
  "cmrt-runtime",
  "ctrlc",
 ]
@@ -347,6 +347,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmrt-core"
+version = "0.1.0"
+source = "git+https://github.com/cat2151/clap-mml-render-tui.git#6ae23462fe09afc05aaaf6114c25b67249777f41"
+dependencies = [
+ "anyhow",
+ "clack-host",
+ "cmrt-core 0.1.0",
+ "mmlabc-to-smf",
+ "serde_json",
+]
+
+[[package]]
 name = "cmrt-realtime-ipc"
 version = "0.1.0"
 dependencies = [
@@ -356,9 +368,10 @@ dependencies = [
 [[package]]
 name = "cmrt-runtime"
 version = "0.1.0"
-source = "git+https://github.com/cat2151/clap-mml-render-tui.git#ffb6f328b3e8892c28be68ce9501bdbb9ca186c8"
+source = "git+https://github.com/cat2151/clap-mml-render-tui.git#6ae23462fe09afc05aaaf6114c25b67249777f41"
 dependencies = [
  "anyhow",
+ "cmrt-core 0.1.0 (git+https://github.com/cat2151/clap-mml-render-tui.git)",
  "dirs",
  "serde",
  "toml",
@@ -756,7 +769,7 @@ checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
 [[package]]
 name = "mmlabc-to-smf"
 version = "0.1.0"
-source = "git+https://github.com/cat2151/mmlabc-to-smf-rust.git#306db1570aca14f092879108bca7510fbc99a406"
+source = "git+https://github.com/cat2151/mmlabc-to-smf-rust.git#50abb9945e18f100521bf6f05bd07a03a85b624b"
 dependencies = [
  "anyhow",
  "cc",
@@ -1127,6 +1140,7 @@ version = "1.0.149"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "83fc039473c5595ace860d8c4fafa220ff474b3fc6bfdb4293327f1a37e94d86"
 dependencies = [
+ "indexmap",
  "itoa",
  "memchr",
  "serde",
@@ -1154,6 +1168,12 @@ name = "slab"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
+
+[[package]]
+name = "streaming-iterator"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b2231b7c3057d5e4ad0156fb3dc807d900806020c5ffa3ee6ff2c8c76fb8520"
 
 [[package]]
 name = "strsim"
@@ -1329,13 +1349,23 @@ checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
 
 [[package]]
 name = "tree-sitter"
-version = "0.22.6"
+version = "0.26.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df7cc499ceadd4dcdf7ec6d4cbc34ece92c3fa07821e287aedecd4416c516dca"
+checksum = "af1c71c1c4cc0920b20d6b0f6572e7682cd07a6a2faec71067a31fa394c586df"
 dependencies = [
  "cc",
  "regex",
+ "regex-syntax",
+ "serde_json",
+ "streaming-iterator",
+ "tree-sitter-language",
 ]
+
+[[package]]
+name = "tree-sitter-language"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "009994f150cc0cd50ff54917d5bc8bffe8cad10ca10d81c34da2ec421ae61782"
 
 [[package]]
 name = "unicode-ident"
@@ -1449,7 +1479,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]

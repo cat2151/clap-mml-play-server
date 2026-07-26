@@ -155,6 +155,8 @@ mod tests {
             sample_rate: REQUIRED_SAMPLE_RATE,
             buffer_size: 512,
             patches_dirs: None,
+            loop_dirs: Vec::new(),
+            loop_categories: cmrt_runtime::default_loop_categories(),
             offline_render_workers: cmrt_runtime::DEFAULT_OFFLINE_RENDER_WORKERS,
             offline_render_server_workers: cmrt_runtime::DEFAULT_OFFLINE_RENDER_SERVER_WORKERS,
             offline_render_backend: cmrt_runtime::OfflineRenderBackend::InProcess,
@@ -164,6 +166,8 @@ mod tests {
             realtime_play_server_port: cmrt_runtime::DEFAULT_REALTIME_PLAY_SERVER_PORT,
             realtime_play_server_command: String::new(),
             autoplay_on_startup: true,
+            voicing_shared_source: String::new(),
+            voicing_override_source: String::new(),
         }
     }
 
