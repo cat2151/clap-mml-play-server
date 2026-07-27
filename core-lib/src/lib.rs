@@ -3,6 +3,7 @@ pub mod midi;
 pub mod patch_list;
 pub mod pipeline;
 pub mod render;
+pub mod surge_data;
 pub mod voicing;
 mod workspace_update;
 
@@ -28,7 +29,9 @@ pub use pipeline::{
     PreparedRealtimePlay, RenderOptions, RenderPreroll,
 };
 pub use render::{
-    create_plugin_instance, LiveMidiEvent, RealtimePlaybackSchedule, RealtimeRenderer,
+    create_plugin_instance, create_renderers_parallel, LiveMidiEvent, RealtimePlaybackSchedule,
+    RealtimeRenderer, RendererCreated, RendererInitTiming,
 };
+pub use surge_data::{apply_minimal_surge_data_home, MinimalSurgeDataHome};
 pub use voicing::{PatchVoicing, VoicingReport};
 pub use workspace_update::{check_workspace_update, run_workspace_update};

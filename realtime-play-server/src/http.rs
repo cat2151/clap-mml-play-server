@@ -6,7 +6,7 @@ use std::{
         Arc,
     },
     thread::JoinHandle,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use crate::fast_ipc::spawn_fast_midi_server;
@@ -32,8 +32,10 @@ pub(crate) fn run_realtime_play_server(
     player: Arc<dyn PlayerHandle>,
 ) -> Result<()> {
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    let bind_started = Instant::now();
     let listener = TcpListener::bind(addr)
         .with_context(|| format!("failed to bind realtime-play-server to {addr}"))?;
+    crate::timing::log_phase("listen", bind_started.elapsed());
     run_realtime_play_server_on_listener(listener, shutdown, player)
 }
 

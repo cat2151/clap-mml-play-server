@@ -2,10 +2,14 @@ mod config;
 mod fast_ipc;
 mod http;
 mod player;
+mod timing;
 
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Instant,
 };
 
 use anyhow::{Context as _, Result};
@@ -120,6 +124,8 @@ where
 }
 
 fn main() -> Result<()> {
+    // 起動時間計測の基準点。以降 timing::log() が「起動から何 ms か」を添える。
+    timing::boot();
     match parse_cli(std::env::args_os())? {
         CliAction::Run => {}
         CliAction::Update => {
@@ -145,9 +151,12 @@ fn main() -> Result<()> {
         }
     }
 
+    let config_started = Instant::now();
     let cfg = cmrt_runtime::Config::load()?;
     let realtime_cfg = RealtimeServerConfig::load()?;
     validate_realtime_play_server_config(&cfg, &realtime_cfg)?;
+    timing::log_phase("config", config_started.elapsed());
+    apply_surge_data_home();
 
     let core_cfg = core_config_from_runtime(&cfg, &realtime_cfg);
     let player: Arc<dyn PlayerHandle> = Arc::new(RealtimePlayer::new(
@@ -162,12 +171,34 @@ fn main() -> Result<()> {
     run_realtime_play_server(realtime_cfg.realtime_play_server_port, shutdown, player)
 }
 
+/// Surge XT のデータディレクトリを最小構成へ向けて `init()` を速くする。
+///
+/// 失敗しても環境変数を設定しないだけで、Surge の既定動作のまま起動できる。
+/// スレッドを spawn する前に呼ぶこと（`std::env::set_var` の制約）。
+fn apply_surge_data_home() {
+    let started = Instant::now();
+    let ms = |started: Instant| started.elapsed().as_millis();
+    match cmrt_core::apply_minimal_surge_data_home() {
+        Ok(setup) => timing::log(&format!(
+            "phase=surge_data_home ms={} result=ok rebuilt={} path={}",
+            ms(started),
+            setup.rebuilt,
+            setup.path.display()
+        )),
+        Err(error) => timing::log(&format!(
+            "phase=surge_data_home ms={} result=skipped detail={error:#}",
+            ms(started)
+        )),
+    }
+}
+
 fn run_voicing_probe(
     patch: &str,
     previous_patch: Option<&str>,
     json: bool,
     expect: Option<ExpectedVoicing>,
 ) -> Result<()> {
+    apply_surge_data_home();
     let cfg = cmrt_runtime::Config::load()?;
     let realtime_cfg = RealtimeServerConfig::load()?;
     validate_realtime_play_server_config(&cfg, &realtime_cfg)?;

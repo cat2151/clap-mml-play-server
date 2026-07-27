@@ -83,6 +83,8 @@ fn main() -> Result<()> {
         }
     }
 
+    apply_surge_data_home();
+
     let cfg = Config::load()?;
     validate_render_server_config(&cfg)?;
     let core_cfg = core_config_from_runtime(&cfg);
@@ -111,6 +113,23 @@ fn main() -> Result<()> {
             })
         },
     )
+}
+
+/// Surge XT のデータディレクトリを最小構成へ向けて `init()` を速くする。
+///
+/// 失敗しても環境変数を設定しないだけで、Surge の既定動作のまま起動できる。
+/// worker スレッドを spawn する前に呼ぶこと（`std::env::set_var` の制約）。
+fn apply_surge_data_home() {
+    match cmrt_core::apply_minimal_surge_data_home() {
+        Ok(setup) => eprintln!(
+            "cmrt-render-server: surge_data_home rebuilt={} path={}",
+            setup.rebuilt,
+            setup.path.display()
+        ),
+        Err(error) => {
+            eprintln!("cmrt-render-server: surge_data_home skipped detail={error:#}")
+        }
+    }
 }
 
 fn validate_render_server_config(cfg: &Config) -> Result<()> {
