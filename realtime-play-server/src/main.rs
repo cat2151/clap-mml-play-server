@@ -64,7 +64,7 @@ impl From<ExpectedVoicing> for PatchVoicing {
     disable_help_subcommand = true,
     disable_version_flag = true,
     args_conflicts_with_subcommands = true,
-    after_help = "CONFIG:\n    config_local_dir()/clap-mml-render-tui/config.toml\n\nHTTP:\n    GET /health\n    POST /play               request: Standard MIDI File bytes, Content-Type: audio/midi | audio/x-midi | application/octet-stream\n    POST /play-mml           request: MML text (leading {\"Surge XT patch\": ...} JSON selects the patch), Content-Type: text/plain\n    POST /stop\n\nLIVE MIDI (Windows):\n    16 CLAP instances through named shared memory on the realtime server port"
+    after_help = "CONFIG:\n    config_local_dir()/clap-mml-render-tui/config.toml\n\nHTTP:\n    GET /health\n    POST /play               request: Standard MIDI File bytes, Content-Type: audio/midi | audio/x-midi | application/octet-stream\n    POST /play-mml           request: MML text (leading {\"Surge XT patch\": ...} JSON selects the patch), Content-Type: text/plain\n    POST /stop\n\nLIVE MIDI (Windows):\n    1/2/4/8/16 CLAP instances through named shared memory on the realtime server port\n    CMRT_LIVE_INSTANCE_COUNT selects the count (default: 16)"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -163,6 +163,7 @@ fn main() -> Result<()> {
         core_cfg,
         cfg.plugin_path.clone(),
         RenderOptions::new().with_preroll_ms(RENDER_PREROLL_MS),
+        realtime_cfg.live_instance_count,
     )?);
 
     let shutdown = Arc::new(AtomicBool::new(false));

@@ -1,27 +1,27 @@
 mod audio_output;
 mod limiter;
+mod live;
 mod output_stream;
 mod runtime;
+mod startup;
 mod worker;
 
 use std::{
     collections::VecDeque,
-    path::Path,
     sync::{Arc, Condvar, Mutex},
     thread::JoinHandle,
 };
 
 use self::audio_output::{new_audio_output, AudioOutputControl};
-use self::runtime::{LimiterMeterState, LiveInstanceState, LiveQueuedEvent, PlaybackMode};
+use self::live::{resolve_live_patch, validate_live_instance_id};
+use self::runtime::{LimiterMeterState, LiveQueuedEvent};
 use self::worker::{run_player_worker, WorkerOutput};
 use anyhow::{Context as _, Result};
 use cmrt_core::{
     smf_playback_schedule_with_options, CoreConfig, RealtimePlaybackSchedule, RenderOptions,
     VoicingReport,
 };
-use cmrt_realtime_ipc::{
-    validate_instance_id, FastMidiEvent, InstanceId, LimiterMeter, INSTANCE_COUNT,
-};
+use cmrt_realtime_ipc::{FastMidiEvent, InstanceId, LimiterMeter};
 
 pub(crate) trait PlayerHandle: Send + Sync + 'static {
     fn play_smf(&self, smf: Vec<u8>) -> Result<()>;
@@ -47,6 +47,7 @@ pub(crate) struct RealtimePlayer {
     inner: Arc<PlayerInner>,
     audio_output: Arc<AudioOutputControl>,
     limiter_meter: Arc<LimiterMeterState>,
+    live_instance_count: usize,
     worker: Mutex<Option<JoinHandle<()>>>,
 }
 
@@ -101,6 +102,7 @@ impl RealtimePlayer {
         core_cfg: CoreConfig,
         plugin_path: String,
         render_options: RenderOptions,
+        live_instance_count: usize,
     ) -> Result<Self> {
         let sample_rate = core_cfg.sample_rate;
         let (audio_output, output_producer, output_consumer) =
@@ -125,6 +127,7 @@ impl RealtimePlayer {
                     },
                     worker_core_cfg,
                     plugin_path,
+                    live_instance_count,
                     init_tx,
                 );
             })
@@ -145,6 +148,7 @@ impl RealtimePlayer {
             inner,
             audio_output,
             limiter_meter,
+            live_instance_count,
             worker: Mutex::new(Some(worker)),
         })
     }
@@ -180,14 +184,14 @@ impl PlayerHandle for RealtimePlayer {
             anyhow::bail!("MIDI events must not be empty");
         }
         for event in &events {
-            validate_instance_id(event.instance_id)?;
+            self.validate_live_instance_id(event.instance_id)?;
         }
         self.inner
             .submit_midi(events, Arc::clone(&self.audio_output))
     }
 
     fn prepare_live_patch(&self, instance_id: InstanceId, patch: Option<String>) -> Result<()> {
-        validate_instance_id(instance_id)?;
+        self.validate_live_instance_id(instance_id)?;
         let patch = resolve_live_patch(patch, self.core_cfg.patches_dir.as_deref());
         let (completion_tx, completion_rx) = std::sync::mpsc::sync_channel(0);
         self.inner.submit_prepare_live_patch(
@@ -207,7 +211,7 @@ impl PlayerHandle for RealtimePlayer {
         instance_id: InstanceId,
         patch: Option<String>,
     ) -> Result<VoicingReport> {
-        validate_instance_id(instance_id)?;
+        self.validate_live_instance_id(instance_id)?;
         let patch = resolve_live_patch(patch, self.core_cfg.patches_dir.as_deref());
         let (completion_tx, completion_rx) = std::sync::mpsc::sync_channel(0);
         self.inner.submit_probe_live_patch(
@@ -227,7 +231,7 @@ impl PlayerHandle for RealtimePlayer {
     }
 
     fn stop_instance(&self, instance_id: InstanceId) -> Result<()> {
-        validate_instance_id(instance_id)?;
+        self.validate_live_instance_id(instance_id)?;
         self.inner
             .submit_stop_instance(instance_id, Arc::clone(&self.audio_output))
     }
@@ -242,6 +246,12 @@ impl PlayerHandle for RealtimePlayer {
 
     fn underrun_frames(&self) -> u64 {
         self.audio_output.underrun_frames()
+    }
+}
+
+impl RealtimePlayer {
+    fn validate_live_instance_id(&self, instance_id: InstanceId) -> Result<()> {
+        validate_live_instance_id(instance_id, self.live_instance_count)
     }
 }
 
@@ -409,23 +419,6 @@ fn begin_new_generation(state: &mut PlayerState, audio_output: &AudioOutputContr
     state.generation = next_generation(state.generation);
     audio_output.start_generation(state.generation);
     Ok(state.generation)
-}
-
-fn new_live_instances() -> Vec<LiveInstanceState> {
-    (0..INSTANCE_COUNT)
-        .map(|_| LiveInstanceState::default())
-        .collect()
-}
-
-fn resolve_live_patch(patch: Option<String>, patches_dir: Option<&str>) -> Option<String> {
-    patch
-        .filter(|patch| !patch.trim().is_empty())
-        .map(|patch| match patches_dir {
-            Some(base) if !Path::new(&patch).is_absolute() => {
-                Path::new(base).join(&patch).to_string_lossy().into_owned()
-            }
-            _ => patch,
-        })
 }
 
 fn ensure_running(state: &PlayerState) -> Result<()> {

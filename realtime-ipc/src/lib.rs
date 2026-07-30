@@ -2,7 +2,12 @@
 
 use std::fmt;
 
-pub const INSTANCE_COUNT: usize = 16;
+/// 共有メモリプロトコルが表現できる最大 instance 数。
+///
+/// server が実際に生成する数は起動時設定でこの上限以下にできる。
+pub const MAX_INSTANCE_COUNT: usize = 16;
+/// 旧 API との互換用。固定 wire format 上の instance 数を表す。
+pub const INSTANCE_COUNT: usize = MAX_INSTANCE_COUNT;
 pub const MAX_MIDI_MESSAGES: usize = 128;
 pub const MAX_PATCH_BYTES: usize = 4096;
 pub const MAX_RESPONSE_BYTES: usize = 16 * 1024;

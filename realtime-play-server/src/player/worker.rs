@@ -3,7 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use cmrt_core::{CoreConfig, LiveMidiEvent, RealtimeRenderer, RendererCreated};
+use cmrt_core::{CoreConfig, LiveMidiEvent, RealtimeRenderer};
 use cpal::traits::StreamTrait;
 
 use crate::timing;
@@ -11,9 +11,10 @@ use crate::timing;
 use super::{
     audio_output::{AudioOutputConsumer, AudioOutputControl, AudioOutputProducer},
     limiter::MasterLimiter,
-    new_live_instances,
     output_stream::build_output_stream,
-    LimiterMeterState, LiveQueuedEvent, PlaybackMode, PlayerCommand, PlayerInner,
+    runtime::{new_live_instances, LiveInstanceState, PlaybackMode},
+    startup::create_live_renderers,
+    LimiterMeterState, LiveQueuedEvent, PlayerCommand, PlayerInner,
 };
 
 const OUTPUT_WAIT_TIMEOUT: Duration = Duration::from_millis(10);
@@ -26,56 +27,12 @@ pub(super) struct WorkerOutput {
     pub(super) consumer: AudioOutputConsumer,
 }
 
-/// CLAP インスタンス1つ分の生成内訳を出力する。
-///
-/// 起動時間のほぼ全部がインスタンス生成なので、どの操作が支配的かをここで切り分ける。
-fn log_instance_created(created: RendererCreated) {
-    // クライアント（realtime-play/src/process.rs の parse_server_startup_progress）が
-    // パースしている行。書式を変えないこと。
-    eprintln!(
-        "cmrt-server-startup: instances={}/{}",
-        created.completed, created.total
-    );
-    let timing = created.timing;
-    timing::log(&format!(
-        "phase=instance index={} ms={} plugin_id_ms={} instantiate_ms={} \
-         save_state_ms={} load_patch_ms={} activate_ms={} start_processing_ms={}",
-        created.index,
-        timing.total.as_millis(),
-        timing.plugin_id.as_millis(),
-        timing.instantiate.as_millis(),
-        timing.save_state.as_millis(),
-        timing.load_patch.as_millis(),
-        timing.activate.as_millis(),
-        timing.start_processing.as_millis(),
-    ));
-}
-
-/// 生成スレッド数を明示指定する環境変数。`1` を入れると従来どおりの逐次生成に戻る。
-/// 並列生成は CLAP の main-thread 規約を破っているので、将来の Surge XT で壊れたときの逃げ道。
-const BUILD_THREADS_ENV: &str = "CMRT_INSTANCE_BUILD_THREADS";
-
-/// インスタンス生成に使うスレッド数。
-///
-/// Surge XT の `init()` はほぼ完全に CPU 律速なので、論理コア数まで並べれば実時間が縮む。
-/// 生成数より多くのスレッドを作っても意味がないので、そこで頭打ちにする。
-fn instance_build_threads() -> usize {
-    let default = std::thread::available_parallelism()
-        .map(std::num::NonZeroUsize::get)
-        .unwrap_or(1);
-    std::env::var(BUILD_THREADS_ENV)
-        .ok()
-        .and_then(|value| value.trim().parse::<usize>().ok())
-        .filter(|threads| *threads > 0)
-        .unwrap_or(default)
-        .min(cmrt_realtime_ipc::INSTANCE_COUNT)
-}
-
 pub(super) fn run_player_worker(
     inner: Arc<PlayerInner>,
     output: WorkerOutput,
     core_cfg: CoreConfig,
     plugin_path: String,
+    live_instance_count: usize,
     init_tx: std::sync::mpsc::Sender<std::result::Result<(), String>>,
 ) {
     let WorkerOutput {
@@ -84,36 +41,13 @@ pub(super) fn run_player_worker(
         producer: output_producer,
         consumer: output_consumer,
     } = output;
-    let load_entry_started = Instant::now();
-    let entry = match cmrt_core::load_entry(&plugin_path) {
-        Ok(entry) => entry,
-        Err(error) => {
-            let _ = init_tx.send(Err(format!("{error:#}")));
-            return;
-        }
-    };
-    timing::log_phase("load_entry", load_entry_started.elapsed());
-
-    let instances_started = Instant::now();
-    let threads = instance_build_threads();
-    let mut renderers = match cmrt_core::create_renderers_parallel(
-        &core_cfg,
-        &entry,
-        cmrt_realtime_ipc::INSTANCE_COUNT,
-        threads,
-        &log_instance_created,
-    ) {
+    let mut renderers = match create_live_renderers(&core_cfg, &plugin_path, live_instance_count) {
         Ok(renderers) => renderers,
         Err(error) => {
             let _ = init_tx.send(Err(format!("{error:#}")));
             return;
         }
     };
-    timing::log(&format!(
-        "phase=instances_total ms={} count={} threads={threads}",
-        instances_started.elapsed().as_millis(),
-        cmrt_realtime_ipc::INSTANCE_COUNT
-    ));
 
     let audio_stream_started = Instant::now();
     let output_stream = match build_output_stream(output_consumer, core_cfg.sample_rate) {
@@ -207,7 +141,7 @@ pub(super) fn run_player_worker(
 
 fn render_live_mix(
     renderers: &mut [RealtimeRenderer],
-    instances: &mut [super::LiveInstanceState],
+    instances: &mut [LiveInstanceState],
     clock_samples: &mut u64,
 ) -> anyhow::Result<Vec<f32>> {
     let buf_size = renderers[0].buf_size() as u64;
@@ -239,11 +173,11 @@ fn add_samples(mixed: &mut [f32], samples: &[f32]) {
     }
 }
 
-fn new_live_mode(generation: u64) -> PlaybackMode {
+fn new_live_mode(generation: u64, instance_count: usize) -> PlaybackMode {
     PlaybackMode::Live {
         generation,
         clock_samples: 0,
-        instances: new_live_instances(),
+        instances: new_live_instances(instance_count),
     }
 }
 
@@ -322,7 +256,7 @@ fn apply_command(
             generation,
             instance_id,
         } => {
-            ensure_live_mode(playback_mode, generation);
+            ensure_live_mode(playback_mode, generation, renderers.len());
             let instance_index = usize::from(instance_id);
             renderers[instance_index].reset();
             if let Some(PlaybackMode::Live {
@@ -351,7 +285,7 @@ fn apply_command(
                 reset_all(renderers);
                 limiter.reset();
                 limiter_meter.reset();
-                *playback_mode = Some(new_live_mode(generation));
+                *playback_mode = Some(new_live_mode(generation, renderers.len()));
             }
             if let Some(PlaybackMode::Live {
                 generation: live_generation,
@@ -373,7 +307,7 @@ fn apply_command(
             patch,
             completion,
         } => {
-            ensure_live_mode(playback_mode, generation);
+            ensure_live_mode(playback_mode, generation, renderers.len());
             let index = usize::from(instance_id);
             renderers[index].reset();
             let result = renderers[index]
@@ -403,7 +337,7 @@ fn apply_command(
             patch,
             completion,
         } => {
-            ensure_live_mode(playback_mode, generation);
+            ensure_live_mode(playback_mode, generation, renderers.len());
             let index = usize::from(instance_id);
             renderers[index].reset();
             let result = renderers[index]
@@ -431,9 +365,13 @@ fn apply_command(
     }
 }
 
-fn ensure_live_mode(playback_mode: &mut Option<PlaybackMode>, generation: u64) {
+fn ensure_live_mode(
+    playback_mode: &mut Option<PlaybackMode>,
+    generation: u64,
+    instance_count: usize,
+) {
     if !matches!(playback_mode, Some(PlaybackMode::Live { .. })) {
-        *playback_mode = Some(new_live_mode(generation));
+        *playback_mode = Some(new_live_mode(generation, instance_count));
     }
 }
 

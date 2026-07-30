@@ -2,7 +2,7 @@
 //!
 //! クライアント（clap-mml-render-tui）は子プロセスの stderr を全行ログファイルへ
 //! 転送するため、ここで `eprintln!` するだけで内訳が `log.txt` に残る。
-//! 既存の `cmrt-server-startup: instances=N/16` はクライアントがパースしている
+//! `cmrt-server-startup: instances=N/total` はクライアントがパースしている
 //! ので書式を変えず、計測は別プレフィックスで出す。
 
 use std::{

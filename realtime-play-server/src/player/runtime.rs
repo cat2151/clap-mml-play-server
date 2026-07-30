@@ -21,6 +21,10 @@ pub(super) struct LiveInstanceState {
     pub(super) queue: Vec<LiveQueuedEvent>,
 }
 
+pub(super) fn new_live_instances(count: usize) -> Vec<LiveInstanceState> {
+    (0..count).map(|_| LiveInstanceState::default()).collect()
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct LiveQueuedEvent {
     pub(crate) at_sample: u64,

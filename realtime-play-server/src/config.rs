@@ -3,12 +3,16 @@ use cmrt_core::CoreConfig;
 use serde::Deserialize;
 
 pub(crate) const DEFAULT_REALTIME_PLAY_SERVER_PORT: u16 = 62154;
+pub(crate) const DEFAULT_LIVE_INSTANCE_COUNT: usize = 16;
+pub(crate) const LIVE_INSTANCE_COUNT_ENV: &str = "CMRT_LIVE_INSTANCE_COUNT";
+pub(crate) const SUPPORTED_LIVE_INSTANCE_COUNTS: [usize; 5] = [1, 2, 4, 8, 16];
 const REQUIRED_SAMPLE_RATE: f64 = 48_000.0;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RealtimeServerConfig {
     pub(crate) realtime_play_server_port: u16,
     pub(crate) patch_path: Option<String>,
+    pub(crate) live_instance_count: usize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -28,12 +32,15 @@ impl RealtimeServerConfig {
         })?;
         let text = std::fs::read_to_string(&path)
             .with_context(|| format!("config.toml が読めない ({})", path.display()))?;
-        Self::from_toml_str(&text).with_context(|| {
+        let mut config = Self::from_toml_str(&text).with_context(|| {
             format!(
                 "realtime play server 設定の読み込みに失敗 ({})",
                 path.display()
             )
-        })
+        })?;
+        config.live_instance_count = live_instance_count_from_env()?;
+        config.validate()?;
+        Ok(config)
     }
 
     fn from_toml_str(text: &str) -> Result<Self> {
@@ -41,6 +48,7 @@ impl RealtimeServerConfig {
         let config = Self {
             realtime_play_server_port: overlay.realtime_play_server_port,
             patch_path: normalize_patch_path(overlay.patch_path),
+            live_instance_count: DEFAULT_LIVE_INSTANCE_COUNT,
         };
         config.validate()?;
         Ok(config)
@@ -50,8 +58,31 @@ impl RealtimeServerConfig {
         if self.realtime_play_server_port == 0 {
             anyhow::bail!("realtime_play_server_port は 1〜65535 の範囲で設定してください");
         }
+        if !SUPPORTED_LIVE_INSTANCE_COUNTS.contains(&self.live_instance_count) {
+            anyhow::bail!("{LIVE_INSTANCE_COUNT_ENV} は 1, 2, 4, 8, 16 のいずれかにしてください");
+        }
         Ok(())
     }
+}
+
+fn live_instance_count_from_env() -> Result<usize> {
+    match std::env::var(LIVE_INSTANCE_COUNT_ENV) {
+        Ok(value) => parse_live_instance_count(&value),
+        Err(std::env::VarError::NotPresent) => Ok(DEFAULT_LIVE_INSTANCE_COUNT),
+        Err(std::env::VarError::NotUnicode(_)) => {
+            anyhow::bail!("{LIVE_INSTANCE_COUNT_ENV} がUTF-8ではありません")
+        }
+    }
+}
+
+fn parse_live_instance_count(value: &str) -> Result<usize> {
+    let count = value.trim().parse::<usize>().with_context(|| {
+        format!("{LIVE_INSTANCE_COUNT_ENV} は整数で指定してください（現在値: {value:?}）")
+    })?;
+    if !SUPPORTED_LIVE_INSTANCE_COUNTS.contains(&count) {
+        anyhow::bail!("{LIVE_INSTANCE_COUNT_ENV} は 1, 2, 4, 8, 16 のいずれかにしてください");
+    }
+    Ok(count)
 }
 
 pub(crate) fn validate_realtime_play_server_config(
@@ -106,6 +137,7 @@ mod tests {
             DEFAULT_REALTIME_PLAY_SERVER_PORT
         );
         assert_eq!(config.patch_path, None);
+        assert_eq!(config.live_instance_count, DEFAULT_LIVE_INSTANCE_COUNT);
     }
 
     #[test]
@@ -140,5 +172,22 @@ patch_path = "   "
         .unwrap();
 
         assert_eq!(config.patch_path, None);
+    }
+
+    #[test]
+    fn live_instance_count_accepts_supported_values() {
+        for count in SUPPORTED_LIVE_INSTANCE_COUNTS {
+            assert_eq!(
+                parse_live_instance_count(&count.to_string()).unwrap(),
+                count
+            );
+        }
+    }
+
+    #[test]
+    fn live_instance_count_rejects_unsupported_values() {
+        for value in ["0", "3", "17", "not-a-number"] {
+            assert!(parse_live_instance_count(value).is_err(), "{value}");
+        }
     }
 }
