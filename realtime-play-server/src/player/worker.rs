@@ -19,6 +19,12 @@ use super::{
 
 const OUTPUT_WAIT_TIMEOUT: Duration = Duration::from_millis(10);
 const MAX_LIVE_QUEUE_EVENTS: usize = 2048;
+/// patch state のロード後、note on を受け付けられる状態になるまで空回しするブロック数。
+///
+/// probe 経路の `PATCH_SETTLE_BLOCKS`（core-lib/src/render/voicing_probe.rs）と同じ目的。
+/// state をロードしただけの Surge XT へ即 note on を送ると、パラメータ再構築と同じ
+/// process ブロックに乗ってしまい握り潰されることがある。
+const PATCH_SETTLE_BLOCKS: usize = 4;
 
 pub(super) struct WorkerOutput {
     pub(super) control: Arc<AudioOutputControl>,
@@ -321,6 +327,7 @@ fn apply_command(
             renderers[index].reset();
             let result = renderers[index]
                 .set_patch(patch.as_deref())
+                .and_then(|()| settle_patch(&mut renderers[index]))
                 .map_err(|error| format!("{error:#}"));
             if let Some(PlaybackMode::Live {
                 generation: live_generation,
@@ -330,7 +337,13 @@ fn apply_command(
             {
                 *live_generation = generation;
                 instances[index].queue.clear();
-                instances[index].active = result.is_ok();
+                // 成功時に `active` を立てない。立てると、鳴らす予定のない instance まで
+                // 毎チャンク process() を回すことになる。grid sequencer の chord mode は
+                // 演奏の裏で待機 bank を仕込むので、そこが無音かつ CPU ゼロで居られること
+                // に依存している。最初の MIDI イベントが届いた時点で `Midi` 側が立てる。
+                if result.is_err() {
+                    instances[index].active = false;
+                }
                 if result.is_err() && instances.iter().all(|instance| !instance.active) {
                     audio_output.finish();
                     limiter.reset();
@@ -372,6 +385,19 @@ fn apply_command(
             let _ = completion.send(result);
         }
     }
+}
+
+/// patch のロード直後に空のブロックを回し、プラグインが note on を鳴らせる状態になるまで待つ。
+///
+/// 進むのは**そのインスタンスのプラグイン内部時刻だけ**で、mix クロック（`clock_samples`）とは
+/// `PATCH_SETTLE_BLOCKS × buf_size` ずれる。発音位置はチャンク内 offset で決まるため
+/// 発音タイミングには影響せず、ずれるのは LFO やディレイの位相だけ。
+/// 生成した音は捨てる（差し替え中のインスタンスは鳴っていない）。
+fn settle_patch(renderer: &mut RealtimeRenderer) -> anyhow::Result<()> {
+    for _ in 0..PATCH_SETTLE_BLOCKS {
+        renderer.render_live_chunk_with_offsets(&[])?;
+    }
+    Ok(())
 }
 
 fn ensure_live_mode(

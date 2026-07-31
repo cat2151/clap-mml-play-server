@@ -5,7 +5,9 @@ use serde::Deserialize;
 pub(crate) const DEFAULT_REALTIME_PLAY_SERVER_PORT: u16 = 62154;
 pub(crate) const DEFAULT_LIVE_INSTANCE_COUNT: usize = 16;
 pub(crate) const LIVE_INSTANCE_COUNT_ENV: &str = "CMRT_LIVE_INSTANCE_COUNT";
-pub(crate) const SUPPORTED_LIVE_INSTANCE_COUNTS: [usize; 5] = [1, 2, 4, 8, 16];
+/// grid sequencer の chord mode は N トラックを 2 bank（= 2N instance）へ割り当てるため、
+/// トラック数の 2 倍まで許す。上限は `cmrt_realtime_ipc::MAX_INSTANCE_COUNT`。
+pub(crate) const SUPPORTED_LIVE_INSTANCE_COUNTS: [usize; 6] = [1, 2, 4, 8, 16, 32];
 const REQUIRED_SAMPLE_RATE: f64 = 48_000.0;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,7 +61,7 @@ impl RealtimeServerConfig {
             anyhow::bail!("realtime_play_server_port は 1〜65535 の範囲で設定してください");
         }
         if !SUPPORTED_LIVE_INSTANCE_COUNTS.contains(&self.live_instance_count) {
-            anyhow::bail!("{LIVE_INSTANCE_COUNT_ENV} は 1, 2, 4, 8, 16 のいずれかにしてください");
+            anyhow::bail!("{LIVE_INSTANCE_COUNT_ENV} は {SUPPORTED_LIVE_INSTANCE_COUNTS:?} のいずれかにしてください");
         }
         Ok(())
     }
@@ -80,7 +82,7 @@ fn parse_live_instance_count(value: &str) -> Result<usize> {
         format!("{LIVE_INSTANCE_COUNT_ENV} は整数で指定してください（現在値: {value:?}）")
     })?;
     if !SUPPORTED_LIVE_INSTANCE_COUNTS.contains(&count) {
-        anyhow::bail!("{LIVE_INSTANCE_COUNT_ENV} は 1, 2, 4, 8, 16 のいずれかにしてください");
+        anyhow::bail!("{LIVE_INSTANCE_COUNT_ENV} は {SUPPORTED_LIVE_INSTANCE_COUNTS:?} のいずれかにしてください");
     }
     Ok(count)
 }
@@ -186,8 +188,20 @@ patch_path = "   "
 
     #[test]
     fn live_instance_count_rejects_unsupported_values() {
-        for value in ["0", "3", "17", "not-a-number"] {
+        for value in ["0", "3", "17", "33", "64", "not-a-number"] {
             assert!(parse_live_instance_count(value).is_err(), "{value}");
+        }
+    }
+
+    /// 共有メモリプロトコルが表現できない数を設定で許してしまうと、
+    /// instance_id の検証（`validate_instance_id`）で初めて弾かれることになる。
+    #[test]
+    fn every_supported_count_fits_in_the_shared_memory_protocol() {
+        for count in SUPPORTED_LIVE_INSTANCE_COUNTS {
+            assert!(
+                count <= cmrt_realtime_ipc::MAX_INSTANCE_COUNT,
+                "{count} は MAX_INSTANCE_COUNT を超えている"
+            );
         }
     }
 }

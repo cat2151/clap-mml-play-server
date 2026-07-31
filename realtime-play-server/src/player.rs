@@ -1,4 +1,5 @@
 mod audio_output;
+mod commands;
 mod limiter;
 mod live;
 mod output_stream;
@@ -6,22 +7,19 @@ mod runtime;
 mod startup;
 mod worker;
 
-use std::{
-    collections::VecDeque,
-    sync::{Arc, Condvar, Mutex},
-    thread::JoinHandle,
-};
+use std::{sync::Arc, sync::Mutex, thread::JoinHandle};
 
 use self::audio_output::{new_audio_output, AudioOutputControl};
+use self::commands::PlayerInner;
 use self::live::{resolve_live_patch, validate_live_instance_id};
 use self::runtime::{LimiterMeterState, LiveGains, LiveQueuedEvent};
 use self::worker::{run_player_worker, WorkerOutput};
 use anyhow::{Context as _, Result};
-use cmrt_core::{
-    smf_playback_schedule_with_options, CoreConfig, RealtimePlaybackSchedule, RenderOptions,
-    VoicingReport,
-};
+use cmrt_core::{smf_playback_schedule_with_options, CoreConfig, RenderOptions, VoicingReport};
 use cmrt_realtime_ipc::{FastMidiEvent, InstanceId, LimiterMeter};
+
+// ワーカースレッド（`worker`）が `super::` 経由で参照する。
+use self::commands::PlayerCommand;
 
 pub(crate) trait PlayerHandle: Send + Sync + 'static {
     fn play_smf(&self, smf: Vec<u8>) -> Result<()>;
@@ -53,52 +51,6 @@ pub(crate) struct RealtimePlayer {
     live_gains: Arc<LiveGains>,
     live_instance_count: usize,
     worker: Mutex<Option<JoinHandle<()>>>,
-}
-
-struct PlayerInner {
-    state: Mutex<PlayerState>,
-    command_available: Condvar,
-}
-
-#[derive(Default)]
-struct PlayerState {
-    generation: u64,
-    pending: VecDeque<PlayerCommand>,
-    live_requested: bool,
-    shutdown: bool,
-}
-
-#[derive(Debug)]
-enum PlayerCommand {
-    Play {
-        generation: u64,
-        schedule: RealtimePlaybackSchedule,
-        patch: Option<String>,
-    },
-    StopAll {
-        generation: u64,
-    },
-    StopInstance {
-        generation: u64,
-        instance_id: InstanceId,
-    },
-    Midi {
-        generation: u64,
-        events: Vec<FastMidiEvent>,
-        enter_live: bool,
-    },
-    PrepareLivePatch {
-        generation: u64,
-        instance_id: InstanceId,
-        patch: Option<String>,
-        completion: std::sync::mpsc::SyncSender<std::result::Result<(), String>>,
-    },
-    ProbeLivePatch {
-        generation: u64,
-        instance_id: InstanceId,
-        patch: Option<String>,
-        completion: std::sync::mpsc::SyncSender<std::result::Result<VoicingReport, String>>,
-    },
 }
 
 impl RealtimePlayer {
@@ -269,156 +221,6 @@ impl RealtimePlayer {
     }
 }
 
-impl Default for PlayerInner {
-    fn default() -> Self {
-        Self {
-            state: Mutex::new(PlayerState::default()),
-            command_available: Condvar::new(),
-        }
-    }
-}
-
-impl PlayerInner {
-    fn submit_play(
-        &self,
-        schedule: RealtimePlaybackSchedule,
-        patch: Option<String>,
-        audio_output: Arc<AudioOutputControl>,
-    ) -> Result<()> {
-        let mut state = self.state.lock().unwrap();
-        let generation = begin_new_generation(&mut state, &audio_output)?;
-        state.live_requested = false;
-        state.pending.clear();
-        state.pending.push_back(PlayerCommand::Play {
-            generation,
-            schedule,
-            patch,
-        });
-        self.command_available.notify_one();
-        Ok(())
-    }
-
-    fn submit_stop(&self, audio_output: Arc<AudioOutputControl>) -> Result<()> {
-        let mut state = self.state.lock().unwrap();
-        ensure_running(&state)?;
-        state.generation = next_generation(state.generation);
-        let generation = state.generation;
-        audio_output.stop_generation(generation);
-        state.live_requested = false;
-        state.pending.clear();
-        state
-            .pending
-            .push_back(PlayerCommand::StopAll { generation });
-        self.command_available.notify_one();
-        Ok(())
-    }
-
-    fn submit_stop_instance(
-        &self,
-        instance_id: InstanceId,
-        audio_output: Arc<AudioOutputControl>,
-    ) -> Result<()> {
-        let mut state = self.state.lock().unwrap();
-        let generation = begin_new_generation(&mut state, &audio_output)?;
-        state.pending.push_back(PlayerCommand::StopInstance {
-            generation,
-            instance_id,
-        });
-        self.command_available.notify_one();
-        Ok(())
-    }
-
-    fn submit_midi(
-        &self,
-        events: Vec<FastMidiEvent>,
-        audio_output: Arc<AudioOutputControl>,
-    ) -> Result<()> {
-        let mut state = self.state.lock().unwrap();
-        ensure_running(&state)?;
-        let enter_live = !state.live_requested;
-        if enter_live {
-            state.generation = next_generation(state.generation);
-            state.pending.clear();
-            state.live_requested = true;
-            audio_output.start_generation(state.generation);
-        }
-        let generation = state.generation;
-        state.pending.push_back(PlayerCommand::Midi {
-            generation,
-            events,
-            enter_live,
-        });
-        self.command_available.notify_one();
-        Ok(())
-    }
-
-    fn submit_prepare_live_patch(
-        &self,
-        instance_id: InstanceId,
-        patch: Option<String>,
-        completion: std::sync::mpsc::SyncSender<std::result::Result<(), String>>,
-        audio_output: Arc<AudioOutputControl>,
-    ) -> Result<()> {
-        let mut state = self.state.lock().unwrap();
-        let generation = begin_new_generation(&mut state, &audio_output)?;
-        state.live_requested = true;
-        state.pending.push_back(PlayerCommand::PrepareLivePatch {
-            generation,
-            instance_id,
-            patch,
-            completion,
-        });
-        self.command_available.notify_one();
-        Ok(())
-    }
-
-    fn submit_probe_live_patch(
-        &self,
-        instance_id: InstanceId,
-        patch: Option<String>,
-        completion: std::sync::mpsc::SyncSender<std::result::Result<VoicingReport, String>>,
-        audio_output: Arc<AudioOutputControl>,
-    ) -> Result<()> {
-        let mut state = self.state.lock().unwrap();
-        let generation = begin_new_generation(&mut state, &audio_output)?;
-        state.live_requested = true;
-        state.pending.push_back(PlayerCommand::ProbeLivePatch {
-            generation,
-            instance_id,
-            patch,
-            completion,
-        });
-        self.command_available.notify_one();
-        Ok(())
-    }
-
-    fn wait_for_command(&self) -> Option<PlayerCommand> {
-        let mut state = self.state.lock().unwrap();
-        while state.pending.is_empty() && !state.shutdown {
-            state = self.command_available.wait(state).unwrap();
-        }
-        if state.shutdown {
-            return None;
-        }
-        state.pending.pop_front()
-    }
-
-    fn pop_pending_command(&self) -> Option<PlayerCommand> {
-        let mut state = self.state.lock().unwrap();
-        if state.shutdown {
-            return None;
-        }
-        state.pending.pop_front()
-    }
-
-    fn shutdown(&self, audio_output: &AudioOutputControl) {
-        let mut state = self.state.lock().unwrap();
-        state.shutdown = true;
-        self.command_available.notify_one();
-        audio_output.shutdown();
-    }
-}
-
 impl Drop for RealtimePlayer {
     fn drop(&mut self) {
         self.inner.shutdown(&self.audio_output);
@@ -426,24 +228,6 @@ impl Drop for RealtimePlayer {
             let _ = worker.join();
         }
     }
-}
-
-fn begin_new_generation(state: &mut PlayerState, audio_output: &AudioOutputControl) -> Result<u64> {
-    ensure_running(state)?;
-    state.generation = next_generation(state.generation);
-    audio_output.start_generation(state.generation);
-    Ok(state.generation)
-}
-
-fn ensure_running(state: &PlayerState) -> Result<()> {
-    if state.shutdown {
-        anyhow::bail!("realtime play worker is stopped");
-    }
-    Ok(())
-}
-
-fn next_generation(current: u64) -> u64 {
-    current.wrapping_add(1).max(1)
 }
 
 #[cfg(test)]

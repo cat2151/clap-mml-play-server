@@ -113,8 +113,10 @@ fn invalid_instance_is_rejected_before_enqueue() {
     let mut server = FastMidiServer::create(port).unwrap();
     let mut client = FastMidiClient::connect(port).unwrap();
 
+    // 上限ちょうどの id は範囲外。定数から導いて、上限を動かしてもテストが空振りしないようにする。
+    let out_of_range = u8::try_from(crate::MAX_INSTANCE_COUNT).unwrap();
     assert!(matches!(
-        client.stop(16),
+        client.stop(out_of_range),
         Err(FastIpcError::InvalidInstance { .. })
     ));
     assert_eq!(server.recv_timeout(Duration::from_millis(1)).unwrap(), None);
