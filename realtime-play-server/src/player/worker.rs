@@ -12,7 +12,7 @@ use super::{
     audio_output::{AudioOutputConsumer, AudioOutputControl, AudioOutputProducer},
     limiter::MasterLimiter,
     output_stream::build_output_stream,
-    runtime::{new_live_instances, LiveInstanceState, PlaybackMode},
+    runtime::{new_live_instances, LiveGains, LiveInstanceState, PlaybackMode},
     startup::create_live_renderers,
     LimiterMeterState, LiveQueuedEvent, PlayerCommand, PlayerInner,
 };
@@ -23,6 +23,7 @@ const MAX_LIVE_QUEUE_EVENTS: usize = 2048;
 pub(super) struct WorkerOutput {
     pub(super) control: Arc<AudioOutputControl>,
     pub(super) limiter_meter: Arc<LimiterMeterState>,
+    pub(super) live_gains: Arc<LiveGains>,
     pub(super) producer: AudioOutputProducer,
     pub(super) consumer: AudioOutputConsumer,
 }
@@ -38,6 +39,7 @@ pub(super) fn run_player_worker(
     let WorkerOutput {
         control: audio_output,
         limiter_meter,
+        live_gains,
         producer: output_producer,
         consumer: output_consumer,
     } = output;
@@ -108,7 +110,7 @@ pub(super) fn run_player_worker(
                 generation,
                 clock_samples,
                 instances,
-            }) => render_live_mix(&mut renderers, instances, clock_samples)
+            }) => render_live_mix(&mut renderers, instances, clock_samples, &live_gains)
                 .map(|samples| Some((*generation, samples))),
             None => continue,
         };
@@ -143,6 +145,7 @@ fn render_live_mix(
     renderers: &mut [RealtimeRenderer],
     instances: &mut [LiveInstanceState],
     clock_samples: &mut u64,
+    gains: &LiveGains,
 ) -> anyhow::Result<Vec<f32>> {
     let buf_size = renderers[0].buf_size() as u64;
     let chunk_start = *clock_samples;
@@ -154,7 +157,7 @@ fn render_live_mix(
         }
         let events = take_chunk_events(&mut instance.queue, chunk_start, buf_size);
         match renderer.render_live_chunk_with_offsets(&events) {
-            Ok(samples) => add_samples(&mut mixed, &samples),
+            Ok(samples) => add_samples(&mut mixed, &samples, gains.get(index)),
             Err(error) => {
                 eprintln!("realtime live instance {index} failed: {error:#}");
                 renderer.reset();
@@ -167,9 +170,15 @@ fn render_live_mix(
     Ok(mixed)
 }
 
-fn add_samples(mixed: &mut [f32], samples: &[f32]) {
+fn add_samples(mixed: &mut [f32], samples: &[f32], gain: f32) {
+    if gain == 1.0 {
+        for (output, sample) in mixed.iter_mut().zip(samples) {
+            *output += *sample;
+        }
+        return;
+    }
     for (output, sample) in mixed.iter_mut().zip(samples) {
-        *output += *sample;
+        *output += *sample * gain;
     }
 }
 

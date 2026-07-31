@@ -14,7 +14,7 @@ use std::{
 
 use self::audio_output::{new_audio_output, AudioOutputControl};
 use self::live::{resolve_live_patch, validate_live_instance_id};
-use self::runtime::{LimiterMeterState, LiveQueuedEvent};
+use self::runtime::{LimiterMeterState, LiveGains, LiveQueuedEvent};
 use self::worker::{run_player_worker, WorkerOutput};
 use anyhow::{Context as _, Result};
 use cmrt_core::{
@@ -34,6 +34,9 @@ pub(crate) trait PlayerHandle: Send + Sync + 'static {
         patch: Option<String>,
     ) -> Result<VoicingReport>;
     fn set_live_buffer_multiplier(&self, multiplier: u8) -> Result<()>;
+    /// live mix で instance へ掛ける振幅ゲイン（1.0 が等倍）。
+    /// patch 差し替えで live を作り直しても保持される。
+    fn set_live_instance_gain(&self, instance_id: InstanceId, gain: f32) -> Result<()>;
     fn stop_instance(&self, instance_id: InstanceId) -> Result<()>;
     fn stop(&self) -> Result<()>;
     fn limiter_meter(&self) -> LimiterMeter;
@@ -47,6 +50,7 @@ pub(crate) struct RealtimePlayer {
     inner: Arc<PlayerInner>,
     audio_output: Arc<AudioOutputControl>,
     limiter_meter: Arc<LimiterMeterState>,
+    live_gains: Arc<LiveGains>,
     live_instance_count: usize,
     worker: Mutex<Option<JoinHandle<()>>>,
 }
@@ -109,9 +113,11 @@ impl RealtimePlayer {
             new_audio_output(core_cfg.buffer_size);
         let inner = Arc::new(PlayerInner::default());
         let limiter_meter = Arc::new(LimiterMeterState::default());
+        let live_gains = Arc::new(LiveGains::default());
         let worker_inner = Arc::clone(&inner);
         let worker_audio_output = Arc::clone(&audio_output);
         let worker_limiter_meter = Arc::clone(&limiter_meter);
+        let worker_live_gains = Arc::clone(&live_gains);
         let worker_core_cfg = core_cfg.clone();
         let (init_tx, init_rx) = std::sync::mpsc::channel();
         let worker = std::thread::Builder::new()
@@ -122,6 +128,7 @@ impl RealtimePlayer {
                     WorkerOutput {
                         control: worker_audio_output,
                         limiter_meter: worker_limiter_meter,
+                        live_gains: worker_live_gains,
                         producer: output_producer,
                         consumer: output_consumer,
                     },
@@ -148,6 +155,7 @@ impl RealtimePlayer {
             inner,
             audio_output,
             limiter_meter,
+            live_gains,
             live_instance_count,
             worker: Mutex::new(Some(worker)),
         })
@@ -228,6 +236,12 @@ impl PlayerHandle for RealtimePlayer {
 
     fn set_live_buffer_multiplier(&self, multiplier: u8) -> Result<()> {
         self.audio_output.set_buffer_multiplier(multiplier)
+    }
+
+    fn set_live_instance_gain(&self, instance_id: InstanceId, gain: f32) -> Result<()> {
+        self.validate_live_instance_id(instance_id)?;
+        self.live_gains.set(usize::from(instance_id), gain);
+        Ok(())
     }
 
     fn stop_instance(&self, instance_id: InstanceId) -> Result<()> {

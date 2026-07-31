@@ -87,6 +87,10 @@ fn dispatch(command: FastMidiCommand, player: &dyn PlayerHandle, server: &FastMi
         FastMidiCommand::SetBufferMultiplier { multiplier } => {
             player.set_live_buffer_multiplier(multiplier)
         }
+        FastMidiCommand::SetInstanceGain {
+            instance_id,
+            gain_milli,
+        } => player.set_live_instance_gain(instance_id, gain_milli as f32 / 1000.0),
         FastMidiCommand::Stop { instance_id } => player.stop_instance(instance_id),
         FastMidiCommand::StopAll => player.stop(),
     };

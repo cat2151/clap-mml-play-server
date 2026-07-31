@@ -51,6 +51,11 @@ pub enum FastMidiCommand {
     SetBufferMultiplier {
         multiplier: u8,
     },
+    /// live mix で instance へ掛ける振幅ゲイン。千分率（1000 = 等倍）で運ぶ。
+    SetInstanceGain {
+        instance_id: InstanceId,
+        gain_milli: u32,
+    },
     Stop {
         instance_id: InstanceId,
     },

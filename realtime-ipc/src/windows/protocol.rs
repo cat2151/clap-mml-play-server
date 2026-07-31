@@ -16,6 +16,9 @@ pub(super) const KIND_SET_BUFFER_MULTIPLIER: u32 = 3;
 pub(super) const KIND_PREPARE_PATCH: u32 = 4;
 pub(super) const KIND_PROBE_PATCH: u32 = 5;
 pub(super) const KIND_STOP_ALL: u32 = 6;
+/// live mix の instance ゲイン設定。`instance_id` と、`buffer_multiplier` を
+/// 千分率のゲイン（1000 = 等倍）として流用する。構造体を変えないので VERSION は据え置ける。
+pub(super) const KIND_SET_INSTANCE_GAIN: u32 = 7;
 pub(super) const RESPONSE_OK: u32 = 1;
 pub(super) const RESPONSE_ERROR: u32 = 2;
 pub(super) const SERVER_STALE_MS: u64 = 1_000;

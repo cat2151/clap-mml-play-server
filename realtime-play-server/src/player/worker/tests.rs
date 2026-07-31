@@ -59,6 +59,26 @@ fn take_chunk_events_keeps_future_events_and_clamps_late_ones() {
 #[test]
 fn add_samples_sums_f32_stereo_buffers() {
     let mut mixed = vec![0.5, -0.25, 0.0, 1.0];
-    add_samples(&mut mixed, &[0.25, 0.5, -0.5, 0.25]);
+    add_samples(&mut mixed, &[0.25, 0.5, -0.5, 0.25], 1.0);
     assert_eq!(mixed, vec![0.75, 0.25, -0.5, 1.25]);
+}
+
+#[test]
+fn add_samples_applies_the_instance_gain() {
+    let mut mixed = vec![0.0, 0.0, 0.0, 0.0];
+    // +6dB は振幅2倍。
+    add_samples(&mut mixed, &[0.25, 0.5, -0.5, 0.25], 2.0);
+    assert_eq!(mixed, vec![0.5, 1.0, -1.0, 0.5]);
+}
+
+#[test]
+fn live_gains_default_to_unity_and_survive_updates() {
+    let gains = LiveGains::default();
+    assert_eq!(gains.get(0), 1.0);
+    gains.set(0, 2.0);
+    assert_eq!(gains.get(0), 2.0);
+    assert_eq!(gains.get(1), 1.0, "他の instance は等倍のまま");
+    // 範囲外の instance は無視し、既定値を返す。
+    gains.set(999, 3.0);
+    assert_eq!(gains.get(999), 1.0);
 }

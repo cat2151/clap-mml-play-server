@@ -3,11 +3,14 @@ use std::{ptr, sync::atomic::Ordering};
 use super::{
     protocol::{
         CommandSlot, SharedRing, KIND_MIDI, KIND_PREPARE_PATCH, KIND_PROBE_PATCH,
-        KIND_SET_BUFFER_MULTIPLIER, KIND_STOP, KIND_STOP_ALL, SLOT_COUNT,
+        KIND_SET_BUFFER_MULTIPLIER, KIND_SET_INSTANCE_GAIN, KIND_STOP, KIND_STOP_ALL, SLOT_COUNT,
     },
     validate_instance_id, validate_ring, FastIpcError, FastMidiCommand, FastMidiEvent, InstanceId,
     MAX_MIDI_MESSAGES, MAX_PATCH_BYTES,
 };
+
+/// instance ゲインの上限（千分率）。+12dB 相当までを許す。
+const MAX_INSTANCE_GAIN_MILLI: u32 = 4_000;
 
 pub(super) fn pop_command(ring: &SharedRing) -> Result<Option<FastMidiCommand>, FastIpcError> {
     validate_ring(ring)?;
@@ -38,6 +41,18 @@ fn decode_slot(slot: CommandSlot) -> Result<FastMidiCommand, FastIpcError> {
                 ));
             }
             Ok(FastMidiCommand::SetBufferMultiplier { multiplier })
+        }
+        KIND_SET_INSTANCE_GAIN => {
+            let gain_milli = slot.buffer_multiplier;
+            if gain_milli > MAX_INSTANCE_GAIN_MILLI {
+                return Err(FastIpcError::InvalidPayload(
+                    "instance gain is out of range".into(),
+                ));
+            }
+            Ok(FastMidiCommand::SetInstanceGain {
+                instance_id: decode_instance(slot.instance_id)?,
+                gain_milli,
+            })
         }
         KIND_PREPARE_PATCH | KIND_PROBE_PATCH => Ok(FastMidiCommand::PreparePatch {
             request_id: slot.request_id,

@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use cmrt_core::RealtimePlaybackSchedule;
-use cmrt_realtime_ipc::LimiterMeter;
+use cmrt_realtime_ipc::{LimiterMeter, INSTANCE_COUNT};
 
 pub(super) enum PlaybackMode {
     Scheduled {
@@ -23,6 +23,38 @@ pub(super) struct LiveInstanceState {
 
 pub(super) fn new_live_instances(count: usize) -> Vec<LiveInstanceState> {
     (0..count).map(|_| LiveInstanceState::default()).collect()
+}
+
+/// live mix で instance ごとに掛ける振幅ゲイン。
+///
+/// live モードは patch 差し替えのたびに作り直される（`new_live_mode`）ので、
+/// ゲインは instance の状態ではなくここに置き、再生をまたいで保持する。
+/// ワーカースレッドが毎チャンク読むため、ロックせず atomic に置く。
+pub(super) struct LiveGains {
+    gains: [AtomicU32; INSTANCE_COUNT],
+}
+
+impl Default for LiveGains {
+    fn default() -> Self {
+        Self {
+            gains: std::array::from_fn(|_| AtomicU32::new(1.0f32.to_bits())),
+        }
+    }
+}
+
+impl LiveGains {
+    pub(super) fn set(&self, instance_id: usize, gain: f32) {
+        if let Some(slot) = self.gains.get(instance_id) {
+            slot.store(gain.to_bits(), Ordering::Release);
+        }
+    }
+
+    pub(super) fn get(&self, instance_id: usize) -> f32 {
+        self.gains
+            .get(instance_id)
+            .map(|slot| f32::from_bits(slot.load(Ordering::Acquire)))
+            .unwrap_or(1.0)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -44,6 +44,10 @@ impl PlayerHandle for FakePlayer {
         Ok(())
     }
 
+    fn set_live_instance_gain(&self, _instance_id: InstanceId, _gain: f32) -> Result<()> {
+        Ok(())
+    }
+
     fn stop_instance(&self, _instance_id: InstanceId) -> Result<()> {
         Ok(())
     }
