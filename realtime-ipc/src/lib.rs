@@ -20,6 +20,19 @@ pub const MAX_RESPONSE_BYTES: usize = 16 * 1024;
 
 pub type InstanceId = u8;
 
+/// live 出力バッファの倍率として受け付ける最大値。
+///
+/// サーバーはリングを `buffer_size * MAX_BUFFER_MULTIPLIER` フレームで確保するので、
+/// ここを広げるときは `realtime-play-server` 側の `MAX_BUFFER_MULTIPLIER` も揃えること。
+/// 倍率は wire format 上 `u32` なので、この定数を上げても共有メモリのレイアウトは
+/// 変わらない（`windows/protocol.rs` の `VERSION` は据え置きでよい）。
+pub const MAX_BUFFER_MULTIPLIER: u16 = 256;
+
+/// 倍率として受け付ける値か（1〜[`MAX_BUFFER_MULTIPLIER`] の2冪）。
+pub fn is_valid_buffer_multiplier(multiplier: u16) -> bool {
+    multiplier.is_power_of_two() && multiplier <= MAX_BUFFER_MULTIPLIER
+}
+
 pub fn validate_instance_id(instance_id: InstanceId) -> Result<(), FastIpcError> {
     if usize::from(instance_id) >= INSTANCE_COUNT {
         return Err(FastIpcError::InvalidInstance {
@@ -55,7 +68,7 @@ pub enum FastMidiCommand {
         probe: bool,
     },
     SetBufferMultiplier {
-        multiplier: u8,
+        multiplier: u16,
     },
     /// live mix で instance へ掛ける振幅ゲイン。千分率（1000 = 等倍）で運ぶ。
     SetInstanceGain {
@@ -185,7 +198,7 @@ mod unsupported {
             Err(FastIpcError::UnsupportedPlatform)
         }
 
-        pub fn set_buffer_multiplier(&mut self, _multiplier: u8) -> Result<(), FastIpcError> {
+        pub fn set_buffer_multiplier(&mut self, _multiplier: u16) -> Result<(), FastIpcError> {
             Err(FastIpcError::UnsupportedPlatform)
         }
 

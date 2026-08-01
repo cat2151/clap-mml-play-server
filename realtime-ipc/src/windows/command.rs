@@ -33,12 +33,13 @@ fn decode_slot(slot: CommandSlot) -> Result<FastMidiCommand, FastIpcError> {
         }),
         KIND_STOP_ALL => Ok(FastMidiCommand::StopAll),
         KIND_SET_BUFFER_MULTIPLIER => {
-            let multiplier = u8::try_from(slot.buffer_multiplier)
+            let multiplier = u16::try_from(slot.buffer_multiplier)
                 .map_err(|_| FastIpcError::InvalidPayload("invalid buffer multiplier".into()))?;
-            if !matches!(multiplier, 1 | 2 | 4 | 8 | 16) {
-                return Err(FastIpcError::InvalidPayload(
-                    "buffer multiplier must be 1, 2, 4, 8, or 16".into(),
-                ));
+            if !crate::is_valid_buffer_multiplier(multiplier) {
+                return Err(FastIpcError::InvalidPayload(format!(
+                    "buffer multiplier must be a power of two up to {}",
+                    crate::MAX_BUFFER_MULTIPLIER
+                )));
             }
             Ok(FastMidiCommand::SetBufferMultiplier { multiplier })
         }

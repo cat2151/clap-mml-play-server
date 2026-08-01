@@ -251,11 +251,12 @@ impl FastMidiClient {
         self.push(slot)
     }
 
-    pub fn set_buffer_multiplier(&mut self, multiplier: u8) -> Result<(), FastIpcError> {
-        if !matches!(multiplier, 1 | 2 | 4 | 8 | 16) {
-            return Err(FastIpcError::InvalidPayload(
-                "buffer multiplier must be 1, 2, 4, 8, or 16".into(),
-            ));
+    pub fn set_buffer_multiplier(&mut self, multiplier: u16) -> Result<(), FastIpcError> {
+        if !crate::is_valid_buffer_multiplier(multiplier) {
+            return Err(FastIpcError::InvalidPayload(format!(
+                "buffer multiplier must be a power of two up to {}",
+                crate::MAX_BUFFER_MULTIPLIER
+            )));
         }
         let mut slot = zeroed_slot();
         slot.kind = KIND_SET_BUFFER_MULTIPLIER;

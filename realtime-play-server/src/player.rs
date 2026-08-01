@@ -31,7 +31,7 @@ pub(crate) trait PlayerHandle: Send + Sync + 'static {
         instance_id: InstanceId,
         patch: Option<String>,
     ) -> Result<VoicingReport>;
-    fn set_live_buffer_multiplier(&self, multiplier: u8) -> Result<()>;
+    fn set_live_buffer_multiplier(&self, multiplier: u16) -> Result<()>;
     /// live mix で instance へ掛ける振幅ゲイン（1.0 が等倍）。
     /// patch 差し替えで live を作り直しても保持される。
     fn set_live_instance_gain(&self, instance_id: InstanceId, gain: f32) -> Result<()>;
@@ -186,7 +186,7 @@ impl PlayerHandle for RealtimePlayer {
             .map_err(anyhow::Error::msg)
     }
 
-    fn set_live_buffer_multiplier(&self, multiplier: u8) -> Result<()> {
+    fn set_live_buffer_multiplier(&self, multiplier: u16) -> Result<()> {
         self.audio_output.set_buffer_multiplier(multiplier)
     }
 

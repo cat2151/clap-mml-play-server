@@ -40,7 +40,7 @@ impl PlayerHandle for FakePlayer {
         anyhow::bail!("not used")
     }
 
-    fn set_live_buffer_multiplier(&self, _multiplier: u8) -> Result<()> {
+    fn set_live_buffer_multiplier(&self, _multiplier: u16) -> Result<()> {
         Ok(())
     }
 

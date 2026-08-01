@@ -2,7 +2,7 @@ use std::{
     cell::UnsafeCell,
     mem::MaybeUninit,
     sync::{
-        atomic::{AtomicBool, AtomicU64, AtomicU8, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU16, AtomicU64, AtomicUsize, Ordering},
         Arc,
     },
     time::Duration,
@@ -11,8 +11,10 @@ use std::{
 use anyhow::Result;
 use cpal::{FromSample, Sample};
 
-pub(super) const DEFAULT_BUFFER_MULTIPLIER: u8 = 4;
-const MAX_BUFFER_MULTIPLIER: usize = 16;
+pub(super) const DEFAULT_BUFFER_MULTIPLIER: u16 = 4;
+/// リングの容量はこの倍率ぶんを起動時に一度だけ確保する
+/// （512 フレーム × 256 × 16B ≒ 2MB）。倍率を上げても再確保は起きない。
+const MAX_BUFFER_MULTIPLIER: usize = cmrt_realtime_ipc::MAX_BUFFER_MULTIPLIER as usize;
 const PRODUCER_RETRY_INTERVAL: Duration = Duration::from_millis(1);
 
 #[derive(Clone, Copy)]
@@ -86,7 +88,7 @@ pub(super) struct AudioOutputControl {
     generation: AtomicU64,
     active: AtomicBool,
     shutdown: AtomicBool,
-    multiplier: AtomicU8,
+    multiplier: AtomicU16,
     buffer_frames: usize,
     underrun_frames: AtomicU64,
 }
@@ -111,15 +113,18 @@ impl AudioOutputControl {
         self.active.store(false, Ordering::Release);
     }
 
-    pub(super) fn set_buffer_multiplier(&self, multiplier: u8) -> Result<()> {
-        if !matches!(multiplier, 1 | 2 | 4 | 8 | 16) {
-            anyhow::bail!("live buffer multiplier must be 1, 2, 4, 8, or 16");
+    pub(super) fn set_buffer_multiplier(&self, multiplier: u16) -> Result<()> {
+        if !cmrt_realtime_ipc::is_valid_buffer_multiplier(multiplier) {
+            anyhow::bail!(
+                "live buffer multiplier must be a power of two up to {}",
+                cmrt_realtime_ipc::MAX_BUFFER_MULTIPLIER
+            );
         }
         self.multiplier.store(multiplier, Ordering::Release);
         Ok(())
     }
 
-    pub(super) fn buffer_multiplier(&self) -> u8 {
+    pub(super) fn buffer_multiplier(&self) -> u16 {
         self.multiplier.load(Ordering::Acquire)
     }
 
@@ -232,7 +237,7 @@ pub(super) fn new_audio_output(
         generation: AtomicU64::new(0),
         active: AtomicBool::new(false),
         shutdown: AtomicBool::new(false),
-        multiplier: AtomicU8::new(DEFAULT_BUFFER_MULTIPLIER),
+        multiplier: AtomicU16::new(DEFAULT_BUFFER_MULTIPLIER),
         buffer_frames,
         underrun_frames: AtomicU64::new(0),
     });
@@ -317,11 +322,34 @@ mod tests {
     fn multiplier_accepts_only_supported_depths() {
         let (control, _producer, _consumer) = new_audio_output(512);
         assert_eq!(control.buffer_multiplier(), 4);
-        for multiplier in [1, 2, 4, 8, 16] {
+        for multiplier in [1, 2, 4, 8, 16, 32, 64, 128, 256] {
             control.set_buffer_multiplier(multiplier).unwrap();
             assert_eq!(control.buffer_multiplier(), multiplier);
         }
         assert!(control.set_buffer_multiplier(3).is_err());
+        assert!(
+            control.set_buffer_multiplier(512).is_err(),
+            "リングの容量を超える倍率は受け付けない"
+        );
+    }
+
+    /// 上限の倍率でもリングが溢れない（容量は起動時に上限ぶん確保してある）。
+    #[test]
+    fn the_largest_multiplier_still_fits_in_the_ring() {
+        let (control, producer, _consumer) = new_audio_output(2);
+        control.start_generation(1);
+        control
+            .set_buffer_multiplier(cmrt_realtime_ipc::MAX_BUFFER_MULTIPLIER)
+            .unwrap();
+
+        for _ in 0..cmrt_realtime_ipc::MAX_BUFFER_MULTIPLIER {
+            assert!(producer.push_chunk(1, vec![0.1, 0.1, 0.2, 0.2]));
+        }
+
+        assert!(
+            !producer.wait_for_space_timeout(Duration::ZERO),
+            "上限ぶん溜まったら書き手は待たされる"
+        );
     }
 
     #[test]
