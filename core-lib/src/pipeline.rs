@@ -3,7 +3,7 @@
 use anyhow::Result;
 use clack_host::prelude::PluginEntry;
 use hound::{SampleFormat, WavSpec, WavWriter};
-use rodio::{buffer::SamplesBuffer, OutputStream, Sink};
+use rodio::{buffer::SamplesBuffer, ChannelCount, DeviceSinkBuilder, Player, SampleRate};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::patch_list::{collect_patches, to_relative};
@@ -445,15 +445,20 @@ fn float_sample_to_i16(sample: f32) -> i16 {
     }
 }
 
+/// 本パイプラインの出力は常にインターリーブステレオ。
+const STEREO: ChannelCount = ChannelCount::new(2).unwrap();
+
 /// Vec<f32>（インターリーブステレオ）を rodio で再生する
 pub fn play_samples(samples: Vec<f32>, sample_rate: u32) -> Result<()> {
-    let (_stream, stream_handle) = OutputStream::try_default()
+    let sample_rate =
+        SampleRate::new(sample_rate).ok_or_else(|| anyhow::anyhow!("sample rate が 0 です"))?;
+    // device sink を drop すると再生も止まるため、sleep_until_end まで保持する。
+    let device_sink = DeviceSinkBuilder::open_default_sink()
         .map_err(|e| anyhow::anyhow!("オーディオ出力の初期化失敗: {}", e))?;
-    let sink =
-        Sink::try_new(&stream_handle).map_err(|e| anyhow::anyhow!("Sink の作成失敗: {}", e))?;
-    let source = SamplesBuffer::new(2, sample_rate, samples);
-    sink.append(source);
-    sink.sleep_until_end();
+    let player = Player::connect_new(device_sink.mixer());
+    let source = SamplesBuffer::new(STEREO, sample_rate, samples);
+    player.append(source);
+    player.sleep_until_end();
     Ok(())
 }
 

@@ -72,9 +72,9 @@ pub(super) fn save_plugin_state(
 ) -> Result<Vec<u8>> {
     let state_ext = plugin_state_extension(plugin_instance)?;
     let mut bytes = Vec::new();
-    let mut handle = plugin_instance.plugin_handle();
+    let handle = plugin_instance.plugin_handle();
     state_ext
-        .save(&mut handle, &mut bytes)
+        .save(&handle, &mut bytes)
         .map_err(|_| anyhow::anyhow!("プラグイン state の保存に失敗"))?;
     Ok(bytes)
 }
@@ -86,9 +86,9 @@ pub(super) fn load_plugin_state(
 ) -> Result<()> {
     let state_ext = plugin_state_extension(plugin_instance)?;
     let mut cursor = std::io::Cursor::new(state);
-    let mut handle = plugin_instance.plugin_handle();
+    let handle = plugin_instance.plugin_handle();
     state_ext
-        .load(&mut handle, &mut cursor)
+        .load(&handle, &mut cursor)
         .map_err(|_| anyhow::anyhow!("プラグイン state のロードに失敗"))?;
     Ok(())
 }

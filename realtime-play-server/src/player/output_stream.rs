@@ -17,7 +17,7 @@ pub(super) fn build_output_stream(
     let default_config = device
         .default_output_config()
         .map_err(|e| anyhow::anyhow!("既定の出力設定が取得できません: {e}"))?;
-    let device_sample_rate = default_config.sample_rate().0;
+    let device_sample_rate = default_config.sample_rate();
     if device_sample_rate != sample_rate as u32 {
         anyhow::bail!(
             "既定の出力デバイス sample rate ({device_sample_rate}) が config.toml の sample_rate ({}) と一致しません",

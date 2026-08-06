@@ -106,7 +106,7 @@ fn read_voice_info(
     let extension = plugin_instance
         .plugin_handle()
         .get_extension::<PluginVoiceInfo>()?;
-    let info = extension.get(&mut plugin_instance.plugin_handle())?;
+    let info = extension.get(&plugin_instance.plugin_handle())?;
     Some(VoiceInfoReport {
         voice_count: info.voice_count,
         voice_capacity: info.voice_capacity,
@@ -123,23 +123,22 @@ fn read_surge_params(
         .plugin_handle()
         .get_extension::<PluginParams>()?;
     let mut values = SurgeParamValues::default();
-    let count = extension.count(&mut plugin_instance.plugin_handle());
+    let count = extension.count(&plugin_instance.plugin_handle());
     for index in 0..count {
         let mut buffer = ParamInfoBuffer::new();
-        let Some(info) =
-            extension.get_info(&mut plugin_instance.plugin_handle(), index, &mut buffer)
+        let Some(info) = extension.get_info(&plugin_instance.plugin_handle(), index, &mut buffer)
         else {
             continue;
         };
         let id = info.id;
         let name = String::from_utf8_lossy(info.name).into_owned();
         let module = String::from_utf8_lossy(info.module).into_owned();
-        let Some(value) = extension.get_value(&mut plugin_instance.plugin_handle(), id) else {
+        let Some(value) = extension.get_value(&plugin_instance.plugin_handle(), id) else {
             continue;
         };
         let mut text_buffer = [0_u8; 128];
         let Ok(text) = extension.value_to_text(
-            &mut plugin_instance.plugin_handle(),
+            &plugin_instance.plugin_handle(),
             id,
             value,
             &mut text_buffer,
