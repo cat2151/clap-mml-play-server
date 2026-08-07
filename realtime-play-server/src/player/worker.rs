@@ -10,9 +10,11 @@ use crate::timing;
 
 use super::{
     audio_output::{AudioOutputConsumer, AudioOutputControl, AudioOutputProducer},
+    auto_gain::target_rms_db,
     limiter::MasterLimiter,
+    mixer::add_samples_ramped,
     output_stream::build_output_stream,
-    runtime::{new_live_instances, LiveGains, LiveInstanceState, PlaybackMode},
+    runtime::{new_live_instances, AutoGainControl, LiveGains, LiveInstanceState, PlaybackMode},
     startup::create_live_renderers,
     LimiterMeterState, LiveQueuedEvent, PlayerCommand, PlayerInner,
 };
@@ -30,6 +32,7 @@ pub(super) struct WorkerOutput {
     pub(super) control: Arc<AudioOutputControl>,
     pub(super) limiter_meter: Arc<LimiterMeterState>,
     pub(super) live_gains: Arc<LiveGains>,
+    pub(super) auto_gain: Arc<AutoGainControl>,
     pub(super) producer: AudioOutputProducer,
     pub(super) consumer: AudioOutputConsumer,
 }
@@ -46,6 +49,7 @@ pub(super) fn run_player_worker(
         control: audio_output,
         limiter_meter,
         live_gains,
+        auto_gain,
         producer: output_producer,
         consumer: output_consumer,
     } = output;
@@ -74,6 +78,7 @@ pub(super) fn run_player_worker(
 
     let _keep_stream_alive = output_stream;
     let mut limiter = MasterLimiter::new(core_cfg.sample_rate);
+    let auto_gain_target_db = target_rms_db(live_instance_count);
     let mut playback_mode: Option<PlaybackMode> = None;
     loop {
         if playback_mode.is_none() {
@@ -116,8 +121,16 @@ pub(super) fn run_player_worker(
                 generation,
                 clock_samples,
                 instances,
-            }) => render_live_mix(&mut renderers, instances, clock_samples, &live_gains)
-                .map(|samples| Some((*generation, samples))),
+            }) => render_live_mix(
+                &mut renderers,
+                instances,
+                clock_samples,
+                &live_gains,
+                auto_gain.enabled(),
+                core_cfg.sample_rate,
+                auto_gain_target_db,
+            )
+            .map(|samples| Some((*generation, samples))),
             None => continue,
         };
 
@@ -152,6 +165,9 @@ fn render_live_mix(
     instances: &mut [LiveInstanceState],
     clock_samples: &mut u64,
     gains: &LiveGains,
+    auto_gain_enabled: bool,
+    sample_rate: f64,
+    auto_gain_target_db: f32,
 ) -> anyhow::Result<Vec<f32>> {
     let buf_size = renderers[0].buf_size() as u64;
     let chunk_start = *clock_samples;
@@ -163,29 +179,26 @@ fn render_live_mix(
         }
         let events = take_chunk_events(&mut instance.queue, chunk_start, buf_size);
         match renderer.render_live_chunk_with_offsets(&events) {
-            Ok(samples) => add_samples(&mut mixed, &samples, gains.get(index)),
+            Ok(samples) => {
+                let auto_gain = instance.auto_gain.process_block(
+                    &samples,
+                    sample_rate,
+                    auto_gain_target_db,
+                    auto_gain_enabled,
+                );
+                add_samples_ramped(&mut mixed, &samples, auto_gain.scaled(gains.get(index)));
+            }
             Err(error) => {
                 eprintln!("realtime live instance {index} failed: {error:#}");
                 renderer.reset();
                 instance.active = false;
                 instance.queue.clear();
+                instance.auto_gain.reset();
             }
         }
     }
     *clock_samples = chunk_start + buf_size;
     Ok(mixed)
-}
-
-fn add_samples(mixed: &mut [f32], samples: &[f32], gain: f32) {
-    if gain == 1.0 {
-        for (output, sample) in mixed.iter_mut().zip(samples) {
-            *output += *sample;
-        }
-        return;
-    }
-    for (output, sample) in mixed.iter_mut().zip(samples) {
-        *output += *sample * gain;
-    }
 }
 
 fn new_live_mode(generation: u64, instance_count: usize) -> PlaybackMode {
@@ -283,6 +296,7 @@ fn apply_command(
                 *live_generation = generation;
                 instances[instance_index].active = false;
                 instances[instance_index].queue.clear();
+                instances[instance_index].auto_gain.reset();
                 if instances.iter().all(|instance| !instance.active) {
                     audio_output.finish();
                     limiter.reset();
@@ -337,6 +351,7 @@ fn apply_command(
             {
                 *live_generation = generation;
                 instances[index].queue.clear();
+                instances[index].auto_gain.reset();
                 // 成功時に `active` を立てない。立てると、鳴らす予定のない instance まで
                 // 毎チャンク process() を回すことになる。grid sequencer の chord mode は
                 // 演奏の裏で待機 bank を仕込むので、そこが無音かつ CPU ゼロで居られること
@@ -374,6 +389,7 @@ fn apply_command(
             {
                 *live_generation = generation;
                 instances[index].queue.clear();
+                instances[index].auto_gain.reset();
                 instances[index].active = result.is_ok();
                 if result.is_err() && instances.iter().all(|instance| !instance.active) {
                     audio_output.finish();

@@ -26,6 +26,7 @@ fn round_trip_preserves_multi_instance_events_and_controls() {
         .unwrap();
     // 倍率は wire format 上 u32 なので、u8 に収まらない上限でも運べる。
     client.set_buffer_multiplier(MAX_BUFFER_MULTIPLIER).unwrap();
+    client.set_auto_gain_enabled(true).unwrap();
     client.stop(15).unwrap();
     client.stop_all().unwrap();
 
@@ -41,6 +42,10 @@ fn round_trip_preserves_multi_instance_events_and_controls() {
         Some(FastMidiCommand::SetBufferMultiplier {
             multiplier: MAX_BUFFER_MULTIPLIER
         })
+    );
+    assert_eq!(
+        server.recv_timeout(Duration::from_secs(1)).unwrap(),
+        Some(FastMidiCommand::SetAutoGain { enabled: true })
     );
     assert_eq!(
         server.recv_timeout(Duration::from_secs(1)).unwrap(),

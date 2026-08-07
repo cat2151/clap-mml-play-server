@@ -3,7 +3,8 @@ use std::{ptr, sync::atomic::Ordering};
 use super::{
     protocol::{
         CommandSlot, SharedRing, KIND_MIDI, KIND_PREPARE_PATCH, KIND_PROBE_PATCH,
-        KIND_SET_BUFFER_MULTIPLIER, KIND_SET_INSTANCE_GAIN, KIND_STOP, KIND_STOP_ALL, SLOT_COUNT,
+        KIND_SET_AUTO_GAIN, KIND_SET_BUFFER_MULTIPLIER, KIND_SET_INSTANCE_GAIN, KIND_STOP,
+        KIND_STOP_ALL, SLOT_COUNT,
     },
     validate_instance_id, validate_ring, FastIpcError, FastMidiCommand, FastMidiEvent, InstanceId,
     MAX_MIDI_MESSAGES, MAX_PATCH_BYTES,
@@ -55,6 +56,13 @@ fn decode_slot(slot: CommandSlot) -> Result<FastMidiCommand, FastIpcError> {
                 gain_milli,
             })
         }
+        KIND_SET_AUTO_GAIN => match slot.buffer_multiplier {
+            0 => Ok(FastMidiCommand::SetAutoGain { enabled: false }),
+            1 => Ok(FastMidiCommand::SetAutoGain { enabled: true }),
+            _ => Err(FastIpcError::InvalidPayload(
+                "auto gain flag must be 0 or 1".into(),
+            )),
+        },
         KIND_PREPARE_PATCH | KIND_PROBE_PATCH => Ok(FastMidiCommand::PreparePatch {
             request_id: slot.request_id,
             instance_id: decode_instance(slot.instance_id)?,

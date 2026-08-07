@@ -264,6 +264,13 @@ impl FastMidiClient {
         self.push(slot)
     }
 
+    pub fn set_auto_gain_enabled(&mut self, enabled: bool) -> Result<(), FastIpcError> {
+        let mut slot = zeroed_slot();
+        slot.kind = KIND_SET_AUTO_GAIN;
+        slot.buffer_multiplier = u32::from(enabled);
+        self.push(slot)
+    }
+
     pub fn limiter_meter(&self) -> LimiterMeter {
         let ring = self.mapping.ring();
         LimiterMeter {

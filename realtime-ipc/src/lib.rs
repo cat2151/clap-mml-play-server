@@ -75,6 +75,10 @@ pub enum FastMidiCommand {
         instance_id: InstanceId,
         gain_milli: u32,
     },
+    /// live mixのinstance別RMS auto-trimを切り替える。
+    SetAutoGain {
+        enabled: bool,
+    },
     Stop {
         instance_id: InstanceId,
     },
@@ -199,6 +203,10 @@ mod unsupported {
         }
 
         pub fn set_buffer_multiplier(&mut self, _multiplier: u16) -> Result<(), FastIpcError> {
+            Err(FastIpcError::UnsupportedPlatform)
+        }
+
+        pub fn set_auto_gain_enabled(&mut self, _enabled: bool) -> Result<(), FastIpcError> {
             Err(FastIpcError::UnsupportedPlatform)
         }
 

@@ -1,7 +1,9 @@
 mod audio_output;
+mod auto_gain;
 mod commands;
 mod limiter;
 mod live;
+mod mixer;
 mod output_stream;
 mod runtime;
 mod startup;
@@ -12,7 +14,7 @@ use std::{sync::Arc, sync::Mutex, thread::JoinHandle};
 use self::audio_output::{new_audio_output, AudioOutputControl};
 use self::commands::PlayerInner;
 use self::live::{resolve_live_patch, validate_live_instance_id};
-use self::runtime::{LimiterMeterState, LiveGains, LiveQueuedEvent};
+use self::runtime::{AutoGainControl, LimiterMeterState, LiveGains, LiveQueuedEvent};
 use self::worker::{run_player_worker, WorkerOutput};
 use anyhow::{Context as _, Result};
 use cmrt_core::{smf_playback_schedule_with_options, CoreConfig, RenderOptions, VoicingReport};
@@ -35,6 +37,8 @@ pub(crate) trait PlayerHandle: Send + Sync + 'static {
     /// live mix で instance へ掛ける振幅ゲイン（1.0 が等倍）。
     /// patch 差し替えで live を作り直しても保持される。
     fn set_live_instance_gain(&self, instance_id: InstanceId, gain: f32) -> Result<()>;
+    /// live mixのinstance別RMS auto-trimを切り替える。
+    fn set_live_auto_gain_enabled(&self, enabled: bool) -> Result<()>;
     fn stop_instance(&self, instance_id: InstanceId) -> Result<()>;
     fn stop(&self) -> Result<()>;
     fn limiter_meter(&self) -> LimiterMeter;
@@ -49,6 +53,7 @@ pub(crate) struct RealtimePlayer {
     audio_output: Arc<AudioOutputControl>,
     limiter_meter: Arc<LimiterMeterState>,
     live_gains: Arc<LiveGains>,
+    auto_gain: Arc<AutoGainControl>,
     live_instance_count: usize,
     worker: Mutex<Option<JoinHandle<()>>>,
 }
@@ -66,10 +71,12 @@ impl RealtimePlayer {
         let inner = Arc::new(PlayerInner::default());
         let limiter_meter = Arc::new(LimiterMeterState::default());
         let live_gains = Arc::new(LiveGains::default());
+        let auto_gain = Arc::new(AutoGainControl::default());
         let worker_inner = Arc::clone(&inner);
         let worker_audio_output = Arc::clone(&audio_output);
         let worker_limiter_meter = Arc::clone(&limiter_meter);
         let worker_live_gains = Arc::clone(&live_gains);
+        let worker_auto_gain = Arc::clone(&auto_gain);
         let worker_core_cfg = core_cfg.clone();
         let (init_tx, init_rx) = std::sync::mpsc::channel();
         let worker = std::thread::Builder::new()
@@ -81,6 +88,7 @@ impl RealtimePlayer {
                         control: worker_audio_output,
                         limiter_meter: worker_limiter_meter,
                         live_gains: worker_live_gains,
+                        auto_gain: worker_auto_gain,
                         producer: output_producer,
                         consumer: output_consumer,
                     },
@@ -108,6 +116,7 @@ impl RealtimePlayer {
             audio_output,
             limiter_meter,
             live_gains,
+            auto_gain,
             live_instance_count,
             worker: Mutex::new(Some(worker)),
         })
@@ -193,6 +202,11 @@ impl PlayerHandle for RealtimePlayer {
     fn set_live_instance_gain(&self, instance_id: InstanceId, gain: f32) -> Result<()> {
         self.validate_live_instance_id(instance_id)?;
         self.live_gains.set(usize::from(instance_id), gain);
+        Ok(())
+    }
+
+    fn set_live_auto_gain_enabled(&self, enabled: bool) -> Result<()> {
+        self.auto_gain.set_enabled(enabled);
         Ok(())
     }
 

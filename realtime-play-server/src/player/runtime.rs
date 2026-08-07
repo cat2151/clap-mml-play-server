@@ -1,7 +1,9 @@
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use cmrt_core::RealtimePlaybackSchedule;
 use cmrt_realtime_ipc::{LimiterMeter, INSTANCE_COUNT};
+
+use super::auto_gain::InstanceAutoGain;
 
 pub(super) enum PlaybackMode {
     Scheduled {
@@ -19,6 +21,22 @@ pub(super) enum PlaybackMode {
 pub(super) struct LiveInstanceState {
     pub(super) active: bool,
     pub(super) queue: Vec<LiveQueuedEvent>,
+    pub(super) auto_gain: InstanceAutoGain,
+}
+
+#[derive(Default)]
+pub(super) struct AutoGainControl {
+    enabled: AtomicBool,
+}
+
+impl AutoGainControl {
+    pub(super) fn set_enabled(&self, enabled: bool) {
+        self.enabled.store(enabled, Ordering::Release);
+    }
+
+    pub(super) fn enabled(&self) -> bool {
+        self.enabled.load(Ordering::Acquire)
+    }
 }
 
 pub(super) fn new_live_instances(count: usize) -> Vec<LiveInstanceState> {

@@ -91,6 +91,7 @@ fn dispatch(command: FastMidiCommand, player: &dyn PlayerHandle, server: &FastMi
             instance_id,
             gain_milli,
         } => player.set_live_instance_gain(instance_id, gain_milli as f32 / 1000.0),
+        FastMidiCommand::SetAutoGain { enabled } => player.set_live_auto_gain_enabled(enabled),
         FastMidiCommand::Stop { instance_id } => player.stop_instance(instance_id),
         FastMidiCommand::StopAll => player.stop(),
     };
