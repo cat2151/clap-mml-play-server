@@ -1,6 +1,8 @@
 use super::*;
 use cmrt_core::VoicingReport;
-use cmrt_realtime_ipc::{FastMidiEvent, InstanceId, LimiterMeter};
+use cmrt_realtime_ipc::{
+    FastMidiEvent, InstanceId, LimiterMeter, LiveTimelineConfig, TimelineMidiEvent, TimingMetrics,
+};
 use std::{
     io::{Read as _, Write as _},
     sync::Mutex,
@@ -25,6 +27,14 @@ impl PlayerHandle for FakePlayer {
     }
 
     fn send_midi(&self, _events: Vec<FastMidiEvent>) -> Result<()> {
+        Ok(())
+    }
+
+    fn begin_live_timeline(&self, _config: LiveTimelineConfig) -> Result<()> {
+        Ok(())
+    }
+
+    fn send_timeline_midi(&self, _events: Vec<TimelineMidiEvent>) -> Result<()> {
         Ok(())
     }
 
@@ -67,6 +77,10 @@ impl PlayerHandle for FakePlayer {
 
     fn underrun_frames(&self) -> u64 {
         0
+    }
+
+    fn timing_metrics(&self) -> TimingMetrics {
+        TimingMetrics::default()
     }
 
     fn auto_gain_db(&self) -> Vec<f32> {

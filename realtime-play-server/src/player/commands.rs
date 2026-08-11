@@ -11,7 +11,7 @@ use std::{
 
 use anyhow::Result;
 use cmrt_core::{RealtimePlaybackSchedule, VoicingReport};
-use cmrt_realtime_ipc::{FastMidiEvent, InstanceId};
+use cmrt_realtime_ipc::{FastMidiEvent, InstanceId, LiveTimelineConfig, TimelineMidiEvent};
 
 use super::audio_output::AudioOutputControl;
 
@@ -25,6 +25,7 @@ pub(super) struct PlayerState {
     generation: u64,
     pending: VecDeque<PlayerCommand>,
     live_requested: bool,
+    live_timeline_id: Option<u64>,
     shutdown: bool,
 }
 
@@ -46,6 +47,14 @@ pub(super) enum PlayerCommand {
         generation: u64,
         events: Vec<FastMidiEvent>,
         enter_live: bool,
+    },
+    BeginLiveTimeline {
+        generation: u64,
+        config: LiveTimelineConfig,
+    },
+    TimelineMidi {
+        generation: u64,
+        events: Vec<TimelineMidiEvent>,
     },
     PrepareLivePatch {
         generation: u64,
@@ -80,6 +89,7 @@ impl PlayerInner {
         let mut state = self.state.lock().unwrap();
         let generation = begin_new_generation(&mut state, &audio_output)?;
         state.live_requested = false;
+        state.live_timeline_id = None;
         state.pending.clear();
         state.pending.push_back(PlayerCommand::Play {
             generation,
@@ -97,6 +107,7 @@ impl PlayerInner {
         let generation = state.generation;
         audio_output.stop_generation(generation);
         state.live_requested = false;
+        state.live_timeline_id = None;
         state.pending.clear();
         state
             .pending
@@ -140,6 +151,40 @@ impl PlayerInner {
             events,
             enter_live,
         });
+        self.command_available.notify_one();
+        Ok(())
+    }
+
+    pub(super) fn submit_begin_live_timeline(
+        &self,
+        config: LiveTimelineConfig,
+        audio_output: Arc<AudioOutputControl>,
+    ) -> Result<()> {
+        let mut state = self.state.lock().unwrap();
+        let generation = begin_new_generation(&mut state, &audio_output)?;
+        state.pending.clear();
+        state.live_requested = true;
+        state.live_timeline_id = Some(config.timeline_id);
+        state
+            .pending
+            .push_back(PlayerCommand::BeginLiveTimeline { generation, config });
+        self.command_available.notify_one();
+        Ok(())
+    }
+
+    pub(super) fn submit_timeline_midi(&self, events: Vec<TimelineMidiEvent>) -> Result<()> {
+        let mut state = self.state.lock().unwrap();
+        ensure_running(&state)?;
+        let Some(active_id) = state.live_timeline_id else {
+            anyhow::bail!("no live timeline has been started");
+        };
+        if events.iter().any(|event| event.timeline_id != active_id) {
+            anyhow::bail!("timeline mismatch: active={active_id}");
+        }
+        let generation = state.generation;
+        state
+            .pending
+            .push_back(PlayerCommand::TimelineMidi { generation, events });
         self.command_available.notify_one();
         Ok(())
     }

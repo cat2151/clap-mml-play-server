@@ -1,5 +1,12 @@
 [workspace]
-members = ["core-lib", "realtime-ipc", "render-server", "realtime-play-server"]
+members = [
+    "clack-timeline",
+    "core-lib",
+    "realtime-ipc",
+    "render-server",
+    "realtime-play-server",
+    "timeline",
+]
 resolver = "2"
 
 [patch."https://github.com/cat2151/clap-mml-play-server"]

@@ -148,6 +148,10 @@ pub(super) struct AudioOutputProducer {
 }
 
 impl AudioOutputProducer {
+    pub(super) fn lead_frames(&self) -> usize {
+        self.ring.len()
+    }
+
     pub(super) fn wait_for_space_timeout(&self, timeout: Duration) -> bool {
         if self.control.shutdown.load(Ordering::Acquire) {
             return false;

@@ -47,6 +47,7 @@ fn run_fast_midi_server(
         server.publish_limiter_meter(player.limiter_meter());
         server.publish_underrun_frames(player.underrun_frames());
         server.publish_auto_gain_db(&player.auto_gain_db());
+        server.publish_timing_metrics(player.timing_metrics());
         match server.recv_timeout(IPC_WAIT_TIMEOUT) {
             Ok(Some(command)) => dispatch(command, player.as_ref(), &server),
             Ok(None) => {}
@@ -58,6 +59,8 @@ fn run_fast_midi_server(
 fn dispatch(command: FastMidiCommand, player: &dyn PlayerHandle, server: &FastMidiServer) {
     let result = match command {
         FastMidiCommand::Midi { events } => player.send_midi(events),
+        FastMidiCommand::BeginLiveTimeline(config) => player.begin_live_timeline(config),
+        FastMidiCommand::TimelineMidi { events } => player.send_timeline_midi(events),
         FastMidiCommand::PreparePatch {
             request_id,
             instance_id,

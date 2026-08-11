@@ -231,9 +231,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "cmrt-clack-timeline",
  "cmrt-core 0.1.0",
  "cmrt-realtime-ipc",
  "cmrt-runtime",
+ "cmrt-timeline",
  "cpal",
  "ctrlc",
  "serde",
@@ -289,6 +291,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
+name = "cmrt-clack-timeline"
+version = "0.1.0"
+dependencies = [
+ "clack-host",
+ "cmrt-timeline",
+]
+
+[[package]]
 name = "cmrt-core"
 version = "0.1.0"
 dependencies = [
@@ -296,6 +306,8 @@ dependencies = [
  "cat-self-update-lib",
  "clack-extensions",
  "clack-host",
+ "cmrt-clack-timeline",
+ "cmrt-timeline",
  "dirs",
  "hound",
  "midly",
@@ -335,6 +347,10 @@ dependencies = [
  "serde",
  "toml 1.1.4+spec-1.1.0",
 ]
+
+[[package]]
+name = "cmrt-timeline"
+version = "0.1.0"
 
 [[package]]
 name = "colorchoice"

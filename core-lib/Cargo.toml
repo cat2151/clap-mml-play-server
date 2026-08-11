@@ -11,6 +11,8 @@ path = "src/lib.rs"
 # CLAP host bindings (crates.io 未公開のため git 指定が必要)
 clack-host = { git = "https://github.com/prokopyl/clack.git", package = "clack-host" }
 clack-extensions = { git = "https://github.com/prokopyl/clack.git", package = "clack-extensions", features = ["params", "state", "voice-info", "clack-host"] }
+cmrt-clack-timeline = { path = "../clack-timeline" }
+cmrt-timeline = { path = "../timeline" }
 
 # MML → SMF (cli feature で pass1_parser が有効になる)
 mmlabc-to-smf = { git = "https://github.com/cat2151/mmlabc-to-smf-rust.git", package = "mmlabc-to-smf", features = ["cli"] }

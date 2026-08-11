@@ -8,9 +8,8 @@ use std::{
 use super::{MAX_INSTANCE_COUNT, MAX_MIDI_MESSAGES, MAX_PATCH_BYTES, MAX_RESPONSE_BYTES};
 
 pub(super) const MAGIC: [u8; 8] = *b"CMRTMIDI";
-/// v6 で `SharedRing` に `auto_gain_db_bits` を足した。レイアウトが変わるので、
-/// 据え置くと新旧が同じ名前の共有メモリを別の型として読み書きしてしまう。
-pub(super) const VERSION: u32 = 6;
+/// v7 adds absolute timeline commands and timing diagnostics.
+pub(super) const VERSION: u32 = 7;
 pub(super) const SLOT_COUNT: usize = 64;
 pub(super) const KIND_MIDI: u32 = 1;
 pub(super) const KIND_STOP: u32 = 2;
@@ -24,6 +23,8 @@ pub(super) const KIND_SET_INSTANCE_GAIN: u32 = 7;
 /// instance別RMS auto-trimのon/off。`buffer_multiplier`をbool（0/1）として流用する。
 /// 構造体を変えないのでVERSIONは据え置ける。
 pub(super) const KIND_SET_AUTO_GAIN: u32 = 8;
+pub(super) const KIND_BEGIN_LIVE_TIMELINE: u32 = 9;
+pub(super) const KIND_TIMELINE_MIDI: u32 = 10;
 pub(super) const RESPONSE_OK: u32 = 1;
 pub(super) const RESPONSE_ERROR: u32 = 2;
 pub(super) const SERVER_STALE_MS: u64 = 1_000;
@@ -39,8 +40,14 @@ pub(super) struct CommandSlot {
     pub(super) has_patch: u32,
     pub(super) instance_id: u32,
     pub(super) buffer_multiplier: u32,
+    pub(super) time_signature_numerator: u32,
+    pub(super) time_signature_denominator: u32,
+    pub(super) timeline_id: u64,
+    pub(super) sample_rate_bits: u64,
+    pub(super) tempo_bits: u64,
     pub(super) messages: [[u8; 3]; MAX_MIDI_MESSAGES],
     pub(super) offsets: [u32; MAX_MIDI_MESSAGES],
+    pub(super) timeline_seconds_bits: [u64; MAX_MIDI_MESSAGES],
     pub(super) instance_ids: [u8; MAX_MIDI_MESSAGES],
     pub(super) patch: [u8; MAX_PATCH_BYTES],
 }
@@ -67,6 +74,17 @@ pub(super) struct SharedRing {
     pub(super) limiter_current_bits: AtomicU32,
     pub(super) limiter_peak_bits: AtomicU32,
     pub(super) underrun_frames: AtomicU64,
+    /// Even while stable, odd while the timing aggregate is being replaced.
+    pub(super) timing_sequence: AtomicU64,
+    pub(super) timing_events: AtomicU64,
+    pub(super) timing_late_events: AtomicU64,
+    pub(super) timing_late_events_total: AtomicU64,
+    pub(super) timing_max_late_samples: AtomicU64,
+    pub(super) timing_max_late_us_bits: AtomicU64,
+    pub(super) timing_output_lead_min_frames: AtomicU64,
+    pub(super) timing_output_lead_max_frames: AtomicU64,
+    pub(super) timing_process_load_p95_bits: AtomicU32,
+    pub(super) timing_process_load_max_bits: AtomicU32,
     /// instance ごとの auto-trim ゲイン（dB を `f32::to_bits` で運ぶ）。
     ///
     /// auto gain はサーバー内で毎ブロック動くので、クライアントは「効いているか」を
@@ -79,6 +97,6 @@ pub(super) struct SharedRing {
 
 unsafe impl Sync for SharedRing {}
 
-const _: () = assert!(size_of::<CommandSlot>() == 5148);
+const _: () = assert!(size_of::<CommandSlot>() == 6208);
 const _: () = assert!(size_of::<ResponseSlot>() == 16_396);
-const _: () = assert!(size_of::<SharedRing>() == 346_112);
+const _: () = assert!(size_of::<SharedRing>() == 414_016);

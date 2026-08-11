@@ -7,6 +7,8 @@ use clack_host::events::event_types::{MidiEvent as ClapMidiEvent, NoteOffEvent, 
 use clack_host::events::spaces::CoreEventSpace;
 use clack_host::events::{EventFlags, Match};
 use clack_host::prelude::*;
+use cmrt_clack_timeline::{process_block_timing, ProcessBlockTiming};
+use cmrt_timeline::{BlockSpan, FreeRunningTimeline, SamplePosition, SampleRate};
 
 use crate::host::MidiRenderHost;
 use crate::midi::{MidiEvent, TimedMidiEvent};
@@ -86,6 +88,10 @@ pub struct RealtimeRenderer {
     input_ports: AudioPorts,
     output_ports: AudioPorts,
     output_events_buf: EventBuffer,
+    /// CLAP `steady_time` is activation-local and never moves backwards, including across a
+    /// musical transport reset or a patch probe.
+    process_cursor_samples: u64,
+    sample_rate: SampleRate,
 }
 
 /// `RealtimeRenderer::new_with_timing` が返す、インスタンス生成の内訳。
@@ -172,6 +178,9 @@ impl RealtimeRenderer {
             input_ports: AudioPorts::with_capacity(2, 1),
             output_ports: AudioPorts::with_capacity(2, 1),
             output_events_buf: EventBuffer::new(),
+            process_cursor_samples: 0,
+            sample_rate: SampleRate::new(cfg.sample_rate)
+                .map_err(|error| anyhow::anyhow!(error))?,
         };
         timing.total = started.elapsed();
         Ok((renderer, timing))
@@ -281,6 +290,22 @@ impl RealtimeRenderer {
     ///
     /// イベントは `offset_frames` 昇順で渡すこと（CLAP のイベントリストは時刻順が前提）。
     pub fn render_live_chunk_with_offsets(&mut self, events: &[LiveMidiEvent]) -> Result<Vec<f32>> {
+        let block = BlockSpan::new(
+            SamplePosition(self.process_cursor_samples),
+            self.buf_size as u32,
+        )
+        .map_err(|error| anyhow::anyhow!(error))?;
+        let timing = process_block_timing(block, self.sample_rate, &FreeRunningTimeline);
+        self.render_live_chunk_with_timing(events, timing)
+    }
+
+    /// Render a live block with an explicit musical transport snapshot. `steady_time` remains
+    /// renderer-local and monotonic; callers may reset the musical timeline independently.
+    pub fn render_live_chunk_with_timing(
+        &mut self,
+        events: &[LiveMidiEvent],
+        mut timing: ProcessBlockTiming,
+    ) -> Result<Vec<f32>> {
         let last_frame = self.buf_size.saturating_sub(1) as u32;
         let mut input_events_raw = EventBuffer::new();
         for event in events {
@@ -289,11 +314,16 @@ impl RealtimeRenderer {
                 &ClapMidiEvent::new(offset, 0, event.message).with_flags(EventFlags::IS_LIVE),
             );
         }
-        self.process_chunk(self.buf_size as u32, &input_events_raw)
+        timing.steady_time = self.process_cursor_samples;
+        self.process_chunk_with_timing(self.buf_size as u32, &input_events_raw, timing)
+            .map(|processed| processed.samples)
     }
 
     fn process_chunk(&mut self, frames: u32, input_events_raw: &EventBuffer) -> Result<Vec<f32>> {
-        self.process_chunk_with_events(frames, input_events_raw)
+        let block = BlockSpan::new(SamplePosition(self.process_cursor_samples), frames)
+            .map_err(|error| anyhow::anyhow!(error))?;
+        let timing = process_block_timing(block, self.sample_rate, &FreeRunningTimeline);
+        self.process_chunk_with_timing(frames, input_events_raw, timing)
             .map(|processed| processed.samples)
     }
 
@@ -301,6 +331,18 @@ impl RealtimeRenderer {
         &mut self,
         frames: u32,
         input_events_raw: &EventBuffer,
+    ) -> Result<ProcessedChunk> {
+        let block = BlockSpan::new(SamplePosition(self.process_cursor_samples), frames)
+            .map_err(|error| anyhow::anyhow!(error))?;
+        let timing = process_block_timing(block, self.sample_rate, &FreeRunningTimeline);
+        self.process_chunk_with_timing(frames, input_events_raw, timing)
+    }
+
+    fn process_chunk_with_timing(
+        &mut self,
+        frames: u32,
+        input_events_raw: &EventBuffer,
+        timing: ProcessBlockTiming,
     ) -> Result<ProcessedChunk> {
         let input_events = InputEvents::from_buffer(input_events_raw);
         self.output_events_buf.clear();
@@ -331,11 +373,14 @@ impl RealtimeRenderer {
                     &mut output_audio,
                     &input_events,
                     &mut output_events,
-                    None,
-                    None,
+                    Some(timing.steady_time),
+                    timing.transport.as_ref(),
                 )
                 .map_err(|e| anyhow::anyhow!("process() 失敗: {:?}", e))?;
         }
+        self.process_cursor_samples = self
+            .process_cursor_samples
+            .saturating_add(u64::from(frames));
 
         let ended_note_ids = self
             .output_events_buf

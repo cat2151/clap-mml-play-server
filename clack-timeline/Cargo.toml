@@ -1,0 +1,8 @@
+[package]
+name = "cmrt-clack-timeline"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cmrt-timeline = { path = "../timeline" }
+clack-host = { git = "https://github.com/prokopyl/clack.git", package = "clack-host" }

@@ -7,7 +7,7 @@
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use super::{protocol::SharedRing, LimiterMeter, MAX_INSTANCE_COUNT};
+use super::{protocol::SharedRing, LimiterMeter, TimingMetrics, MAX_INSTANCE_COUNT};
 
 pub(super) fn publish_limiter_meter(ring: &SharedRing, meter: LimiterMeter) {
     ring.limiter_current_bits
@@ -54,6 +54,56 @@ pub(super) fn auto_gain_db(ring: &SharedRing) -> [f32; MAX_INSTANCE_COUNT] {
         *gain = f32::from_bits(slot.load(Ordering::Acquire));
     }
     gains
+}
+
+pub(super) fn publish_timing_metrics(ring: &SharedRing, metrics: TimingMetrics) {
+    ring.timing_sequence.fetch_add(1, Ordering::AcqRel);
+    ring.timing_events.store(metrics.events, Ordering::Relaxed);
+    ring.timing_late_events
+        .store(metrics.late_events, Ordering::Relaxed);
+    ring.timing_late_events_total
+        .store(metrics.late_events_total, Ordering::Relaxed);
+    ring.timing_max_late_samples
+        .store(metrics.max_late_samples, Ordering::Relaxed);
+    ring.timing_max_late_us_bits
+        .store(metrics.max_late_us.to_bits(), Ordering::Relaxed);
+    ring.timing_output_lead_min_frames
+        .store(metrics.output_lead_min_frames, Ordering::Relaxed);
+    ring.timing_output_lead_max_frames
+        .store(metrics.output_lead_max_frames, Ordering::Relaxed);
+    ring.timing_process_load_p95_bits
+        .store(metrics.process_load_p95.to_bits(), Ordering::Relaxed);
+    ring.timing_process_load_max_bits
+        .store(metrics.process_load_max.to_bits(), Ordering::Relaxed);
+    ring.timing_sequence.fetch_add(1, Ordering::Release);
+}
+
+pub(super) fn timing_metrics(ring: &SharedRing) -> TimingMetrics {
+    loop {
+        let before = ring.timing_sequence.load(Ordering::Acquire);
+        if before & 1 != 0 {
+            std::hint::spin_loop();
+            continue;
+        }
+        let metrics = TimingMetrics {
+            events: ring.timing_events.load(Ordering::Relaxed),
+            late_events: ring.timing_late_events.load(Ordering::Relaxed),
+            late_events_total: ring.timing_late_events_total.load(Ordering::Relaxed),
+            max_late_samples: ring.timing_max_late_samples.load(Ordering::Relaxed),
+            max_late_us: f64::from_bits(ring.timing_max_late_us_bits.load(Ordering::Relaxed)),
+            output_lead_min_frames: ring.timing_output_lead_min_frames.load(Ordering::Relaxed),
+            output_lead_max_frames: ring.timing_output_lead_max_frames.load(Ordering::Relaxed),
+            process_load_p95: f32::from_bits(
+                ring.timing_process_load_p95_bits.load(Ordering::Relaxed),
+            ),
+            process_load_max: f32::from_bits(
+                ring.timing_process_load_max_bits.load(Ordering::Relaxed),
+            ),
+        };
+        if ring.timing_sequence.load(Ordering::Acquire) == before {
+            return metrics;
+        }
+    }
 }
 
 fn update_atomic_max(value: &AtomicU32, candidate: f32) {

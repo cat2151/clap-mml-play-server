@@ -7,6 +7,7 @@ mod mixer;
 mod output_stream;
 mod runtime;
 mod startup;
+mod timing_diagnostics;
 mod worker;
 
 use std::{sync::Arc, sync::Mutex, thread::JoinHandle};
@@ -14,11 +15,15 @@ use std::{sync::Arc, sync::Mutex, thread::JoinHandle};
 use self::audio_output::{new_audio_output, AudioOutputControl};
 use self::commands::PlayerInner;
 use self::live::{resolve_live_patch, validate_live_instance_id};
-use self::runtime::{AutoGainControl, LimiterMeterState, LiveGains, LiveQueuedEvent};
+use self::runtime::{
+    AutoGainControl, LimiterMeterState, LiveGains, LiveQueuedEvent, TimingMetricsState,
+};
 use self::worker::{run_player_worker, WorkerOutput};
 use anyhow::{Context as _, Result};
 use cmrt_core::{smf_playback_schedule_with_options, CoreConfig, RenderOptions, VoicingReport};
-use cmrt_realtime_ipc::{FastMidiEvent, InstanceId, LimiterMeter};
+use cmrt_realtime_ipc::{
+    FastMidiEvent, InstanceId, LimiterMeter, LiveTimelineConfig, TimelineMidiEvent, TimingMetrics,
+};
 
 // ワーカースレッド（`worker`）が `super::` 経由で参照する。
 use self::commands::PlayerCommand;
@@ -27,6 +32,8 @@ pub(crate) trait PlayerHandle: Send + Sync + 'static {
     fn play_smf(&self, smf: Vec<u8>) -> Result<()>;
     fn play_mml(&self, mml: String) -> Result<()>;
     fn send_midi(&self, events: Vec<FastMidiEvent>) -> Result<()>;
+    fn begin_live_timeline(&self, config: LiveTimelineConfig) -> Result<()>;
+    fn send_timeline_midi(&self, events: Vec<TimelineMidiEvent>) -> Result<()>;
     fn prepare_live_patch(&self, instance_id: InstanceId, patch: Option<String>) -> Result<()>;
     fn prepare_live_patch_with_voicing(
         &self,
@@ -43,6 +50,7 @@ pub(crate) trait PlayerHandle: Send + Sync + 'static {
     fn stop(&self) -> Result<()>;
     fn limiter_meter(&self) -> LimiterMeter;
     fn underrun_frames(&self) -> u64;
+    fn timing_metrics(&self) -> TimingMetrics;
     /// live instance ごとに auto-trim が掛けているゲイン（dB）。auto gain が
     /// off か、まだ何も鳴っていない instance は 0 dB。
     fn auto_gain_db(&self) -> Vec<f32>;
@@ -57,6 +65,7 @@ pub(crate) struct RealtimePlayer {
     limiter_meter: Arc<LimiterMeterState>,
     live_gains: Arc<LiveGains>,
     auto_gain: Arc<AutoGainControl>,
+    timing_metrics: Arc<TimingMetricsState>,
     live_instance_count: usize,
     worker: Mutex<Option<JoinHandle<()>>>,
 }
@@ -75,11 +84,13 @@ impl RealtimePlayer {
         let limiter_meter = Arc::new(LimiterMeterState::default());
         let live_gains = Arc::new(LiveGains::default());
         let auto_gain = Arc::new(AutoGainControl::default());
+        let timing_metrics = Arc::new(TimingMetricsState::default());
         let worker_inner = Arc::clone(&inner);
         let worker_audio_output = Arc::clone(&audio_output);
         let worker_limiter_meter = Arc::clone(&limiter_meter);
         let worker_live_gains = Arc::clone(&live_gains);
         let worker_auto_gain = Arc::clone(&auto_gain);
+        let worker_timing_metrics = Arc::clone(&timing_metrics);
         let worker_core_cfg = core_cfg.clone();
         let (init_tx, init_rx) = std::sync::mpsc::channel();
         let worker = std::thread::Builder::new()
@@ -92,6 +103,7 @@ impl RealtimePlayer {
                         limiter_meter: worker_limiter_meter,
                         live_gains: worker_live_gains,
                         auto_gain: worker_auto_gain,
+                        timing_metrics: worker_timing_metrics,
                         producer: output_producer,
                         consumer: output_consumer,
                     },
@@ -120,6 +132,7 @@ impl RealtimePlayer {
             limiter_meter,
             live_gains,
             auto_gain,
+            timing_metrics,
             live_instance_count,
             worker: Mutex::new(Some(worker)),
         })
@@ -160,6 +173,28 @@ impl PlayerHandle for RealtimePlayer {
         }
         self.inner
             .submit_midi(events, Arc::clone(&self.audio_output))
+    }
+
+    fn begin_live_timeline(&self, config: LiveTimelineConfig) -> Result<()> {
+        if (config.sample_rate_hz - self.sample_rate).abs() > f64::EPSILON * self.sample_rate {
+            anyhow::bail!(
+                "timeline sample rate {} does not match server {}",
+                config.sample_rate_hz,
+                self.sample_rate
+            );
+        }
+        self.inner
+            .submit_begin_live_timeline(config, Arc::clone(&self.audio_output))
+    }
+
+    fn send_timeline_midi(&self, events: Vec<TimelineMidiEvent>) -> Result<()> {
+        if events.is_empty() {
+            anyhow::bail!("timeline MIDI events must not be empty");
+        }
+        for event in &events {
+            self.validate_live_instance_id(event.instance_id)?;
+        }
+        self.inner.submit_timeline_midi(events)
     }
 
     fn prepare_live_patch(&self, instance_id: InstanceId, patch: Option<String>) -> Result<()> {
@@ -229,6 +264,10 @@ impl PlayerHandle for RealtimePlayer {
 
     fn underrun_frames(&self) -> u64 {
         self.audio_output.underrun_frames()
+    }
+
+    fn timing_metrics(&self) -> TimingMetrics {
+        self.timing_metrics.snapshot()
     }
 
     fn auto_gain_db(&self) -> Vec<f32> {

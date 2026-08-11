@@ -19,6 +19,7 @@ pub const MAX_PATCH_BYTES: usize = 4096;
 pub const MAX_RESPONSE_BYTES: usize = 16 * 1024;
 
 pub type InstanceId = u8;
+pub type TimelineId = u64;
 
 /// live 出力バッファの倍率として受け付ける最大値。
 ///
@@ -50,16 +51,51 @@ pub struct FastMidiEvent {
     pub message: [u8; 3],
 }
 
+/// A MIDI message at an absolute time from the beginning of one live timeline.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TimelineMidiEvent {
+    pub timeline_id: TimelineId,
+    pub instance_id: InstanceId,
+    pub timeline_seconds: f64,
+    pub message: [u8; 3],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LiveTimelineConfig {
+    pub timeline_id: TimelineId,
+    pub sample_rate_hz: f64,
+    pub tempo_bpm: f64,
+    pub time_signature_numerator: u16,
+    pub time_signature_denominator: u16,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TimingMetrics {
+    pub events: u64,
+    pub late_events: u64,
+    pub late_events_total: u64,
+    pub max_late_samples: u64,
+    pub max_late_us: f64,
+    pub output_lead_min_frames: u64,
+    pub output_lead_max_frames: u64,
+    pub process_load_p95: f32,
+    pub process_load_max: f32,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct LimiterMeter {
     pub current_reduction_db: f32,
     pub peak_reduction_db: f32,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum FastMidiCommand {
     Midi {
         events: Vec<FastMidiEvent>,
+    },
+    BeginLiveTimeline(LiveTimelineConfig),
+    TimelineMidi {
+        events: Vec<TimelineMidiEvent>,
     },
     PreparePatch {
         request_id: u32,
@@ -178,6 +214,20 @@ mod unsupported {
             Err(FastIpcError::UnsupportedPlatform)
         }
 
+        pub fn begin_live_timeline(
+            &mut self,
+            _config: LiveTimelineConfig,
+        ) -> Result<(), FastIpcError> {
+            Err(FastIpcError::UnsupportedPlatform)
+        }
+
+        pub fn send_timeline_events(
+            &mut self,
+            _events: &[TimelineMidiEvent],
+        ) -> Result<(), FastIpcError> {
+            Err(FastIpcError::UnsupportedPlatform)
+        }
+
         pub fn prepare_patch(
             &mut self,
             _instance_id: InstanceId,
@@ -221,6 +271,10 @@ mod unsupported {
         pub fn auto_gain_db(&self) -> [f32; MAX_INSTANCE_COUNT] {
             [0.0; MAX_INSTANCE_COUNT]
         }
+
+        pub fn timing_metrics(&self) -> TimingMetrics {
+            TimingMetrics::default()
+        }
     }
 
     pub struct FastMidiServer;
@@ -250,6 +304,8 @@ mod unsupported {
         pub fn publish_underrun_frames(&self, _frames: u64) {}
 
         pub fn publish_auto_gain_db(&self, _gains_db: &[f32]) {}
+
+        pub fn publish_timing_metrics(&self, _metrics: TimingMetrics) {}
     }
 }
 

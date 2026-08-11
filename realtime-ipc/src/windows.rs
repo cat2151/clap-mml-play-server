@@ -16,13 +16,15 @@ use windows_sys::Win32::{
 
 use super::{
     validate_instance_id, FastIpcError, FastMidiCommand, FastMidiEvent, InstanceId, LimiterMeter,
-    MAX_INSTANCE_COUNT, MAX_MIDI_MESSAGES, MAX_PATCH_BYTES, MAX_RESPONSE_BYTES,
+    LiveTimelineConfig, TimelineMidiEvent, TimingMetrics, MAX_INSTANCE_COUNT, MAX_MIDI_MESSAGES,
+    MAX_PATCH_BYTES, MAX_RESPONSE_BYTES,
 };
 
 mod command;
 mod handles;
 mod meters;
 mod protocol;
+mod timeline;
 
 use command::{pop_command, validate_midi_message, zeroed_slot};
 use handles::*;
@@ -147,6 +149,10 @@ impl FastMidiServer {
 
     pub fn publish_auto_gain_db(&self, gains_db: &[f32]) {
         meters::publish_auto_gain_db(self.mapping.ring(), gains_db);
+    }
+
+    pub fn publish_timing_metrics(&self, metrics: TimingMetrics) {
+        meters::publish_timing_metrics(self.mapping.ring(), metrics);
     }
 
     fn touch_heartbeat(&self) {
@@ -280,6 +286,10 @@ impl FastMidiClient {
 
     pub fn auto_gain_db(&self) -> [f32; MAX_INSTANCE_COUNT] {
         meters::auto_gain_db(self.mapping.ring())
+    }
+
+    pub fn timing_metrics(&self) -> TimingMetrics {
+        meters::timing_metrics(self.mapping.ring())
     }
 
     fn patch_request(

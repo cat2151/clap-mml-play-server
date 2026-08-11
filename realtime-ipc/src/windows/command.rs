@@ -2,12 +2,12 @@ use std::{ptr, sync::atomic::Ordering};
 
 use super::{
     protocol::{
-        CommandSlot, SharedRing, KIND_MIDI, KIND_PREPARE_PATCH, KIND_PROBE_PATCH,
-        KIND_SET_AUTO_GAIN, KIND_SET_BUFFER_MULTIPLIER, KIND_SET_INSTANCE_GAIN, KIND_STOP,
-        KIND_STOP_ALL, SLOT_COUNT,
+        CommandSlot, SharedRing, KIND_BEGIN_LIVE_TIMELINE, KIND_MIDI, KIND_PREPARE_PATCH,
+        KIND_PROBE_PATCH, KIND_SET_AUTO_GAIN, KIND_SET_BUFFER_MULTIPLIER, KIND_SET_INSTANCE_GAIN,
+        KIND_STOP, KIND_STOP_ALL, KIND_TIMELINE_MIDI, SLOT_COUNT,
     },
     validate_instance_id, validate_ring, FastIpcError, FastMidiCommand, FastMidiEvent, InstanceId,
-    MAX_MIDI_MESSAGES, MAX_PATCH_BYTES,
+    LiveTimelineConfig, TimelineMidiEvent, MAX_MIDI_MESSAGES, MAX_PATCH_BYTES,
 };
 
 /// instance ゲインの上限（千分率）。+12dB 相当までを許す。
@@ -69,6 +69,45 @@ fn decode_slot(slot: CommandSlot) -> Result<FastMidiCommand, FastIpcError> {
             patch: decode_patch(&slot)?,
             probe: slot.kind == KIND_PROBE_PATCH,
         }),
+        KIND_BEGIN_LIVE_TIMELINE => {
+            let config = LiveTimelineConfig {
+                timeline_id: slot.timeline_id,
+                sample_rate_hz: f64::from_bits(slot.sample_rate_bits),
+                tempo_bpm: f64::from_bits(slot.tempo_bits),
+                time_signature_numerator: u16::try_from(slot.time_signature_numerator)
+                    .map_err(|_| FastIpcError::InvalidPayload("invalid time signature".into()))?,
+                time_signature_denominator: u16::try_from(slot.time_signature_denominator)
+                    .map_err(|_| FastIpcError::InvalidPayload("invalid time signature".into()))?,
+            };
+            validate_timeline_config(config)?;
+            Ok(FastMidiCommand::BeginLiveTimeline(config))
+        }
+        KIND_TIMELINE_MIDI => {
+            let count = slot.message_count as usize;
+            if count == 0 || count > MAX_MIDI_MESSAGES {
+                return Err(FastIpcError::InvalidPayload("invalid event count".into()));
+            }
+            let mut events = Vec::with_capacity(count);
+            for index in 0..count {
+                let instance_id = slot.instance_ids[index];
+                validate_instance_id(instance_id)?;
+                let message = slot.messages[index];
+                validate_midi_message(message)?;
+                let timeline_seconds = f64::from_bits(slot.timeline_seconds_bits[index]);
+                if !timeline_seconds.is_finite() || timeline_seconds < 0.0 {
+                    return Err(FastIpcError::InvalidPayload(
+                        "timeline seconds must be finite and non-negative".into(),
+                    ));
+                }
+                events.push(TimelineMidiEvent {
+                    timeline_id: slot.timeline_id,
+                    instance_id,
+                    timeline_seconds,
+                    message,
+                });
+            }
+            Ok(FastMidiCommand::TimelineMidi { events })
+        }
         KIND_MIDI => {
             let count = slot.message_count as usize;
             if count == 0 || count > MAX_MIDI_MESSAGES {
@@ -90,6 +129,23 @@ fn decode_slot(slot: CommandSlot) -> Result<FastMidiCommand, FastIpcError> {
         }
         _ => Err(FastIpcError::InvalidPayload("unknown command kind".into())),
     }
+}
+
+fn validate_timeline_config(config: LiveTimelineConfig) -> Result<(), FastIpcError> {
+    if config.timeline_id == 0
+        || !config.sample_rate_hz.is_finite()
+        || config.sample_rate_hz <= 0.0
+        || !config.tempo_bpm.is_finite()
+        || config.tempo_bpm <= 0.0
+        || config.time_signature_numerator == 0
+        || config.time_signature_denominator == 0
+        || !config.time_signature_denominator.is_power_of_two()
+    {
+        return Err(FastIpcError::InvalidPayload(
+            "invalid live timeline configuration".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn decode_patch(slot: &CommandSlot) -> Result<Option<String>, FastIpcError> {

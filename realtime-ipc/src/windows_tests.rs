@@ -193,3 +193,59 @@ fn second_client_is_rejected_until_first_drops() {
     drop(first);
     assert!(FastMidiClient::connect(port).is_ok());
 }
+
+#[test]
+fn absolute_timeline_round_trip_preserves_f64_bits() {
+    let port = test_port(8);
+    let mut server = FastMidiServer::create(port).unwrap();
+    let mut client = FastMidiClient::connect(port).unwrap();
+    let config = LiveTimelineConfig {
+        timeline_id: 99,
+        sample_rate_hz: 48_000.0,
+        tempo_bpm: 130.0,
+        time_signature_numerator: 4,
+        time_signature_denominator: 4,
+    };
+    let at = 31_199.0 * 60.0 / 520.0;
+    client.begin_live_timeline(config).unwrap();
+    client
+        .send_timeline_events(&[TimelineMidiEvent {
+            timeline_id: 99,
+            instance_id: 3,
+            timeline_seconds: at,
+            message: [0x90, 64, 100],
+        }])
+        .unwrap();
+
+    assert_eq!(
+        server.recv_timeout(Duration::from_secs(1)).unwrap(),
+        Some(FastMidiCommand::BeginLiveTimeline(config))
+    );
+    let Some(FastMidiCommand::TimelineMidi { events }) =
+        server.recv_timeout(Duration::from_secs(1)).unwrap()
+    else {
+        panic!("expected timeline MIDI");
+    };
+    assert_eq!(events[0].timeline_seconds.to_bits(), at.to_bits());
+    assert_eq!(events[0].timeline_id, 99);
+}
+
+#[test]
+fn timing_metrics_are_published_as_one_snapshot() {
+    let port = test_port(9);
+    let server = FastMidiServer::create(port).unwrap();
+    let client = FastMidiClient::connect(port).unwrap();
+    let expected = TimingMetrics {
+        events: 120,
+        late_events: 2,
+        late_events_total: 7,
+        max_late_samples: 48,
+        max_late_us: 1_000.0,
+        output_lead_min_frames: 512,
+        output_lead_max_frames: 2_048,
+        process_load_p95: 42.0,
+        process_load_max: 87.5,
+    };
+    server.publish_timing_metrics(expected);
+    assert_eq!(client.timing_metrics(), expected);
+}
