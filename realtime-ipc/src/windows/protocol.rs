@@ -5,10 +5,12 @@ use std::{
     time::Duration,
 };
 
-use super::{MAX_MIDI_MESSAGES, MAX_PATCH_BYTES, MAX_RESPONSE_BYTES};
+use super::{MAX_INSTANCE_COUNT, MAX_MIDI_MESSAGES, MAX_PATCH_BYTES, MAX_RESPONSE_BYTES};
 
 pub(super) const MAGIC: [u8; 8] = *b"CMRTMIDI";
-pub(super) const VERSION: u32 = 5;
+/// v6 で `SharedRing` に `auto_gain_db_bits` を足した。レイアウトが変わるので、
+/// 据え置くと新旧が同じ名前の共有メモリを別の型として読み書きしてしまう。
+pub(super) const VERSION: u32 = 6;
 pub(super) const SLOT_COUNT: usize = 64;
 pub(super) const KIND_MIDI: u32 = 1;
 pub(super) const KIND_STOP: u32 = 2;
@@ -65,6 +67,12 @@ pub(super) struct SharedRing {
     pub(super) limiter_current_bits: AtomicU32,
     pub(super) limiter_peak_bits: AtomicU32,
     pub(super) underrun_frames: AtomicU64,
+    /// instance ごとの auto-trim ゲイン（dB を `f32::to_bits` で運ぶ）。
+    ///
+    /// auto gain はサーバー内で毎ブロック動くので、クライアントは「効いているか」を
+    /// 自前では知りようがない。リミッターメーターと同じく、サーバーが一方的に
+    /// 書き、クライアントはポーリングで読むだけ。
+    pub(super) auto_gain_db_bits: [AtomicU32; MAX_INSTANCE_COUNT],
     pub(super) response: UnsafeCell<ResponseSlot>,
     pub(super) slots: [UnsafeCell<CommandSlot>; SLOT_COUNT],
 }
@@ -73,4 +81,4 @@ unsafe impl Sync for SharedRing {}
 
 const _: () = assert!(size_of::<CommandSlot>() == 5148);
 const _: () = assert!(size_of::<ResponseSlot>() == 16_396);
-const _: () = assert!(size_of::<SharedRing>() == 345_984);
+const _: () = assert!(size_of::<SharedRing>() == 346_112);

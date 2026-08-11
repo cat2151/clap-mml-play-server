@@ -83,6 +83,11 @@ impl InstanceAutoGain {
         self.gain_db = 0.0;
         self.measured = false;
     }
+
+    /// いま掛かっている trim（dB）。UI へ「auto gain が効いているか」を見せるための値。
+    pub(super) fn gain_db(&self) -> f32 {
+        self.gain_db
+    }
 }
 
 /// server instanceはGrid Sequencerの2bankぶんなので、論理track数でheadroomを割る。

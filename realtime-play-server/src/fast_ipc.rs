@@ -46,6 +46,7 @@ fn run_fast_midi_server(
     while !shutdown.load(Ordering::SeqCst) {
         server.publish_limiter_meter(player.limiter_meter());
         server.publish_underrun_frames(player.underrun_frames());
+        server.publish_auto_gain_db(&player.auto_gain_db());
         match server.recv_timeout(IPC_WAIT_TIMEOUT) {
             Ok(Some(command)) => dispatch(command, player.as_ref(), &server),
             Ok(None) => {}

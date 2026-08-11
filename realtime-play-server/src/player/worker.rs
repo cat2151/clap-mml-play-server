@@ -89,6 +89,7 @@ pub(super) fn run_player_worker(
                 &mut renderers,
                 &mut limiter,
                 &limiter_meter,
+                &auto_gain,
                 &audio_output,
                 &mut playback_mode,
                 command,
@@ -100,6 +101,7 @@ pub(super) fn run_player_worker(
                 &mut renderers,
                 &mut limiter,
                 &limiter_meter,
+                &auto_gain,
                 &audio_output,
                 &mut playback_mode,
                 command,
@@ -126,7 +128,7 @@ pub(super) fn run_player_worker(
                 instances,
                 clock_samples,
                 &live_gains,
-                auto_gain.enabled(),
+                &auto_gain,
                 core_cfg.sample_rate,
                 auto_gain_target_db,
             )
@@ -146,6 +148,7 @@ pub(super) fn run_player_worker(
                 audio_output.finish();
                 limiter.reset();
                 limiter_meter.reset();
+                auto_gain.clear_gains();
                 playback_mode = None;
             }
             Err(error) => {
@@ -153,6 +156,7 @@ pub(super) fn run_player_worker(
                 reset_all(&mut renderers);
                 limiter.reset();
                 limiter_meter.reset();
+                auto_gain.clear_gains();
                 audio_output.finish();
                 playback_mode = None;
             }
@@ -165,10 +169,11 @@ fn render_live_mix(
     instances: &mut [LiveInstanceState],
     clock_samples: &mut u64,
     gains: &LiveGains,
-    auto_gain_enabled: bool,
+    auto_gain_control: &AutoGainControl,
     sample_rate: f64,
     auto_gain_target_db: f32,
 ) -> anyhow::Result<Vec<f32>> {
+    let auto_gain_enabled = auto_gain_control.enabled();
     let buf_size = renderers[0].buf_size() as u64;
     let chunk_start = *clock_samples;
     let mut mixed = vec![0.0f32; buf_size as usize * 2];
@@ -186,6 +191,7 @@ fn render_live_mix(
                     auto_gain_target_db,
                     auto_gain_enabled,
                 );
+                auto_gain_control.set_gain_db(index, instance.auto_gain.gain_db());
                 add_samples_ramped(&mut mixed, &samples, auto_gain.scaled(gains.get(index)));
             }
             Err(error) => {
@@ -194,6 +200,7 @@ fn render_live_mix(
                 instance.active = false;
                 instance.queue.clear();
                 instance.auto_gain.reset();
+                auto_gain_control.set_gain_db(index, 0.0);
             }
         }
     }
@@ -252,6 +259,7 @@ fn apply_command(
     renderers: &mut [RealtimeRenderer],
     limiter: &mut MasterLimiter,
     limiter_meter: &LimiterMeterState,
+    auto_gain: &AutoGainControl,
     audio_output: &AudioOutputControl,
     playback_mode: &mut Option<PlaybackMode>,
     command: PlayerCommand,
@@ -265,6 +273,7 @@ fn apply_command(
             reset_all(renderers);
             limiter.reset();
             limiter_meter.reset();
+            auto_gain.clear_gains();
             if let Err(error) = renderers[0].set_patch(patch.as_deref()) {
                 eprintln!("realtime play patch load failed: {error:#}");
             }
@@ -278,6 +287,7 @@ fn apply_command(
             reset_all(renderers);
             limiter.reset();
             limiter_meter.reset();
+            auto_gain.clear_gains();
             *playback_mode = None;
         }
         PlayerCommand::StopInstance {
@@ -297,6 +307,7 @@ fn apply_command(
                 instances[instance_index].active = false;
                 instances[instance_index].queue.clear();
                 instances[instance_index].auto_gain.reset();
+                auto_gain.set_gain_db(instance_index, 0.0);
                 if instances.iter().all(|instance| !instance.active) {
                     audio_output.finish();
                     limiter.reset();
@@ -314,6 +325,7 @@ fn apply_command(
                 reset_all(renderers);
                 limiter.reset();
                 limiter_meter.reset();
+                auto_gain.clear_gains();
                 *playback_mode = Some(new_live_mode(generation, renderers.len()));
             }
             if let Some(PlaybackMode::Live {
@@ -352,6 +364,7 @@ fn apply_command(
                 *live_generation = generation;
                 instances[index].queue.clear();
                 instances[index].auto_gain.reset();
+                auto_gain.set_gain_db(index, 0.0);
                 // 成功時に `active` を立てない。立てると、鳴らす予定のない instance まで
                 // 毎チャンク process() を回すことになる。grid sequencer の chord mode は
                 // 演奏の裏で待機 bank を仕込むので、そこが無音かつ CPU ゼロで居られること
@@ -390,6 +403,7 @@ fn apply_command(
                 *live_generation = generation;
                 instances[index].queue.clear();
                 instances[index].auto_gain.reset();
+                auto_gain.set_gain_db(index, 0.0);
                 instances[index].active = result.is_ok();
                 if result.is_err() && instances.iter().all(|instance| !instance.active) {
                     audio_output.finish();

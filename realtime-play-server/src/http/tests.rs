@@ -68,6 +68,10 @@ impl PlayerHandle for FakePlayer {
     fn underrun_frames(&self) -> u64 {
         0
     }
+
+    fn auto_gain_db(&self) -> Vec<f32> {
+        Vec::new()
+    }
 }
 
 #[test]

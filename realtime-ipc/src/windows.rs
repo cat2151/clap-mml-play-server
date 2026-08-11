@@ -1,7 +1,7 @@
 use std::{
     mem::size_of,
     ptr,
-    sync::atomic::{AtomicU32, Ordering},
+    sync::atomic::Ordering,
     time::{Duration, Instant},
 };
 
@@ -16,11 +16,12 @@ use windows_sys::Win32::{
 
 use super::{
     validate_instance_id, FastIpcError, FastMidiCommand, FastMidiEvent, InstanceId, LimiterMeter,
-    MAX_MIDI_MESSAGES, MAX_PATCH_BYTES, MAX_RESPONSE_BYTES,
+    MAX_INSTANCE_COUNT, MAX_MIDI_MESSAGES, MAX_PATCH_BYTES, MAX_RESPONSE_BYTES,
 };
 
 mod command;
 mod handles;
+mod meters;
 mod protocol;
 
 use command::{pop_command, validate_midi_message, zeroed_slot};
@@ -137,17 +138,15 @@ impl FastMidiServer {
     }
 
     pub fn publish_limiter_meter(&self, meter: LimiterMeter) {
-        let ring = self.mapping.ring();
-        ring.limiter_current_bits
-            .store(meter.current_reduction_db.to_bits(), Ordering::Release);
-        update_atomic_max(&ring.limiter_peak_bits, meter.peak_reduction_db);
+        meters::publish_limiter_meter(self.mapping.ring(), meter);
     }
 
     pub fn publish_underrun_frames(&self, frames: u64) {
-        self.mapping
-            .ring()
-            .underrun_frames
-            .store(frames, Ordering::Release);
+        meters::publish_underrun_frames(self.mapping.ring(), frames);
+    }
+
+    pub fn publish_auto_gain_db(&self, gains_db: &[f32]) {
+        meters::publish_auto_gain_db(self.mapping.ring(), gains_db);
     }
 
     fn touch_heartbeat(&self) {
@@ -272,15 +271,15 @@ impl FastMidiClient {
     }
 
     pub fn limiter_meter(&self) -> LimiterMeter {
-        let ring = self.mapping.ring();
-        LimiterMeter {
-            current_reduction_db: f32::from_bits(ring.limiter_current_bits.load(Ordering::Acquire)),
-            peak_reduction_db: f32::from_bits(ring.limiter_peak_bits.swap(0, Ordering::AcqRel)),
-        }
+        meters::limiter_meter(self.mapping.ring())
     }
 
     pub fn underrun_frames(&self) -> u64 {
-        self.mapping.ring().underrun_frames.load(Ordering::Acquire)
+        meters::underrun_frames(self.mapping.ring())
+    }
+
+    pub fn auto_gain_db(&self) -> [f32; MAX_INSTANCE_COUNT] {
+        meters::auto_gain_db(self.mapping.ring())
     }
 
     fn patch_request(
@@ -411,24 +410,6 @@ impl Drop for FastMidiClient {
             Ordering::AcqRel,
             Ordering::Acquire,
         );
-    }
-}
-
-fn update_atomic_max(value: &AtomicU32, candidate: f32) {
-    let mut current = value.load(Ordering::Acquire);
-    loop {
-        if f32::from_bits(current) >= candidate {
-            return;
-        }
-        match value.compare_exchange_weak(
-            current,
-            candidate.to_bits(),
-            Ordering::AcqRel,
-            Ordering::Acquire,
-        ) {
-            Ok(_) => return,
-            Err(observed) => current = observed,
-        }
     }
 }
 

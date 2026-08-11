@@ -43,6 +43,9 @@ pub(crate) trait PlayerHandle: Send + Sync + 'static {
     fn stop(&self) -> Result<()>;
     fn limiter_meter(&self) -> LimiterMeter;
     fn underrun_frames(&self) -> u64;
+    /// live instance ごとに auto-trim が掛けているゲイン（dB）。auto gain が
+    /// off か、まだ何も鳴っていない instance は 0 dB。
+    fn auto_gain_db(&self) -> Vec<f32>;
 }
 
 pub(crate) struct RealtimePlayer {
@@ -226,6 +229,10 @@ impl PlayerHandle for RealtimePlayer {
 
     fn underrun_frames(&self) -> u64 {
         self.audio_output.underrun_frames()
+    }
+
+    fn auto_gain_db(&self) -> Vec<f32> {
+        self.auto_gain.gains_db()
     }
 }
 

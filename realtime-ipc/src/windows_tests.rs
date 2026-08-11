@@ -162,6 +162,25 @@ fn underrun_frames_are_published_as_a_monotonic_snapshot() {
     assert_eq!(client.underrun_frames(), 1_234_567_890_123);
 }
 
+/// 渡さなかった instance は 0 dB へ戻ること。track 数を減らしたあと、消えた行の
+/// 古い値が残り続けると「鳴っていないのに +3dB」に見えてしまう。
+#[test]
+fn auto_gain_db_is_published_per_instance_and_cleared_past_the_end() {
+    let port = test_port(7);
+    let server = FastMidiServer::create(port).unwrap();
+    let client = FastMidiClient::connect(port).unwrap();
+
+    server.publish_auto_gain_db(&[3.0, -1.5, 0.0]);
+    let gains = client.auto_gain_db();
+    assert_eq!(&gains[..3], &[3.0, -1.5, 0.0]);
+    assert!(gains[3..].iter().all(|gain| *gain == 0.0));
+
+    server.publish_auto_gain_db(&[1.0]);
+    let gains = client.auto_gain_db();
+    assert_eq!(gains[0], 1.0);
+    assert!(gains[1..].iter().all(|gain| *gain == 0.0));
+}
+
 #[test]
 fn second_client_is_rejected_until_first_drops() {
     let port = test_port(6);

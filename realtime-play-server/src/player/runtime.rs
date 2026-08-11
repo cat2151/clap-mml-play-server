@@ -24,18 +24,55 @@ pub(super) struct LiveInstanceState {
     pub(super) auto_gain: InstanceAutoGain,
 }
 
-#[derive(Default)]
+/// auto-trim の on/off と、その結果として instance ごとに掛かっているゲイン。
+///
+/// ゲインを決めるのはワーカースレッドの [`InstanceAutoGain`] だが、共有メモリへ
+/// 載せるのは IPC スレッドなので、間に atomic の写しを1枚挟む。
+/// on/off と同じ構造体に置いているのは、「切ったのに値が残っている」状態を
+/// 作らないため（[`Self::set_enabled`] が off で写しも 0 dB へ戻す）。
 pub(super) struct AutoGainControl {
     enabled: AtomicBool,
+    gains_db: [AtomicU32; INSTANCE_COUNT],
+}
+
+impl Default for AutoGainControl {
+    fn default() -> Self {
+        Self {
+            enabled: AtomicBool::new(false),
+            gains_db: std::array::from_fn(|_| AtomicU32::new(0.0f32.to_bits())),
+        }
+    }
 }
 
 impl AutoGainControl {
     pub(super) fn set_enabled(&self, enabled: bool) {
         self.enabled.store(enabled, Ordering::Release);
+        if !enabled {
+            self.clear_gains();
+        }
     }
 
     pub(super) fn enabled(&self) -> bool {
         self.enabled.load(Ordering::Acquire)
+    }
+
+    pub(super) fn set_gain_db(&self, instance_id: usize, gain_db: f32) {
+        if let Some(slot) = self.gains_db.get(instance_id) {
+            slot.store(gain_db.to_bits(), Ordering::Release);
+        }
+    }
+
+    pub(super) fn clear_gains(&self) {
+        for slot in &self.gains_db {
+            slot.store(0.0f32.to_bits(), Ordering::Release);
+        }
+    }
+
+    pub(super) fn gains_db(&self) -> Vec<f32> {
+        self.gains_db
+            .iter()
+            .map(|slot| f32::from_bits(slot.load(Ordering::Acquire)))
+            .collect()
     }
 }
 
