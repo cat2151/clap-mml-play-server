@@ -8,9 +8,10 @@ pub(crate) const LIVE_INSTANCE_COUNT_ENV: &str = "CMRT_LIVE_INSTANCE_COUNT";
 /// grid sequencer の chord mode は N トラックを 2 bank（= 2N instance）へ割り当てるため、
 /// トラック数の 2 倍まで許す。上限は `cmrt_realtime_ipc::MAX_INSTANCE_COUNT`。
 ///
-/// 6 は 3 トラック（chord / bass / アルペジオ）用。クライアント側の
+/// 6 は 3 トラック（chord / bass / アルペジオ）用、14 は 7 トラック（その 3 つに
+/// drum 4 role を足したもの）用。クライアント側の
 /// `realtime-play/src/lib.rs` の `SUPPORTED_SERVER_INSTANCE_COUNTS` と必ず揃えること。
-pub(crate) const SUPPORTED_LIVE_INSTANCE_COUNTS: [usize; 7] = [1, 2, 4, 6, 8, 16, 32];
+pub(crate) const SUPPORTED_LIVE_INSTANCE_COUNTS: [usize; 8] = [1, 2, 4, 6, 8, 14, 16, 32];
 const REQUIRED_SAMPLE_RATE: f64 = 48_000.0;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
