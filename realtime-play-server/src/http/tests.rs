@@ -1,7 +1,8 @@
 use super::*;
 use cmrt_core::VoicingReport;
 use cmrt_realtime_ipc::{
-    FastMidiEvent, InstanceId, LimiterMeter, LiveTimelineConfig, TimelineMidiEvent, TimingMetrics,
+    FastMidiEvent, InstanceId, LimiterMeter, LiveTempoChange, LiveTimelineConfig,
+    TimelineMidiEvent, TimingMetrics,
 };
 use std::{
     io::{Read as _, Write as _},
@@ -31,6 +32,10 @@ impl PlayerHandle for FakePlayer {
     }
 
     fn begin_live_timeline(&self, _config: LiveTimelineConfig) -> Result<()> {
+        Ok(())
+    }
+
+    fn set_live_tempo(&self, _change: LiveTempoChange) -> Result<()> {
         Ok(())
     }
 

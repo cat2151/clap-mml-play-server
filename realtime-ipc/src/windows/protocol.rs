@@ -8,8 +8,8 @@ use std::{
 use super::{MAX_INSTANCE_COUNT, MAX_MIDI_MESSAGES, MAX_PATCH_BYTES, MAX_RESPONSE_BYTES};
 
 pub(super) const MAGIC: [u8; 8] = *b"CMRTMIDI";
-/// v7 adds absolute timeline commands and timing diagnostics.
-pub(super) const VERSION: u32 = 7;
+/// v8 adds live tempo-map changes ([`KIND_SET_LIVE_TEMPO`]).
+pub(super) const VERSION: u32 = 8;
 pub(super) const SLOT_COUNT: usize = 64;
 pub(super) const KIND_MIDI: u32 = 1;
 pub(super) const KIND_STOP: u32 = 2;
@@ -25,6 +25,13 @@ pub(super) const KIND_SET_INSTANCE_GAIN: u32 = 7;
 pub(super) const KIND_SET_AUTO_GAIN: u32 = 8;
 pub(super) const KIND_BEGIN_LIVE_TIMELINE: u32 = 9;
 pub(super) const KIND_TIMELINE_MIDI: u32 = 10;
+/// 走っている live timeline の tempo map へテンポ変化点を積む。
+///
+/// `timeline_id` / `tempo_bits` / `time_signature_*` に加えて
+/// `timeline_seconds_bits[0]` を「この絶対秒から」として使う。構造体は変わらないが、
+/// **このコマンドを知らないサーバーは黙って無視する**（テンポだけ古いまま鳴り続ける）。
+/// 音量と違ってテンポは正しさの問題なので、VERSION を上げて繋がらないようにしてある。
+pub(super) const KIND_SET_LIVE_TEMPO: u32 = 11;
 pub(super) const RESPONSE_OK: u32 = 1;
 pub(super) const RESPONSE_ERROR: u32 = 2;
 pub(super) const SERVER_STALE_MS: u64 = 1_000;

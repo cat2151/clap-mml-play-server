@@ -1,8 +1,8 @@
 use anyhow::Result;
 use clack_host::prelude::PluginEntry;
 
-use crate::midi::{parse_smf_bytes, TimedMidiEvent};
-use crate::render::render_to_memory;
+use crate::midi::{parse_smf_playback, TimedMidiEvent};
+use crate::render::{render_to_memory, RealtimePlaybackSchedule};
 use crate::CoreConfig;
 
 const RENDER_CHANNELS: u64 = 2;
@@ -84,24 +84,31 @@ impl RenderOptions {
 
 /// レンダリング実行直前までに確定させた入力一式。
 ///
-/// preroll を適用済みの MIDI イベント列と、描画後に切り落とすサンプル数をまとめて保持する。
+/// preroll を適用済みの再生スケジュールと、描画後に切り落とすサンプル数をまとめて保持する。
 pub(crate) struct PreparedRenderInputs {
     pub(crate) patched_cfg: CoreConfig,
-    pub(crate) events: Vec<TimedMidiEvent>,
-    pub(crate) total_samples: u64,
+    pub(crate) playback: RealtimePlaybackSchedule,
     pub(crate) preroll_samples: u64,
 }
 
-pub(crate) fn prepare_playback_events(
+/// SMF bytes → 再生スケジュール。tempo map も一緒に載せる。
+///
+/// tempo map を載せないと、オフラインだけプラグインへ CLAP transport が渡らず、
+/// tempo-sync するパッチがリアルタイムと違う音になる。
+pub(crate) fn prepare_playback_schedule(
     smf_bytes: &[u8],
     sample_rate: f64,
     options: RenderOptions,
-) -> Result<(Vec<TimedMidiEvent>, u64)> {
-    let (events, total_samples) = parse_smf_bytes(smf_bytes, sample_rate)?;
-    Ok(apply_render_preroll(
+) -> Result<RealtimePlaybackSchedule> {
+    let playback = parse_smf_playback(smf_bytes, sample_rate)?;
+    let preroll_samples = options.preroll_samples(sample_rate);
+    let (events, total_samples) =
+        apply_render_preroll(playback.events, playback.total_samples, preroll_samples);
+    Ok(RealtimePlaybackSchedule::with_tempo_map(
         events,
         total_samples,
-        options.preroll_samples(sample_rate),
+        &playback.tempo_map,
+        preroll_samples,
     ))
 }
 
@@ -111,12 +118,10 @@ pub(crate) fn prepare_render_inputs(
     options: RenderOptions,
 ) -> Result<PreparedRenderInputs> {
     let preroll_samples = options.preroll_samples(patched_cfg.sample_rate);
-    let (events, total_samples) =
-        prepare_playback_events(smf_bytes, patched_cfg.sample_rate, options)?;
+    let playback = prepare_playback_schedule(smf_bytes, patched_cfg.sample_rate, options)?;
     Ok(PreparedRenderInputs {
         patched_cfg,
-        events,
-        total_samples,
+        playback,
         preroll_samples,
     })
 }
@@ -127,11 +132,10 @@ pub(crate) fn render_prepared_inputs(
 ) -> Result<Vec<f32>> {
     let PreparedRenderInputs {
         patched_cfg,
-        events,
-        total_samples,
+        playback,
         preroll_samples,
     } = prepared;
-    let samples = render_to_memory(&patched_cfg, entry, events, total_samples)?;
+    let samples = render_to_memory(&patched_cfg, entry, playback)?;
     Ok(trim_render_preroll(samples, preroll_samples))
 }
 

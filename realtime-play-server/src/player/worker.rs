@@ -29,6 +29,8 @@ const OUTPUT_WAIT_TIMEOUT: Duration = Duration::from_millis(10);
 const MAX_LIVE_QUEUE_EVENTS: usize = 8192;
 mod command;
 
+#[cfg(test)]
+use command::apply_live_tempo;
 use command::{apply_command, reset_all, CommandContext};
 
 pub(super) struct WorkerOutput {

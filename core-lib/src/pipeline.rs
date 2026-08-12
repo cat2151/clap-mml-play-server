@@ -24,7 +24,7 @@ pub use pipeline_dirs::{ensure_cmrt_dir, ensure_daw_dir, ensure_phrase_dir};
 #[cfg(test)]
 use pipeline_render::{apply_render_preroll, trim_render_preroll};
 use pipeline_render::{
-    prepare_playback_events, prepare_render_inputs, render_prepared_inputs, PreparedRenderInputs,
+    prepare_playback_schedule, prepare_render_inputs, render_prepared_inputs, PreparedRenderInputs,
 };
 pub use pipeline_render::{RenderOptions, RenderPreroll};
 #[cfg(test)]
@@ -105,8 +105,7 @@ pub fn smf_playback_schedule_with_options(
     sample_rate: f64,
     options: RenderOptions,
 ) -> Result<RealtimePlaybackSchedule> {
-    let (events, total_samples) = prepare_playback_events(smf_bytes, sample_rate, options)?;
-    Ok(RealtimePlaybackSchedule::new(events, total_samples))
+    prepare_playback_schedule(smf_bytes, sample_rate, options)
 }
 
 /// キャッシュ構築専用の MML → レンダリング。

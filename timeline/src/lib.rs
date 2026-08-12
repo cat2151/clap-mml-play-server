@@ -14,7 +14,8 @@ pub use scheduler::{
     BlockEvent, BlockEvents, BlockScheduler, LateEventPolicy, QuantizedTime, Timed,
 };
 pub use transport::{
-    ConstantTempoTimeline, FreeRunningTimeline, TransportSnapshot, TransportTimeline,
+    ConstantTempoTimeline, FreeRunningTimeline, TempoMapError, TempoMapTimeline, TempoSegment,
+    TransportSnapshot, TransportTimeline,
 };
 pub use value::{BlockSpan, SamplePosition, SampleRate, TimelineError, TimelineSeconds};
 

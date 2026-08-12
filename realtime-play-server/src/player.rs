@@ -22,7 +22,8 @@ use self::worker::{run_player_worker, WorkerOutput};
 use anyhow::{Context as _, Result};
 use cmrt_core::{smf_playback_schedule_with_options, CoreConfig, RenderOptions, VoicingReport};
 use cmrt_realtime_ipc::{
-    FastMidiEvent, InstanceId, LimiterMeter, LiveTimelineConfig, TimelineMidiEvent, TimingMetrics,
+    FastMidiEvent, InstanceId, LimiterMeter, LiveTempoChange, LiveTimelineConfig,
+    TimelineMidiEvent, TimingMetrics,
 };
 
 // ワーカースレッド（`worker`）が `super::` 経由で参照する。
@@ -33,6 +34,9 @@ pub(crate) trait PlayerHandle: Send + Sync + 'static {
     fn play_mml(&self, mml: String) -> Result<()>;
     fn send_midi(&self, events: Vec<FastMidiEvent>) -> Result<()>;
     fn begin_live_timeline(&self, config: LiveTimelineConfig) -> Result<()>;
+    /// 走っている live timeline の tempo map へテンポ変化点を積む。
+    /// `begin_live_timeline` と違い、timeline もプラグインの状態も作り直さない。
+    fn set_live_tempo(&self, change: LiveTempoChange) -> Result<()>;
     fn send_timeline_midi(&self, events: Vec<TimelineMidiEvent>) -> Result<()>;
     fn prepare_live_patch(&self, instance_id: InstanceId, patch: Option<String>) -> Result<()>;
     fn prepare_live_patch_with_voicing(
@@ -185,6 +189,10 @@ impl PlayerHandle for RealtimePlayer {
         }
         self.inner
             .submit_begin_live_timeline(config, Arc::clone(&self.audio_output))
+    }
+
+    fn set_live_tempo(&self, change: LiveTempoChange) -> Result<()> {
+        self.inner.submit_set_live_tempo(change)
     }
 
     fn send_timeline_midi(&self, events: Vec<TimelineMidiEvent>) -> Result<()> {

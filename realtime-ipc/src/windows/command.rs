@@ -4,10 +4,10 @@ use super::{
     protocol::{
         CommandSlot, SharedRing, KIND_BEGIN_LIVE_TIMELINE, KIND_MIDI, KIND_PREPARE_PATCH,
         KIND_PROBE_PATCH, KIND_SET_AUTO_GAIN, KIND_SET_BUFFER_MULTIPLIER, KIND_SET_INSTANCE_GAIN,
-        KIND_STOP, KIND_STOP_ALL, KIND_TIMELINE_MIDI, SLOT_COUNT,
+        KIND_SET_LIVE_TEMPO, KIND_STOP, KIND_STOP_ALL, KIND_TIMELINE_MIDI, SLOT_COUNT,
     },
     validate_instance_id, validate_ring, FastIpcError, FastMidiCommand, FastMidiEvent, InstanceId,
-    LiveTimelineConfig, TimelineMidiEvent, MAX_MIDI_MESSAGES, MAX_PATCH_BYTES,
+    LiveTempoChange, LiveTimelineConfig, TimelineMidiEvent, MAX_MIDI_MESSAGES, MAX_PATCH_BYTES,
 };
 
 /// instance ゲインの上限（千分率）。+12dB 相当までを許す。
@@ -82,6 +82,19 @@ fn decode_slot(slot: CommandSlot) -> Result<FastMidiCommand, FastIpcError> {
             validate_timeline_config(config)?;
             Ok(FastMidiCommand::BeginLiveTimeline(config))
         }
+        KIND_SET_LIVE_TEMPO => {
+            let change = LiveTempoChange {
+                timeline_id: slot.timeline_id,
+                at_seconds: f64::from_bits(slot.timeline_seconds_bits[0]),
+                tempo_bpm: f64::from_bits(slot.tempo_bits),
+                time_signature_numerator: u16::try_from(slot.time_signature_numerator)
+                    .map_err(|_| FastIpcError::InvalidPayload("invalid time signature".into()))?,
+                time_signature_denominator: u16::try_from(slot.time_signature_denominator)
+                    .map_err(|_| FastIpcError::InvalidPayload("invalid time signature".into()))?,
+            };
+            validate_tempo_change(change)?;
+            Ok(FastMidiCommand::SetLiveTempo(change))
+        }
         KIND_TIMELINE_MIDI => {
             let count = slot.message_count as usize;
             if count == 0 || count > MAX_MIDI_MESSAGES {
@@ -129,6 +142,25 @@ fn decode_slot(slot: CommandSlot) -> Result<FastMidiCommand, FastIpcError> {
         }
         _ => Err(FastIpcError::InvalidPayload("unknown command kind".into())),
     }
+}
+
+/// テンポ変化点の検証。[`validate_timeline_config`] と同じ条件に「変化点の絶対秒が
+/// 有限・非負」を足したもの。送信側 ([`super::timeline`]) と受信側で同じものを通す。
+pub(super) fn validate_tempo_change(change: LiveTempoChange) -> Result<(), FastIpcError> {
+    if change.timeline_id == 0
+        || !change.at_seconds.is_finite()
+        || change.at_seconds < 0.0
+        || !change.tempo_bpm.is_finite()
+        || change.tempo_bpm <= 0.0
+        || change.time_signature_numerator == 0
+        || change.time_signature_denominator == 0
+        || !change.time_signature_denominator.is_power_of_two()
+    {
+        return Err(FastIpcError::InvalidPayload(
+            "invalid live tempo change".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn validate_timeline_config(config: LiveTimelineConfig) -> Result<(), FastIpcError> {

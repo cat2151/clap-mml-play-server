@@ -207,6 +207,66 @@ fn stop_instance_does_not_clear_queued_commands_for_other_instances() {
     ));
 }
 
+fn timeline_config(timeline_id: u64) -> LiveTimelineConfig {
+    LiveTimelineConfig {
+        timeline_id,
+        sample_rate_hz: 48_000.0,
+        tempo_bpm: 130.0,
+        time_signature_numerator: 4,
+        time_signature_denominator: 4,
+    }
+}
+
+fn tempo_change(timeline_id: u64, tempo_bpm: f64) -> LiveTempoChange {
+    LiveTempoChange {
+        timeline_id,
+        at_seconds: 7.384_615_384_615_385,
+        tempo_bpm,
+        time_signature_numerator: 4,
+        time_signature_denominator: 4,
+    }
+}
+
+/// テンポ変更で generation を上げないこと。上げると `start_generation()` が
+/// 描画済みフレームを捨てるので、テンポを変えただけで音が飛ぶ。
+#[test]
+fn setting_the_live_tempo_keeps_the_generation_and_the_rendered_ring() {
+    let inner = PlayerInner::default();
+    let audio_output = audio_control();
+    inner
+        .submit_begin_live_timeline(timeline_config(3), Arc::clone(&audio_output))
+        .unwrap();
+    assert_eq!(audio_output.generation(), 1);
+    assert!(matches!(
+        inner.wait_for_command(),
+        Some(PlayerCommand::BeginLiveTimeline { generation: 1, .. })
+    ));
+
+    inner.submit_set_live_tempo(tempo_change(3, 65.0)).unwrap();
+    assert_eq!(audio_output.generation(), 1);
+    assert!(matches!(
+        inner.wait_for_command(),
+        Some(PlayerCommand::SetLiveTempo {
+            generation: 1,
+            change,
+        }) if change.tempo_bpm == 65.0
+    ));
+}
+
+#[test]
+fn a_tempo_change_without_a_matching_timeline_is_refused() {
+    let inner = PlayerInner::default();
+    let audio_output = audio_control();
+    // まだ timeline を張っていない。
+    assert!(inner.submit_set_live_tempo(tempo_change(3, 65.0)).is_err());
+
+    inner
+        .submit_begin_live_timeline(timeline_config(3), Arc::clone(&audio_output))
+        .unwrap();
+    // 別の（作り直す前の）timeline 宛。
+    assert!(inner.submit_set_live_tempo(tempo_change(2, 65.0)).is_err());
+}
+
 #[test]
 fn commands_fail_after_shutdown() {
     let inner = PlayerInner::default();

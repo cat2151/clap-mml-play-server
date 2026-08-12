@@ -1,8 +1,98 @@
 use super::*;
-use cmrt_realtime_ipc::FastMidiEvent;
+use cmrt_realtime_ipc::{FastMidiEvent, LiveTempoChange, LiveTimelineConfig};
 use cmrt_timeline::{
     BlockScheduler, BlockSpan, LateEventPolicy, SamplePosition, SampleRate, Timed, TimelineSeconds,
+    TransportTimeline,
 };
+
+const LIVE_CLOCK_SAMPLES: u64 = 123_456;
+
+fn live_mode_with_timeline(tempo_bpm: f64) -> Option<PlaybackMode> {
+    let timeline = LiveTimelineState::new(LiveTimelineConfig {
+        timeline_id: 7,
+        sample_rate_hz: 48_000.0,
+        tempo_bpm,
+        time_signature_numerator: 4,
+        time_signature_denominator: 4,
+    })
+    .unwrap();
+    Some(PlaybackMode::Live {
+        generation: 1,
+        clock_samples: LIVE_CLOCK_SAMPLES,
+        instances: new_live_instances(2),
+        timeline: Some(timeline),
+    })
+}
+
+fn tempo_change(timeline_id: u64, at_seconds: f64, tempo_bpm: f64) -> LiveTempoChange {
+    LiveTempoChange {
+        timeline_id,
+        at_seconds,
+        tempo_bpm,
+        time_signature_numerator: 4,
+        time_signature_denominator: 4,
+    }
+}
+
+fn live_parts(mode: &Option<PlaybackMode>) -> (u64, u64, &LiveTimelineState) {
+    let Some(PlaybackMode::Live {
+        generation,
+        clock_samples,
+        timeline: Some(timeline),
+        ..
+    }) = mode
+    else {
+        panic!("expected a live timeline");
+    };
+    (*generation, *clock_samples, timeline)
+}
+
+/// テンポ変更はタイムライン上のデータの追記であって、タイムラインの作り直しではない。
+/// サンプルクロックの原点が動くと、送信済みイベントの発音位置がまとめてずれる。
+#[test]
+fn setting_the_live_tempo_does_not_move_the_sample_clock() {
+    let mut mode = live_mode_with_timeline(130.0);
+    apply_live_tempo(&mut mode, 5, tempo_change(7, 4.0, 65.0));
+
+    let (generation, clock_samples, timeline) = live_parts(&mode);
+    assert_eq!(clock_samples, LIVE_CLOCK_SAMPLES);
+    assert_eq!(generation, 5);
+    assert_eq!(timeline.id, 7, "timeline を作り直さないこと");
+    assert!(!timeline.started, "テンポ変更だけでは再生開始扱いにしない");
+    // 変化点より前は元のテンポ、以降は新しいテンポ。
+    let at = TimelineSeconds::new(4.0).unwrap();
+    assert_eq!(timeline.transport.snapshot_at(at).unwrap().tempo_bpm, 65.0);
+    let before = TimelineSeconds::new(3.0).unwrap();
+    assert_eq!(
+        timeline.transport.snapshot_at(before).unwrap().tempo_bpm,
+        130.0
+    );
+}
+
+/// 作り直す前の timeline 宛の変化点は捨てる。拾うと今の演奏のテンポが飛ぶ。
+#[test]
+fn a_tempo_change_for_another_timeline_is_dropped() {
+    let mut mode = live_mode_with_timeline(130.0);
+    apply_live_tempo(&mut mode, 5, tempo_change(6, 4.0, 65.0));
+
+    let (generation, _, timeline) = live_parts(&mode);
+    assert_eq!(generation, 1, "generation も動かさない");
+    assert_eq!(timeline.transport.segments().len(), 1);
+}
+
+/// 拒否されても演奏は続く（tempo map は元のまま）。
+#[test]
+fn a_backwards_tempo_change_is_rejected_without_disturbing_the_timeline() {
+    let mut mode = live_mode_with_timeline(130.0);
+    apply_live_tempo(&mut mode, 2, tempo_change(7, 10.0, 65.0));
+    apply_live_tempo(&mut mode, 3, tempo_change(7, 5.0, 200.0));
+
+    let (_, clock_samples, timeline) = live_parts(&mode);
+    assert_eq!(clock_samples, LIVE_CLOCK_SAMPLES);
+    assert_eq!(timeline.transport.segments().len(), 2);
+    let at = TimelineSeconds::new(20.0).unwrap();
+    assert_eq!(timeline.transport.snapshot_at(at).unwrap().tempo_bpm, 65.0);
+}
 
 fn event(instance_id: u8, offset_frames: u32, key: u8) -> FastMidiEvent {
     FastMidiEvent {

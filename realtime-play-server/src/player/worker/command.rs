@@ -125,6 +125,9 @@ pub(super) fn apply_command(context: CommandContext<'_>, command: PlayerCommand)
                 }
             }
         }
+        PlayerCommand::SetLiveTempo { generation, change } => {
+            apply_live_tempo(playback_mode, generation, change);
+        }
         PlayerCommand::TimelineMidi { generation, events } => {
             let Some(PlaybackMode::Live {
                 generation: live_generation,
@@ -221,6 +224,35 @@ pub(super) fn apply_command(context: CommandContext<'_>, command: PlayerCommand)
             }
             let _ = completion.send(result);
         }
+    }
+}
+
+/// 走っている timeline の tempo map へテンポ変化点を積む。
+///
+/// **`reset_all` も `new_live_mode` も呼ばないこと。** テンポ変更はタイムライン上の
+/// データの追記であって、タイムラインの作り直しではない。呼ぶと変更のたびに
+/// プラグインが初期化され、サンプルクロックの原点（`clock_samples`）も 0 へ戻る。
+pub(super) fn apply_live_tempo(
+    playback_mode: &mut Option<PlaybackMode>,
+    generation: u64,
+    change: cmrt_realtime_ipc::LiveTempoChange,
+) {
+    let Some(PlaybackMode::Live {
+        generation: live_generation,
+        timeline: Some(timeline),
+        ..
+    }) = playback_mode
+    else {
+        eprintln!("realtime live tempo received without an active timeline");
+        return;
+    };
+    if timeline.id != change.timeline_id {
+        // 作り直す前の timeline 宛。捨てる（今の演奏のテンポを動かさない）。
+        return;
+    }
+    *live_generation = generation;
+    if let Err(error) = timeline.set_tempo(change) {
+        eprintln!("realtime live tempo rejected: {error:#}");
     }
 }
 

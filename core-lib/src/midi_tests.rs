@@ -50,7 +50,8 @@ fn smf_with_noteon_vel_zero() -> Vec<u8> {
 
 #[test]
 fn parse_smf_bytes_empty_track_returns_no_events() {
-    let (events, total_samples) = parse_smf_bytes(&minimal_smf_bytes(), 44100.0).unwrap();
+    let playback = parse_smf_playback(&minimal_smf_bytes(), 44100.0).unwrap();
+    let (events, total_samples) = (playback.events, playback.total_samples);
     assert!(events.is_empty());
     // tail のみ: (44100 * 2) = 88200
     assert_eq!(total_samples, 88200);
@@ -58,13 +59,17 @@ fn parse_smf_bytes_empty_track_returns_no_events() {
 
 #[test]
 fn parse_smf_bytes_with_note_returns_two_events() {
-    let (events, _) = parse_smf_bytes(&smf_with_note(), 44100.0).unwrap();
+    let events = parse_smf_playback(&smf_with_note(), 44100.0)
+        .unwrap()
+        .events;
     assert_eq!(events.len(), 2);
 }
 
 #[test]
 fn parse_smf_bytes_first_event_is_noteon() {
-    let (events, _) = parse_smf_bytes(&smf_with_note(), 44100.0).unwrap();
+    let events = parse_smf_playback(&smf_with_note(), 44100.0)
+        .unwrap()
+        .events;
     assert_eq!(events[0].sample_pos, 0);
     match events[0].message {
         MidiEvent::NoteOn {
@@ -82,7 +87,9 @@ fn parse_smf_bytes_first_event_is_noteon() {
 
 #[test]
 fn parse_smf_bytes_second_event_is_noteoff() {
-    let (events, _) = parse_smf_bytes(&smf_with_note(), 44100.0).unwrap();
+    let events = parse_smf_playback(&smf_with_note(), 44100.0)
+        .unwrap()
+        .events;
     // delta=480 ticks, tempo=500000 µs/beat, tpb=120
     // secs = (480 * 500000) / (120 * 1_000_000) = 2.0 s
     // sample_pos = 2.0 * 44100 = 88200
@@ -103,7 +110,9 @@ fn parse_smf_bytes_second_event_is_noteoff() {
 
 #[test]
 fn parse_smf_bytes_total_samples_includes_tail() {
-    let (_, total_samples) = parse_smf_bytes(&smf_with_note(), 44100.0).unwrap();
+    let total_samples = parse_smf_playback(&smf_with_note(), 44100.0)
+        .unwrap()
+        .total_samples;
     // max_sample = 88200, tail = 88200 → 合計 176400
     let tail = (44100.0 * 2.0) as u64;
     assert_eq!(total_samples, 88200 + tail);
@@ -111,7 +120,9 @@ fn parse_smf_bytes_total_samples_includes_tail() {
 
 #[test]
 fn parse_smf_bytes_noteon_vel_zero_treated_as_noteoff() {
-    let (events, _) = parse_smf_bytes(&smf_with_noteon_vel_zero(), 44100.0).unwrap();
+    let events = parse_smf_playback(&smf_with_noteon_vel_zero(), 44100.0)
+        .unwrap()
+        .events;
     assert_eq!(events.len(), 1);
     match events[0].message {
         MidiEvent::NoteOff { key, .. } => {
@@ -121,9 +132,114 @@ fn parse_smf_bytes_noteon_vel_zero_treated_as_noteoff() {
     }
 }
 
+/// 4拍目でテンポが半分になる SMF。120 ticks/beat。
+///
+/// tick 480 (= 4拍) まで BPM120、そこから BPM60。tick 960 の NoteOff は
+/// 区分線形なら 2.0 + 4.0 = 6.0 秒。テンポ変化点より後ろを一律に新テンポで
+/// 割り直すと 8.0 秒になる。
+fn smf_with_tempo_change() -> Vec<u8> {
+    use midly::{Format, Header, MetaMessage, Smf, TrackEvent};
+
+    let track = vec![
+        TrackEvent {
+            delta: 0.into(),
+            kind: TrackEventKind::Meta(MetaMessage::TimeSignature(3, 2, 24, 8)),
+        },
+        TrackEvent {
+            delta: 0.into(),
+            kind: TrackEventKind::Meta(MetaMessage::Tempo(500_000.into())),
+        },
+        TrackEvent {
+            delta: 480.into(),
+            kind: TrackEventKind::Meta(MetaMessage::Tempo(1_000_000.into())),
+        },
+        TrackEvent {
+            delta: 0.into(),
+            kind: TrackEventKind::Midi {
+                channel: 0.into(),
+                message: MidiMessage::NoteOn {
+                    key: 60.into(),
+                    vel: 100.into(),
+                },
+            },
+        },
+        TrackEvent {
+            delta: 480.into(),
+            kind: TrackEventKind::Midi {
+                channel: 0.into(),
+                message: MidiMessage::NoteOff {
+                    key: 60.into(),
+                    vel: 0.into(),
+                },
+            },
+        },
+        TrackEvent {
+            delta: 0.into(),
+            kind: TrackEventKind::Meta(MetaMessage::EndOfTrack),
+        },
+    ];
+    let smf = Smf {
+        header: Header::new(Format::SingleTrack, Timing::Metrical(120.into())),
+        tracks: vec![track],
+    };
+    let mut bytes = Vec::new();
+    smf.write_std(&mut bytes).unwrap();
+    bytes
+}
+
+#[test]
+fn tempo_changes_are_reported_as_a_piecewise_map() {
+    let playback = parse_smf_playback(&smf_with_tempo_change(), 1_000.0).unwrap();
+
+    assert_eq!(
+        playback.tempo_map,
+        vec![
+            SmfTempoChange {
+                at_seconds: 0.0,
+                tempo_bpm: 120.0,
+                numerator: 3,
+                denominator: 4,
+            },
+            SmfTempoChange {
+                at_seconds: 2.0,
+                tempo_bpm: 60.0,
+                numerator: 3,
+                denominator: 4,
+            },
+        ]
+    );
+}
+
+/// テンポ変化より後ろの位置は、変化点までの経過時間を保ったまま新テンポで進むこと。
+#[test]
+fn events_after_a_tempo_change_keep_the_elapsed_time_before_it() {
+    let playback = parse_smf_playback(&smf_with_tempo_change(), 1_000.0).unwrap();
+
+    assert_eq!(playback.events[0].sample_pos, 2_000, "NoteOn は 2.0 秒");
+    assert_eq!(
+        playback.events[1].sample_pos, 6_000,
+        "NoteOff は 2.0 + 4.0 = 6.0 秒（8.0 秒なら変化点前まで割り直している）"
+    );
+}
+
+#[test]
+fn a_file_without_any_tempo_meta_falls_back_to_120_bpm_in_four_four() {
+    let playback = parse_smf_playback(&smf_with_note(), 44_100.0).unwrap();
+
+    assert_eq!(
+        playback.tempo_map,
+        vec![SmfTempoChange {
+            at_seconds: 0.0,
+            tempo_bpm: 120.0,
+            numerator: 4,
+            denominator: 4,
+        }]
+    );
+}
+
 #[test]
 fn parse_smf_bytes_invalid_returns_error() {
     let invalid = b"not a midi file";
-    let result = parse_smf_bytes(invalid, 44100.0);
+    let result = parse_smf_playback(invalid, 44100.0);
     assert!(result.is_err());
 }

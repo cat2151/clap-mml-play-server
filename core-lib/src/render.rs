@@ -11,13 +11,14 @@ use cmrt_clack_timeline::{process_block_timing, ProcessBlockTiming};
 use cmrt_timeline::{BlockSpan, FreeRunningTimeline, SamplePosition, SampleRate};
 
 use crate::host::MidiRenderHost;
-use crate::midi::{MidiEvent, TimedMidiEvent};
+use crate::midi::MidiEvent;
 use crate::CoreConfig;
 
 mod instance;
 mod offline;
 mod parallel;
 mod patch_state;
+mod playback;
 mod voicing_probe;
 use instance::create_plugin_instance_without_patch;
 use patch_state::{load_patch, load_plugin_state, save_plugin_state};
@@ -26,41 +27,7 @@ use voicing_probe::first_plugin_id;
 pub use instance::create_plugin_instance;
 pub use offline::{render, render_to_memory};
 pub use parallel::{create_renderers_parallel, RendererCreated};
-
-#[derive(Debug, Clone)]
-pub struct RealtimePlaybackSchedule {
-    events: Vec<TimedMidiEvent>,
-    total_samples: u64,
-    current_sample: u64,
-    event_cursor: usize,
-}
-
-impl RealtimePlaybackSchedule {
-    pub fn new(events: Vec<TimedMidiEvent>, total_samples: u64) -> Self {
-        Self {
-            events,
-            total_samples,
-            current_sample: 0,
-            event_cursor: 0,
-        }
-    }
-
-    pub fn total_samples(&self) -> u64 {
-        self.total_samples
-    }
-
-    pub fn current_sample(&self) -> u64 {
-        self.current_sample
-    }
-
-    pub fn events(&self) -> &[TimedMidiEvent] {
-        &self.events
-    }
-
-    pub fn is_finished(&self) -> bool {
-        self.current_sample >= self.total_samples
-    }
-}
+pub use playback::RealtimePlaybackSchedule;
 
 /// live MIDI 1.0 short message と、その chunk 先頭からのフレームオフセット。
 ///
@@ -263,9 +230,38 @@ impl RealtimeRenderer {
             playback.event_cursor += 1;
         }
 
-        let samples = self.process_chunk(frames, &input_events_raw)?;
+        let timing = self.playback_block_timing(playback, frames)?;
+        let samples = self
+            .process_chunk_with_timing(frames, &input_events_raw, timing)
+            .map(|processed| processed.samples)?;
         playback.current_sample = buf_end;
         Ok(Some(samples))
+    }
+
+    /// オフライン／スケジュール再生のブロックタイミング。
+    ///
+    /// `steady_time` は renderer ローカルで単調（プラグインが自由走行の時計として使う）、
+    /// transport は曲の tempo map から作る。曲の位置は renderer のカーソルではなく
+    /// スケジュールの再生位置で決めること（renderer は使い回されうる）。
+    fn playback_block_timing(
+        &self,
+        playback: &RealtimePlaybackSchedule,
+        frames: u32,
+    ) -> Result<ProcessBlockTiming> {
+        let Some(transport) = playback.transport.as_ref() else {
+            let block = BlockSpan::new(SamplePosition(self.process_cursor_samples), frames)
+                .map_err(|error| anyhow::anyhow!(error))?;
+            return Ok(process_block_timing(
+                block,
+                self.sample_rate,
+                &FreeRunningTimeline,
+            ));
+        };
+        let musical_block = BlockSpan::new(SamplePosition(playback.musical_sample()), frames)
+            .map_err(|error| anyhow::anyhow!(error))?;
+        let mut timing = process_block_timing(musical_block, self.sample_rate, transport);
+        timing.steady_time = self.process_cursor_samples;
+        Ok(timing)
     }
 
     /// 1 chunk のフレーム数。live のスケジューラが chunk 境界を計算するのに使う。
@@ -316,14 +312,6 @@ impl RealtimeRenderer {
         }
         timing.steady_time = self.process_cursor_samples;
         self.process_chunk_with_timing(self.buf_size as u32, &input_events_raw, timing)
-            .map(|processed| processed.samples)
-    }
-
-    fn process_chunk(&mut self, frames: u32, input_events_raw: &EventBuffer) -> Result<Vec<f32>> {
-        let block = BlockSpan::new(SamplePosition(self.process_cursor_samples), frames)
-            .map_err(|error| anyhow::anyhow!(error))?;
-        let timing = process_block_timing(block, self.sample_rate, &FreeRunningTimeline);
-        self.process_chunk_with_timing(frames, input_events_raw, timing)
             .map(|processed| processed.samples)
     }
 

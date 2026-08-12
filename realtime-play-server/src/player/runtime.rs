@@ -2,9 +2,10 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 use cmrt_core::RealtimePlaybackSchedule;
 use cmrt_realtime_ipc::{
-    LimiterMeter, LiveTimelineConfig, TimelineMidiEvent, TimingMetrics, INSTANCE_COUNT,
+    LimiterMeter, LiveTempoChange, LiveTimelineConfig, TimelineMidiEvent, TimingMetrics,
+    INSTANCE_COUNT,
 };
-use cmrt_timeline::{BlockScheduler, ConstantTempoTimeline, SampleRate, Timed, TimelineSeconds};
+use cmrt_timeline::{BlockScheduler, SampleRate, TempoMapTimeline, Timed, TimelineSeconds};
 
 use super::auto_gain::InstanceAutoGain;
 
@@ -30,14 +31,16 @@ pub(super) struct TimelinePayload {
 pub(super) struct LiveTimelineState {
     pub(super) id: u64,
     pub(super) scheduler: BlockScheduler<TimelinePayload>,
-    pub(super) transport: ConstantTempoTimeline,
+    /// テンポは timeline の不変フィールドではなく、timeline 上のデータ（tempo map）。
+    /// テンポを変えるのに timeline を作り直す必要はない（[`Self::set_tempo`]）。
+    pub(super) transport: TempoMapTimeline,
     pub(super) started: bool,
 }
 
 impl LiveTimelineState {
     pub(super) fn new(config: LiveTimelineConfig) -> anyhow::Result<Self> {
         let sample_rate = SampleRate::new(config.sample_rate_hz)?;
-        let transport = ConstantTempoTimeline::new(
+        let transport = TempoMapTimeline::new(
             config.tempo_bpm,
             config.time_signature_numerator,
             config.time_signature_denominator,
@@ -49,6 +52,19 @@ impl LiveTimelineState {
             transport,
             started: false,
         })
+    }
+
+    /// tempo map へ変化点を積む。イベントのスケジュールは絶対秒でテンポ非依存なので、
+    /// ここで積んでも既に並んでいるイベントの位置は動かない。
+    pub(super) fn set_tempo(&mut self, change: LiveTempoChange) -> anyhow::Result<()> {
+        let at = TimelineSeconds::new(change.at_seconds)?;
+        self.transport.push(
+            at,
+            change.tempo_bpm,
+            change.time_signature_numerator,
+            change.time_signature_denominator,
+        )?;
+        Ok(())
     }
 
     pub(super) fn schedule(&mut self, event: TimelineMidiEvent) -> anyhow::Result<()> {

@@ -16,8 +16,8 @@ use windows_sys::Win32::{
 
 use super::{
     validate_instance_id, FastIpcError, FastMidiCommand, FastMidiEvent, InstanceId, LimiterMeter,
-    LiveTimelineConfig, TimelineMidiEvent, TimingMetrics, MAX_INSTANCE_COUNT, MAX_MIDI_MESSAGES,
-    MAX_PATCH_BYTES, MAX_RESPONSE_BYTES,
+    LiveTempoChange, LiveTimelineConfig, TimelineMidiEvent, TimingMetrics, MAX_INSTANCE_COUNT,
+    MAX_MIDI_MESSAGES, MAX_PATCH_BYTES, MAX_RESPONSE_BYTES,
 };
 
 mod command;
@@ -26,7 +26,7 @@ mod meters;
 mod protocol;
 mod timeline;
 
-use command::{pop_command, validate_midi_message, zeroed_slot};
+use command::{pop_command, validate_midi_message, validate_tempo_change, zeroed_slot};
 use handles::*;
 use protocol::*;
 

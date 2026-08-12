@@ -192,9 +192,9 @@ fn prepare_render_inputs_applies_configured_preroll() {
     .unwrap();
 
     assert_eq!(prepared.preroll_samples, 100);
-    assert_eq!(prepared.events[0].sample_pos, 100);
+    assert_eq!(prepared.playback.events()[0].sample_pos, 100);
     assert!(
-        prepared.total_samples > 100,
+        prepared.playback.total_samples() > 100,
         "render length should include the preroll"
     );
 }

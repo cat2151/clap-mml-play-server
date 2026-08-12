@@ -60,6 +60,7 @@ fn dispatch(command: FastMidiCommand, player: &dyn PlayerHandle, server: &FastMi
     let result = match command {
         FastMidiCommand::Midi { events } => player.send_midi(events),
         FastMidiCommand::BeginLiveTimeline(config) => player.begin_live_timeline(config),
+        FastMidiCommand::SetLiveTempo(change) => player.set_live_tempo(change),
         FastMidiCommand::TimelineMidi { events } => player.send_timeline_midi(events),
         FastMidiCommand::PreparePatch {
             request_id,

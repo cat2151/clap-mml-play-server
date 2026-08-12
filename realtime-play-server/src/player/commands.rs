@@ -11,7 +11,9 @@ use std::{
 
 use anyhow::Result;
 use cmrt_core::{RealtimePlaybackSchedule, VoicingReport};
-use cmrt_realtime_ipc::{FastMidiEvent, InstanceId, LiveTimelineConfig, TimelineMidiEvent};
+use cmrt_realtime_ipc::{
+    FastMidiEvent, InstanceId, LiveTempoChange, LiveTimelineConfig, TimelineMidiEvent,
+};
 
 use super::audio_output::AudioOutputControl;
 
@@ -51,6 +53,10 @@ pub(super) enum PlayerCommand {
     BeginLiveTimeline {
         generation: u64,
         config: LiveTimelineConfig,
+    },
+    SetLiveTempo {
+        generation: u64,
+        change: LiveTempoChange,
     },
     TimelineMidi {
         generation: u64,
@@ -168,6 +174,28 @@ impl PlayerInner {
         state
             .pending
             .push_back(PlayerCommand::BeginLiveTimeline { generation, config });
+        self.command_available.notify_one();
+        Ok(())
+    }
+
+    /// tempo map への追記。**generation を上げないこと。**
+    ///
+    /// 上げると `start_generation()` がリング内の描画済みフレームを捨て、テンポを
+    /// 変えただけで音が飛ぶ。テンポ変化はタイムライン上のデータであって、
+    /// 音楽的な epoch の切り替えではない。
+    pub(super) fn submit_set_live_tempo(&self, change: LiveTempoChange) -> Result<()> {
+        let mut state = self.state.lock().unwrap();
+        ensure_running(&state)?;
+        let Some(active_id) = state.live_timeline_id else {
+            anyhow::bail!("no live timeline has been started");
+        };
+        if change.timeline_id != active_id {
+            anyhow::bail!("timeline mismatch: active={active_id}");
+        }
+        let generation = state.generation;
+        state
+            .pending
+            .push_back(PlayerCommand::SetLiveTempo { generation, change });
         self.command_available.notify_one();
         Ok(())
     }

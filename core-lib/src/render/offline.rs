@@ -8,15 +8,13 @@ use clack_host::prelude::*;
 use hound::{SampleFormat, WavSpec, WavWriter};
 
 use super::{RealtimePlaybackSchedule, RealtimeRenderer};
-use crate::midi::TimedMidiEvent;
 use crate::CoreConfig;
 
 #[allow(dead_code)]
 pub fn render(
     cfg: &CoreConfig,
     entry: &PluginEntry,
-    events: Vec<TimedMidiEvent>,
-    total_samples: u64,
+    mut playback: RealtimePlaybackSchedule,
 ) -> Result<()> {
     let spec = WavSpec {
         channels: 2,
@@ -28,7 +26,6 @@ pub fn render(
         .map_err(|e| anyhow::anyhow!("WAVファイルの作成に失敗: {}", e))?;
 
     let mut renderer = RealtimeRenderer::new(cfg, entry)?;
-    let mut playback = RealtimePlaybackSchedule::new(events, total_samples);
     while let Some(chunk) = renderer.render_next_chunk(&mut playback)? {
         for sample in chunk {
             wav.write_sample(sample)
@@ -43,12 +40,10 @@ pub fn render(
 pub fn render_to_memory(
     cfg: &CoreConfig,
     entry: &PluginEntry,
-    events: Vec<TimedMidiEvent>,
-    total_samples: u64,
+    mut playback: RealtimePlaybackSchedule,
 ) -> Result<Vec<f32>> {
     let mut renderer = RealtimeRenderer::new(cfg, entry)?;
-    let mut playback = RealtimePlaybackSchedule::new(events, total_samples);
-    let mut samples = Vec::with_capacity(total_samples as usize * 2);
+    let mut samples = Vec::with_capacity(playback.total_samples() as usize * 2);
     while let Some(chunk) = renderer.render_next_chunk(&mut playback)? {
         samples.extend(chunk);
     }

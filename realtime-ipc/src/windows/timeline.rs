@@ -13,6 +13,22 @@ impl FastMidiClient {
         self.push(slot)
     }
 
+    /// 走っている live timeline の tempo map へ「`at_seconds` から新しいテンポ」を積む。
+    ///
+    /// [`Self::begin_live_timeline`] と違い timeline は作り直されないので、演奏も
+    /// プラグインの状態も途切れない。
+    pub fn set_live_tempo(&mut self, change: LiveTempoChange) -> Result<(), FastIpcError> {
+        validate_tempo_change(change)?;
+        let mut slot = zeroed_slot();
+        slot.kind = KIND_SET_LIVE_TEMPO;
+        slot.timeline_id = change.timeline_id;
+        slot.timeline_seconds_bits[0] = change.at_seconds.to_bits();
+        slot.tempo_bits = change.tempo_bpm.to_bits();
+        slot.time_signature_numerator = u32::from(change.time_signature_numerator);
+        slot.time_signature_denominator = u32::from(change.time_signature_denominator);
+        self.push(slot)
+    }
+
     pub fn send_timeline_events(
         &mut self,
         events: &[TimelineMidiEvent],

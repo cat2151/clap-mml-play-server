@@ -231,6 +231,67 @@ fn absolute_timeline_round_trip_preserves_f64_bits() {
 }
 
 #[test]
+fn live_tempo_changes_round_trip_and_reject_invalid_values() {
+    let port = test_port(10);
+    let mut server = FastMidiServer::create(port).unwrap();
+    let mut client = FastMidiClient::connect(port).unwrap();
+    // grid が1周する秒（BPM130 の 16 ステップ）。丸めずにビットのまま運ぶこと。
+    let at = 16.0 * 60.0 / 520.0;
+    let change = LiveTempoChange {
+        timeline_id: 42,
+        at_seconds: at,
+        tempo_bpm: 83.5,
+        time_signature_numerator: 3,
+        time_signature_denominator: 8,
+    };
+    client.set_live_tempo(change).unwrap();
+
+    let Some(FastMidiCommand::SetLiveTempo(received)) =
+        server.recv_timeout(Duration::from_secs(1)).unwrap()
+    else {
+        panic!("expected a live tempo change");
+    };
+    assert_eq!(received, change);
+    assert_eq!(received.at_seconds.to_bits(), at.to_bits());
+
+    for invalid in [
+        LiveTempoChange {
+            timeline_id: 0,
+            ..change
+        },
+        LiveTempoChange {
+            at_seconds: -1.0,
+            ..change
+        },
+        LiveTempoChange {
+            at_seconds: f64::NAN,
+            ..change
+        },
+        LiveTempoChange {
+            tempo_bpm: 0.0,
+            ..change
+        },
+        LiveTempoChange {
+            time_signature_denominator: 3,
+            ..change
+        },
+    ] {
+        assert!(
+            matches!(
+                client.set_live_tempo(invalid),
+                Err(FastIpcError::InvalidPayload(_))
+            ),
+            "{invalid:?} が通ってしまった"
+        );
+    }
+    // 弾いたものは1件も届いていない。
+    assert_eq!(
+        server.recv_timeout(Duration::from_millis(50)).unwrap(),
+        None
+    );
+}
+
+#[test]
 fn timing_metrics_are_published_as_one_snapshot() {
     let port = test_port(9);
     let server = FastMidiServer::create(port).unwrap();
