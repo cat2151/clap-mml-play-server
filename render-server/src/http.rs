@@ -10,6 +10,10 @@ use std::{
 };
 
 use anyhow::{Context as _, Result};
+
+mod content_type;
+
+use content_type::is_text_plain;
 const MAX_HEADER_BYTES: usize = 16 * 1024;
 const MAX_BODY_BYTES: usize = 1024 * 1024;
 const ACCEPT_POLL_INTERVAL: Duration = Duration::from_millis(50);
@@ -179,10 +183,7 @@ fn handle_connection(
         write_text_response(stream, StatusCode::NotFound, "not found")?;
         return Ok(());
     }
-    if !request
-        .header("content-type")
-        .is_some_and(content_type_is_text_plain)
-    {
+    if !request.header("content-type").is_some_and(is_text_plain) {
         write_text_response(
             stream,
             StatusCode::UnsupportedMediaType,
@@ -212,13 +213,6 @@ fn handle_connection(
         )?,
     }
     Ok(())
-}
-
-fn content_type_is_text_plain(value: &str) -> bool {
-    value
-        .split(';')
-        .next()
-        .is_some_and(|media_type| media_type.trim().eq_ignore_ascii_case("text/plain"))
 }
 
 #[derive(Debug)]

@@ -30,9 +30,9 @@ fn read_request_rejects_body_over_limit() {
 
 #[test]
 fn content_type_accepts_charset_suffix() {
-    assert!(content_type_is_text_plain("text/plain; charset=utf-8"));
-    assert!(content_type_is_text_plain("Text/Plain"));
-    assert!(!content_type_is_text_plain("application/json"));
+    assert!(is_text_plain("text/plain; charset=utf-8"));
+    assert!(is_text_plain("Text/Plain"));
+    assert!(!is_text_plain("application/json"));
 }
 
 #[test]

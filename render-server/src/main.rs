@@ -1,4 +1,5 @@
 mod http;
+mod lifetime_guard;
 
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -94,6 +95,7 @@ fn main() -> Result<()> {
 
     let shutdown = Arc::new(AtomicBool::new(false));
     install_shutdown_handler(Arc::clone(&shutdown))?;
+    lifetime_guard::install_if_requested(Arc::clone(&shutdown))?;
 
     run_render_server(
         cfg.offline_render_server_port,
