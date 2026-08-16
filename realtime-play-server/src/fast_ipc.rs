@@ -56,7 +56,48 @@ fn run_fast_midi_server(
     }
 }
 
+/// 受け取ったコマンドを 1 行で出す。
+///
+/// クライアント側のログは「送った」までしか書けない。音が止まらないときに
+/// 「そもそも届いていない」のか「届いたが効いていない」のかを切り分けるには、
+/// 受け口のここで届いた順に記録するしかない。
+fn log_received(command: &FastMidiCommand) {
+    match command {
+        FastMidiCommand::Midi { events } => {
+            let summary = events
+                .iter()
+                .map(|event| {
+                    format!(
+                        "i{}:{:02x}:{}:{}",
+                        event.instance_id, event.message[0], event.message[1], event.message[2]
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+            eprintln!(
+                "cmrt-ipc-recv: kind=midi count={} [{summary}]",
+                events.len()
+            );
+        }
+        FastMidiCommand::StopAll => eprintln!("cmrt-ipc-recv: kind=stop-all"),
+        FastMidiCommand::Stop { instance_id } => {
+            eprintln!("cmrt-ipc-recv: kind=stop instance={instance_id}")
+        }
+        FastMidiCommand::BeginLiveTimeline(config) => {
+            eprintln!(
+                "cmrt-ipc-recv: kind=begin-timeline id={}",
+                config.timeline_id
+            )
+        }
+        FastMidiCommand::TimelineMidi { events } => {
+            eprintln!("cmrt-ipc-recv: kind=timeline-midi count={}", events.len())
+        }
+        _ => {}
+    }
+}
+
 fn dispatch(command: FastMidiCommand, player: &dyn PlayerHandle, server: &FastMidiServer) {
+    log_received(&command);
     let result = match command {
         FastMidiCommand::Midi { events } => player.send_midi(events),
         FastMidiCommand::BeginLiveTimeline(config) => player.begin_live_timeline(config),

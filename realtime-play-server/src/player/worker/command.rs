@@ -44,6 +44,7 @@ pub(super) fn apply_command(context: CommandContext<'_>, command: PlayerCommand)
         }
         PlayerCommand::StopAll { generation } => {
             let _ = generation;
+            eprintln!("cmrt-live: event=apply-stop-all");
             reset_all(renderers);
             limiter.reset();
             limiter_meter.reset();
@@ -92,15 +93,25 @@ pub(super) fn apply_command(context: CommandContext<'_>, command: PlayerCommand)
                 generation: live_generation,
                 clock_samples,
                 instances,
+                timeline,
                 ..
             }) = playback_mode
             {
                 *live_generation = generation;
+                eprintln!(
+                    "cmrt-live: event=apply-midi enter_live={enter_live} count={} clock={} timeline={}",
+                    events.len(),
+                    *clock_samples,
+                    timeline.is_some()
+                );
                 for event in events {
                     let instance = &mut instances[usize::from(event.instance_id)];
                     instance.active = true;
                     enqueue_live_event(&mut instance.queue, *clock_samples, event);
                 }
+            } else {
+                // live モードに入れていない。生 MIDI はここで黙って捨てられる。
+                eprintln!("cmrt-live: event=apply-midi-dropped enter_live={enter_live}");
             }
         }
         PlayerCommand::BeginLiveTimeline { generation, config } => {

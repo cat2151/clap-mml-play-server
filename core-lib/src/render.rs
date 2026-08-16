@@ -1,5 +1,7 @@
 //! オフラインレンダリングループ
 
+mod silence;
+
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
@@ -153,7 +155,11 @@ impl RealtimeRenderer {
         Ok((renderer, timing))
     }
 
+    /// 鳴っている音を確実に止めてから、処理状態をリセットする。
+    ///
+    /// `reset()` だけでは音が止まらないので、先に全 note を切る（[`silence`] 参照）。
     pub fn reset(&mut self) {
+        self.silence_all_notes();
         if let Some(processor) = self.processor.as_mut() {
             processor.reset();
         }
