@@ -31,6 +31,23 @@ pub struct ProbeReport {
     pub result: PatchVoicing,
     pub ended_note_ids: Vec<u32>,
     pub blocks: u32,
+    /// probe を実行しなかったか。CLAP note dialect を広告しないプラグインでは
+    /// NOTE_END による判定が成立しないので probe を省き、`result` は既定値の
+    /// [`PatchVoicing::Poly`] になる（＝判定結果ではない）。
+    #[serde(default)]
+    pub skipped: bool,
+}
+
+impl ProbeReport {
+    /// probe を実行しなかったときの報告。
+    pub(crate) fn skipped() -> Self {
+        Self {
+            result: PatchVoicing::Poly,
+            ended_note_ids: Vec::new(),
+            blocks: 0,
+            skipped: true,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -282,12 +299,24 @@ mod tests {
     }
 
     #[test]
+    fn a_skipped_probe_is_reported_as_poly_without_claiming_a_measurement() {
+        let report = build_voicing_report(ProbeReport::skipped(), None, None);
+
+        assert_eq!(report.decision, PatchVoicing::Poly);
+        assert!(report.probe.skipped);
+        assert_eq!(report.probe.blocks, 0);
+        assert!(report.probe.ended_note_ids.is_empty());
+        assert!(!report.disagreement);
+    }
+
+    #[test]
     fn surge_poly_or_mixed_overrides_a_mono_probe() {
         let report = build_voicing_report(
             ProbeReport {
                 result: PatchVoicing::Mono,
                 ended_note_ids: vec![2],
                 blocks: 1,
+                skipped: false,
             },
             None,
             Some(SurgeParamsReport {

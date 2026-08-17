@@ -156,7 +156,7 @@ fn main() -> Result<()> {
     let realtime_cfg = RealtimeServerConfig::load()?;
     validate_realtime_play_server_config(&cfg, &realtime_cfg)?;
     timing::log_phase("config", config_started.elapsed());
-    apply_surge_data_home();
+    apply_surge_data_home(&cfg.plugin_path);
 
     let core_cfg = core_config_from_runtime(&cfg, &realtime_cfg);
     let player: Arc<dyn PlayerHandle> = Arc::new(RealtimePlayer::new(
@@ -176,9 +176,19 @@ fn main() -> Result<()> {
 ///
 /// 失敗しても環境変数を設定しないだけで、Surge の既定動作のまま起動できる。
 /// スレッドを spawn する前に呼ぶこと（`std::env::set_var` の制約）。
-fn apply_surge_data_home() {
+///
+/// Surge XT 以外のプラグイン（Dexed 等）では、探しても見つからない Surge データの
+/// 警告が出るだけなので実行しない。
+fn apply_surge_data_home(plugin_path: &str) {
     let started = Instant::now();
     let ms = |started: Instant| started.elapsed().as_millis();
+    if !cmrt_core::plugin_path_looks_like_surge(plugin_path) {
+        timing::log(&format!(
+            "phase=surge_data_home ms={} result=skipped detail=Surge XT 以外のプラグインのため不要 plugin_path={plugin_path}",
+            ms(started)
+        ));
+        return;
+    }
     match cmrt_core::apply_minimal_surge_data_home() {
         Ok(setup) => timing::log(&format!(
             "phase=surge_data_home ms={} result=ok rebuilt={} path={}",
@@ -199,10 +209,12 @@ fn run_voicing_probe(
     json: bool,
     expect: Option<ExpectedVoicing>,
 ) -> Result<()> {
-    apply_surge_data_home();
     let cfg = cmrt_runtime::Config::load()?;
     let realtime_cfg = RealtimeServerConfig::load()?;
     validate_realtime_play_server_config(&cfg, &realtime_cfg)?;
+    // `std::env::set_var` の制約でスレッド生成前に呼ぶ必要があるが、どのプラグインを
+    // 使うかは config を読むまで分からないので、config のロード直後に置く。
+    apply_surge_data_home(&cfg.plugin_path);
     let mut core_cfg = core_config_from_runtime(&cfg, &realtime_cfg);
     core_cfg.patch_path = None;
     let resolve_patch = |patch: &str| match (
@@ -217,7 +229,11 @@ fn run_voicing_probe(
     };
     let patch_path = resolve_patch(patch);
     let entry = cmrt_core::load_entry(&cfg.plugin_path)?;
-    let mut renderer = RealtimeRenderer::new(&core_cfg, &entry)?;
+    let descriptor = cmrt_core::select_descriptor(&entry)
+        .with_context(|| format!("plugin_path={}", cfg.plugin_path))?;
+    eprintln!("plugin: {}", descriptor.log_fields());
+    let mut renderer = RealtimeRenderer::new(&core_cfg, &entry)
+        .with_context(|| format!("plugin_path={}", cfg.plugin_path))?;
     if let Some(previous_patch) = previous_patch {
         renderer.set_patch(Some(&resolve_patch(previous_patch)))?;
         let _ = renderer.probe_voicing()?;

@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use anyhow::Context as _;
 use cmrt_core::{CoreConfig, RealtimeRenderer, RendererCreated};
 
 use crate::timing;
@@ -16,6 +17,14 @@ pub(super) fn create_live_renderers(
     let entry = cmrt_core::load_entry(plugin_path)?;
     timing::log_phase("load_entry", load_entry_started.elapsed());
 
+    // どのプラグインが選ばれたかは、設定ミスを診断する唯一の手掛かりになるので必ず出す。
+    let descriptor = cmrt_core::select_descriptor(&entry)
+        .with_context(|| format!("plugin_path={plugin_path}"))?;
+    timing::log(&format!(
+        "phase=plugin_descriptor {} plugin_path={plugin_path}",
+        descriptor.log_fields()
+    ));
+
     let instances_started = Instant::now();
     let threads = instance_build_threads(instance_count);
     let renderers = cmrt_core::create_renderers_parallel(
@@ -24,7 +33,8 @@ pub(super) fn create_live_renderers(
         instance_count,
         threads,
         &log_instance_created,
-    )?;
+    )
+    .with_context(|| format!("plugin_path={plugin_path}"))?;
     timing::log(&format!(
         "phase=instances_total ms={} count={instance_count} threads={threads}",
         instances_started.elapsed().as_millis(),

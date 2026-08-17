@@ -29,9 +29,12 @@ pub use pipeline::{
     PreparedRealtimePlay, RenderOptions, RenderPreroll,
 };
 pub use render::{
-    create_plugin_instance, create_renderers_parallel, LiveMidiEvent, RealtimePlaybackSchedule,
-    RealtimeRenderer, RendererCreated, RendererInitTiming,
+    create_plugin_instance, create_renderers_parallel, select_descriptor, LiveMidiEvent,
+    RealtimePlaybackSchedule, RealtimeRenderer, RendererCreated, RendererInitTiming,
+    SelectedDescriptor,
 };
-pub use surge_data::{apply_minimal_surge_data_home, MinimalSurgeDataHome};
+pub use surge_data::{
+    apply_minimal_surge_data_home, plugin_path_looks_like_surge, MinimalSurgeDataHome,
+};
 pub use voicing::{PatchVoicing, VoicingReport};
 pub use workspace_update::{check_workspace_update, run_workspace_update};

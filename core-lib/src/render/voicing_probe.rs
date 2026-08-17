@@ -17,24 +17,13 @@ fn next_probe_note_ids() -> [u32; 2] {
     [first, first + 1]
 }
 
-pub(super) fn first_plugin_id(entry: &PluginEntry) -> Result<String> {
-    let plugin_factory = entry
-        .get_plugin_factory()
-        .ok_or_else(|| anyhow::anyhow!("PluginFactory が見つからない"))?;
-    let plugin_descriptor = plugin_factory
-        .plugin_descriptors()
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("プラグインディスクリプタが見つからない"))?;
-    Ok(plugin_descriptor
-        .id()
-        .ok_or_else(|| anyhow::anyhow!("プラグインIDが見つからない"))?
-        .to_string_lossy()
-        .into_owned())
-}
-
 impl RealtimeRenderer {
     /// 現在のpatchへ2音のCLAP NoteOnを送り、NOTE_ENDによるvoice数判定を行う。
     /// 生成された音声は返さず、probe終了後にprocessorをresetする。
+    ///
+    /// CLAP note dialect を広告しないプラグイン（Dexed）では probe を実行しない。
+    /// MIDI event には note_id を載せられず NOTE_END が永久に返らないため、
+    /// 走らせても「判定できなかった」と「Poly と判定した」が区別できなくなる。
     pub fn probe_voicing(&mut self) -> Result<VoicingReport> {
         self.settle_patch_state()?;
         let (voice_info, surge) = read_plugin_diagnostics(
@@ -43,7 +32,11 @@ impl RealtimeRenderer {
                 .expect("plugin instance is always present while renderer is alive"),
             &self.plugin_id,
         );
-        let result = self.run_voicing_probe();
+        let result = if self.note_dialect == NoteEventDialect::Clap {
+            self.run_voicing_probe()
+        } else {
+            Ok(ProbeReport::skipped())
+        };
         self.reset();
         result.map(|probe| build_voicing_report(probe, voice_info, surge))
     }
@@ -97,6 +90,7 @@ impl RealtimeRenderer {
             },
             ended_note_ids,
             blocks,
+            skipped: false,
         })
     }
 

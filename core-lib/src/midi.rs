@@ -16,10 +16,32 @@ pub struct TimedMidiEvent {
     pub message: MidiEvent,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MidiEvent {
     NoteOn { channel: u8, key: u8, velocity: u8 },
     NoteOff { channel: u8, key: u8, velocity: u8 },
+}
+
+impl MidiEvent {
+    /// MIDI 1.0 の 3-byte short message へ変換する。
+    ///
+    /// note port の dialect が MIDI だけのプラグイン（Dexed 等）へ、
+    /// オフライン経路の note を渡すのに使う。
+    /// channel / key / velocity は CLAP の範囲へ切り詰める。
+    pub fn to_short_message(self) -> [u8; 3] {
+        match self {
+            MidiEvent::NoteOn {
+                channel,
+                key,
+                velocity,
+            } => [0x90 | (channel & 0x0F), key & 0x7F, velocity & 0x7F],
+            MidiEvent::NoteOff {
+                channel,
+                key,
+                velocity,
+            } => [0x80 | (channel & 0x0F), key & 0x7F, velocity & 0x7F],
+        }
+    }
 }
 
 /// tempo map の1区間（絶対秒）。

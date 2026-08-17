@@ -51,6 +51,24 @@ pub struct MinimalSurgeDataHome {
     pub rebuilt: bool,
 }
 
+/// この plugin path が Surge XT を指していそうか。
+///
+/// [`apply_minimal_surge_data_home`] は Surge XT 専用の最適化なので、他のプラグイン
+/// （Dexed 等）で起動したときに Surge のデータディレクトリを探して警告を出さないよう、
+/// 呼ぶ前にこれで振り分ける。
+///
+/// 判定はファイル名に `surge` を含むか（ASCII 大小無視）という粗いもの。
+/// `std::env::set_var` はスレッド生成前に呼ぶ必要があり、そのためには CLAP を
+/// ロードして descriptor を読む前に判定を終えていなければならないため、
+/// この段階では plugin path しか材料が無い。
+/// config の `plugin_id` が届いたら ID 一致による判定へ置き換えること。
+pub fn plugin_path_looks_like_surge(plugin_path: &str) -> bool {
+    Path::new(plugin_path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.to_ascii_lowercase().contains("surge"))
+}
+
 /// 最小データディレクトリを用意して `SURGE_DATA_HOME` へ設定する。
 ///
 /// `Err` は「最適化を諦めて Surge の既定動作に戻した」という意味しか持たない。

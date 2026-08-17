@@ -243,3 +243,70 @@ fn parse_smf_bytes_invalid_returns_error() {
     let result = parse_smf_playback(invalid, 44100.0);
     assert!(result.is_err());
 }
+
+#[test]
+fn short_messages_carry_the_status_nibble_of_the_event_kind() {
+    assert_eq!(
+        MidiEvent::NoteOn {
+            channel: 0,
+            key: 60,
+            velocity: 100,
+        }
+        .to_short_message(),
+        [0x90, 60, 100]
+    );
+    assert_eq!(
+        MidiEvent::NoteOff {
+            channel: 0,
+            key: 60,
+            velocity: 0,
+        }
+        .to_short_message(),
+        [0x80, 60, 0]
+    );
+}
+
+#[test]
+fn short_messages_keep_the_boundary_values_of_every_field() {
+    assert_eq!(
+        MidiEvent::NoteOn {
+            channel: 15,
+            key: 127,
+            velocity: 127,
+        }
+        .to_short_message(),
+        [0x9F, 127, 127]
+    );
+    assert_eq!(
+        MidiEvent::NoteOff {
+            channel: 15,
+            key: 0,
+            velocity: 0,
+        }
+        .to_short_message(),
+        [0x8F, 0, 0]
+    );
+}
+
+#[test]
+fn out_of_range_channels_and_data_bytes_are_masked() {
+    // channel 16 は 0 へ折り返す。data byte の最上位ビットは status と衝突するので落とす。
+    assert_eq!(
+        MidiEvent::NoteOn {
+            channel: 16,
+            key: 0xFF,
+            velocity: 0x80,
+        }
+        .to_short_message(),
+        [0x90, 0x7F, 0x00]
+    );
+    assert_eq!(
+        MidiEvent::NoteOff {
+            channel: 17,
+            key: 0x80,
+            velocity: 0xFF,
+        }
+        .to_short_message(),
+        [0x81, 0x00, 0x7F]
+    );
+}

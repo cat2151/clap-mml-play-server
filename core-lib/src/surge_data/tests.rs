@@ -272,3 +272,24 @@ fn already_applied_ignores_plain_data_home() {
         "目印のないディレクトリは元データとして扱うこと"
     );
 }
+
+#[test]
+fn surge_plugin_paths_are_recognized_regardless_of_case() {
+    assert!(plugin_path_looks_like_surge(
+        r"C:\Program Files\Common Files\CLAP\Surge Synth Team\Surge XT.clap"
+    ));
+    assert!(plugin_path_looks_like_surge("/usr/lib/clap/surge-xt.clap"));
+    assert!(plugin_path_looks_like_surge("SURGE XT.CLAP"));
+}
+
+#[test]
+fn other_plugin_paths_are_not_treated_as_surge() {
+    assert!(!plugin_path_looks_like_surge(
+        r"C:\Program Files\Common Files\CLAP\Dexed.clap"
+    ));
+    assert!(!plugin_path_looks_like_surge(""));
+    // ディレクトリ名だけが一致しても、プラグイン本体は Surge ではない。
+    assert!(!plugin_path_looks_like_surge(
+        r"C:\Surge Synth Team\Dexed.clap"
+    ));
+}

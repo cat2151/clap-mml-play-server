@@ -19,6 +19,9 @@ const RENDER_PREROLL_MS: u64 = 100;
 const REQUIRED_SAMPLE_RATE: f64 = 48_000.0;
 const BUILD_COMMIT_HASH: &str = env!("BUILD_COMMIT_HASH");
 
+/// 選ばれた plugin descriptor の起動ログを、worker 数によらず 1 度だけにする。
+static DESCRIPTOR_LOGGED: std::sync::Once = std::sync::Once::new();
+
 #[derive(Debug, PartialEq, Eq)]
 enum CliAction {
     Run,
@@ -84,10 +87,11 @@ fn main() -> Result<()> {
         }
     }
 
-    apply_surge_data_home();
-
     let cfg = Config::load()?;
     validate_render_server_config(&cfg)?;
+    // `std::env::set_var` の制約で worker スレッド生成前に呼ぶ必要があるが、どのプラグインを
+    // 使うかは config を読むまで分からないので、config のロード直後に置く。
+    apply_surge_data_home(&cfg.plugin_path);
     let core_cfg = core_config_from_runtime(&cfg);
     let plugin_path = cfg.plugin_path.clone();
     let sample_rate = core_cfg.sample_rate as u32;
@@ -104,6 +108,16 @@ fn main() -> Result<()> {
         move || {
             let core_cfg = core_cfg.clone();
             let entry = load_entry(&plugin_path)?;
+            // どのプラグインが選ばれたかは設定ミスを診断する唯一の手掛かりなので必ず出す。
+            // entry は worker ごとにロードするので、同じ行が並ばないよう 1 度だけにする。
+            let descriptor = cmrt_core::select_descriptor(&entry)
+                .with_context(|| format!("plugin_path={plugin_path}"))?;
+            DESCRIPTOR_LOGGED.call_once(|| {
+                eprintln!(
+                    "cmrt-render-server: plugin {} plugin_path={plugin_path}",
+                    descriptor.log_fields()
+                );
+            });
             Ok(move |mml: &str| {
                 let samples = mml_render_stateless_with_options(
                     mml,
@@ -121,7 +135,16 @@ fn main() -> Result<()> {
 ///
 /// 失敗しても環境変数を設定しないだけで、Surge の既定動作のまま起動できる。
 /// worker スレッドを spawn する前に呼ぶこと（`std::env::set_var` の制約）。
-fn apply_surge_data_home() {
+///
+/// Surge XT 以外のプラグイン（Dexed 等）では、探しても見つからない Surge データの
+/// 警告が出るだけなので実行しない。
+fn apply_surge_data_home(plugin_path: &str) {
+    if !cmrt_core::plugin_path_looks_like_surge(plugin_path) {
+        eprintln!(
+            "cmrt-render-server: surge_data_home skipped detail=Surge XT 以外のプラグインのため不要 plugin_path={plugin_path}"
+        );
+        return;
+    }
     match cmrt_core::apply_minimal_surge_data_home() {
         Ok(setup) => eprintln!(
             "cmrt-render-server: surge_data_home rebuilt={} path={}",
@@ -167,32 +190,21 @@ fn install_shutdown_handler(shutdown: Arc<AtomicBool>) -> Result<()> {
 mod tests {
     use super::*;
 
+    /// `Config` は別 repo（cmrt-runtime）の型なので、構造体リテラルで書くと
+    /// あちらでフィールドが 1 つ増えるだけでこのサーバーがビルド不能になる。
+    /// 増えるフィールドには serde default が付く決まりなので、TOML から作って追従不要にする。
     fn test_config() -> Config {
-        Config {
-            plugin_path: "plugin.clap".to_string(),
-            input_midi: "input.mid".to_string(),
-            output_midi: "output.mid".to_string(),
-            output_wav: "output.wav".to_string(),
-            sample_rate: REQUIRED_SAMPLE_RATE,
-            buffer_size: 512,
-            patches_dirs: None,
-            loop_dirs: Vec::new(),
-            loop_categories: cmrt_runtime::default_loop_categories(),
-            offline_render_workers: cmrt_runtime::DEFAULT_OFFLINE_RENDER_WORKERS,
-            offline_render_server_workers: cmrt_runtime::DEFAULT_OFFLINE_RENDER_SERVER_WORKERS,
-            offline_render_backend: cmrt_runtime::OfflineRenderBackend::InProcess,
-            offline_render_server_port: cmrt_runtime::DEFAULT_OFFLINE_RENDER_SERVER_PORT,
-            offline_render_server_command: String::new(),
-            realtime_audio_backend: cmrt_runtime::RealtimeAudioBackend::InProcess,
-            realtime_play_server_port: cmrt_runtime::DEFAULT_REALTIME_PLAY_SERVER_PORT,
-            realtime_play_server_command: String::new(),
-            realtime_play_server_prewarm: true,
-            autoplay_on_startup: true,
-            voicing_shared_source: String::new(),
-            voicing_override_source: String::new(),
-            chord_progression_source: String::new(),
-            chord_patch_categories: cmrt_runtime::default_chord_patch_categories(),
-        }
+        toml::from_str(
+            r#"
+plugin_path = "plugin.clap"
+input_midi = "input.mid"
+output_midi = "output.mid"
+output_wav = "output.wav"
+sample_rate = 48000
+buffer_size = 512
+"#,
+        )
+        .unwrap()
     }
 
     #[test]

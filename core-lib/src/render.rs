@@ -7,26 +7,32 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use clack_host::events::event_types::{MidiEvent as ClapMidiEvent, NoteOffEvent, NoteOnEvent};
 use clack_host::events::spaces::CoreEventSpace;
-use clack_host::events::{EventFlags, Match};
+use clack_host::events::EventFlags;
 use clack_host::prelude::*;
 use cmrt_clack_timeline::{process_block_timing, ProcessBlockTiming};
 use cmrt_timeline::{BlockSpan, FreeRunningTimeline, SamplePosition, SampleRate};
 
 use crate::host::MidiRenderHost;
-use crate::midi::MidiEvent;
 use crate::CoreConfig;
 
+mod descriptor;
 mod instance;
 mod offline;
 mod parallel;
 mod patch_state;
 mod playback;
+mod process_inputs;
 mod voicing_probe;
+use descriptor::{probe_capabilities, resolve_note_dialect, NoteEventDialect, PluginCapabilities};
 use instance::create_plugin_instance_without_patch;
 use patch_state::{load_patch, load_plugin_state, save_plugin_state};
-use voicing_probe::first_plugin_id;
+use process_inputs::{input_buffer, push_offline_note_event};
 
+pub use descriptor::{select_descriptor, SelectedDescriptor};
 pub use instance::create_plugin_instance;
+
+#[cfg(test)]
+mod tests;
 pub use offline::{render, render_to_memory};
 pub use parallel::{create_renderers_parallel, RendererCreated};
 pub use playback::RealtimePlaybackSchedule;
@@ -49,7 +55,12 @@ pub struct RealtimeRenderer {
     /// 現在ロードされているパッチのパス。None は初期 state。
     current_patch: Option<String>,
     plugin_id: String,
+    /// `activate()` の前に読んだプラグインの能力。port と event の組み立てはこれに従う。
+    capabilities: PluginCapabilities,
+    /// note event の方言。Surge XT は CLAP、Dexed は MIDI。
+    note_dialect: NoteEventDialect,
     buf_size: usize,
+    /// audio input port を持たないプラグイン（Dexed）では空のまま使わない。
     in_left: Vec<f32>,
     in_right: Vec<f32>,
     out_left: Vec<f32>,
@@ -70,7 +81,7 @@ pub struct RealtimeRenderer {
 /// ライブラリ側に持ち込まないよう、値を返すだけにしてある。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct RendererInitTiming {
-    /// `first_plugin_id()`（factory 取得 + descriptor 走査）。
+    /// `select_descriptor()`（factory 取得 + descriptor 走査）。
     pub plugin_id: Duration,
     /// CLAP の `create_plugin()` + `init()`。
     pub instantiate: Duration,
@@ -100,12 +111,16 @@ impl RealtimeRenderer {
         let mut timing = RendererInitTiming::default();
 
         let step = Instant::now();
-        let plugin_id = first_plugin_id(entry)?;
+        let descriptor = select_descriptor(entry)?;
         timing.plugin_id = step.elapsed();
 
         let step = Instant::now();
-        let mut plugin_instance = create_plugin_instance_without_patch(entry)?;
+        let mut plugin_instance = create_plugin_instance_without_patch(entry, &descriptor)?;
         timing.instantiate = step.elapsed();
+
+        // capability は `activate()` の前に main thread から読む（CLAP の規約）。
+        let capabilities = probe_capabilities(&mut plugin_instance, &descriptor)?;
+        let note_dialect = resolve_note_dialect(&capabilities, &descriptor)?;
 
         // パッチ未指定の再生で初期音色（Init Saw）へ戻せるよう、ロード前の state を取っておく。
         // state extension が無いプラグインでは None（set_patch(None) がエラーになるだけ）。
@@ -138,13 +153,18 @@ impl RealtimeRenderer {
             processor: Some(processor),
             init_state,
             current_patch: cfg.patch_path.clone(),
-            plugin_id,
+            plugin_id: descriptor.id,
+            capabilities,
+            note_dialect,
             buf_size: cfg.buffer_size,
-            in_left: vec![0.0; cfg.buffer_size],
-            in_right: vec![0.0; cfg.buffer_size],
+            in_left: input_buffer(&capabilities, cfg.buffer_size),
+            in_right: input_buffer(&capabilities, cfg.buffer_size),
             out_left: vec![0.0; cfg.buffer_size],
             out_right: vec![0.0; cfg.buffer_size],
-            input_ports: AudioPorts::with_capacity(2, 1),
+            input_ports: AudioPorts::with_capacity(
+                2 * capabilities.audio_input_ports as usize,
+                capabilities.audio_input_ports as usize,
+            ),
             output_ports: AudioPorts::with_capacity(2, 1),
             output_events_buf: EventBuffer::new(),
             process_cursor_samples: 0,
@@ -209,30 +229,7 @@ impl RealtimeRenderer {
         {
             let ev = &playback.events[playback.event_cursor];
             let offset = (ev.sample_pos.saturating_sub(playback.current_sample)) as u32;
-            match ev.message {
-                MidiEvent::NoteOn {
-                    channel,
-                    key,
-                    velocity,
-                } => {
-                    input_events_raw.push(&NoteOnEvent::new(
-                        offset,
-                        Pckn::new(0u16, channel as u16, key as u16, Match::All),
-                        velocity as f64 / 127.0,
-                    ));
-                }
-                MidiEvent::NoteOff {
-                    channel,
-                    key,
-                    velocity,
-                } => {
-                    input_events_raw.push(&NoteOffEvent::new(
-                        offset,
-                        Pckn::new(0u16, channel as u16, key as u16, Match::All),
-                        velocity as f64 / 127.0,
-                    ));
-                }
-            }
+            push_offline_note_event(&mut input_events_raw, offset, ev.message, self.note_dialect);
             playback.event_cursor += 1;
         }
 
@@ -343,16 +340,22 @@ impl RealtimeRenderer {
         let frame_len = frames as usize;
         self.out_left[..frame_len].fill(0.0);
         self.out_right[..frame_len].fill(0.0);
-        let in_l: &mut [f32] = &mut self.in_left[..frame_len];
-        let in_r: &mut [f32] = &mut self.in_right[..frame_len];
         let out_l: &mut [f32] = &mut self.out_left[..frame_len];
         let out_r: &mut [f32] = &mut self.out_right[..frame_len];
-        let input_audio = self.input_ports.with_input_buffers([AudioPortBuffer {
-            latency: 0,
-            channels: AudioPortBufferType::f32_input_only(
-                [in_l, in_r].into_iter().map(InputChannel::constant),
-            ),
-        }]);
+        // input port を持たないプラグインへは buffer を 1 本も渡さない。clack は port が
+        // 0 件なら input 側の frames を数えず、output 側の frames をブロック長に採用する。
+        let mut input_buffers = Vec::with_capacity(self.capabilities.audio_input_ports as usize);
+        if self.capabilities.audio_input_ports > 0 {
+            let in_l: &mut [f32] = &mut self.in_left[..frame_len];
+            let in_r: &mut [f32] = &mut self.in_right[..frame_len];
+            input_buffers.push(AudioPortBuffer {
+                latency: 0,
+                channels: AudioPortBufferType::f32_input_only(
+                    [in_l, in_r].into_iter().map(InputChannel::constant),
+                ),
+            });
+        }
+        let input_audio = self.input_ports.with_input_buffers(input_buffers);
         let mut output_audio = self.output_ports.with_output_buffers([AudioPortBuffer {
             latency: 0,
             channels: AudioPortBufferType::f32_output_only([out_l, out_r].into_iter()),
