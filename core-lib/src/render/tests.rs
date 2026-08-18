@@ -46,7 +46,7 @@ fn test_config() -> CoreConfig {
 fn probe_plugin(env: &str) -> (SelectedDescriptor, PluginCapabilities) {
     let path = plugin_path(env);
     let entry = load_entry(&path).unwrap();
-    let descriptor = select_descriptor(&entry).unwrap();
+    let descriptor = select_descriptor(&entry, None).unwrap();
     let mut plugin_instance = create_plugin_instance_without_patch(&entry, &descriptor).unwrap();
     let capabilities = probe_capabilities(&mut plugin_instance, &descriptor).unwrap();
     (descriptor, capabilities)

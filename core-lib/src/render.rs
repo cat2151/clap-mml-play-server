@@ -111,7 +111,7 @@ impl RealtimeRenderer {
         let mut timing = RendererInitTiming::default();
 
         let step = Instant::now();
-        let descriptor = select_descriptor(entry)?;
+        let descriptor = select_descriptor(entry, None)?;
         timing.plugin_id = step.elapsed();
 
         let step = Instant::now();

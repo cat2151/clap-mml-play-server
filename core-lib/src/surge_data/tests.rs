@@ -273,23 +273,38 @@ fn already_applied_ignores_plain_data_home() {
     );
 }
 
+/// config が plugin_id を持つなら、パスが何であれ ID だけで決まる。
 #[test]
-fn surge_plugin_paths_are_recognized_regardless_of_case() {
-    assert!(plugin_path_looks_like_surge(
+fn a_configured_plugin_id_decides_without_looking_at_the_path() {
+    assert!(plugin_is_surge(
+        Some(SURGE_XT_PLUGIN_ID),
+        r"D:\my\clap\whatever.clap"
+    ));
+    assert!(!plugin_is_surge(
+        Some("com.digital-suburban.dexed"),
         r"C:\Program Files\Common Files\CLAP\Surge Synth Team\Surge XT.clap"
     ));
-    assert!(plugin_path_looks_like_surge("/usr/lib/clap/surge-xt.clap"));
-    assert!(plugin_path_looks_like_surge("SURGE XT.CLAP"));
+}
+
+/// plugin_id を持たない config（active_plugin を書いていない既定の config）では、
+/// ファイル名からの推測へ落ちる。
+#[test]
+fn surge_plugin_paths_are_recognized_regardless_of_case() {
+    assert!(plugin_is_surge(
+        None,
+        r"C:\Program Files\Common Files\CLAP\Surge Synth Team\Surge XT.clap"
+    ));
+    assert!(plugin_is_surge(None, "/usr/lib/clap/surge-xt.clap"));
+    assert!(plugin_is_surge(None, "SURGE XT.CLAP"));
 }
 
 #[test]
 fn other_plugin_paths_are_not_treated_as_surge() {
-    assert!(!plugin_path_looks_like_surge(
+    assert!(!plugin_is_surge(
+        None,
         r"C:\Program Files\Common Files\CLAP\Dexed.clap"
     ));
-    assert!(!plugin_path_looks_like_surge(""));
+    assert!(!plugin_is_surge(None, ""));
     // ディレクトリ名だけが一致しても、プラグイン本体は Surge ではない。
-    assert!(!plugin_path_looks_like_surge(
-        r"C:\Surge Synth Team\Dexed.clap"
-    ));
+    assert!(!plugin_is_surge(None, r"C:\Surge Synth Team\Dexed.clap"));
 }

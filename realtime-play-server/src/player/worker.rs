@@ -48,6 +48,7 @@ pub(super) fn run_player_worker(
     output: WorkerOutput,
     core_cfg: CoreConfig,
     plugin_path: String,
+    plugin_id: Option<String>,
     live_instance_count: usize,
     init_tx: std::sync::mpsc::Sender<std::result::Result<(), String>>,
 ) {
@@ -60,7 +61,12 @@ pub(super) fn run_player_worker(
         producer: output_producer,
         consumer: output_consumer,
     } = output;
-    let mut renderers = match create_live_renderers(&core_cfg, &plugin_path, live_instance_count) {
+    let mut renderers = match create_live_renderers(
+        &core_cfg,
+        &plugin_path,
+        plugin_id.as_deref(),
+        live_instance_count,
+    ) {
         Ok(renderers) => renderers,
         Err(error) => {
             let _ = init_tx.send(Err(format!("{error:#}")));

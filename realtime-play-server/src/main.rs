@@ -156,12 +156,13 @@ fn main() -> Result<()> {
     let realtime_cfg = RealtimeServerConfig::load()?;
     validate_realtime_play_server_config(&cfg, &realtime_cfg)?;
     timing::log_phase("config", config_started.elapsed());
-    apply_surge_data_home(&cfg.plugin_path);
+    apply_surge_data_home(cfg.plugin_id.as_deref(), &cfg.plugin_path);
 
     let core_cfg = core_config_from_runtime(&cfg, &realtime_cfg);
     let player: Arc<dyn PlayerHandle> = Arc::new(RealtimePlayer::new(
         core_cfg,
         cfg.plugin_path.clone(),
+        cfg.plugin_id.clone(),
         RenderOptions::new().with_preroll_ms(RENDER_PREROLL_MS),
         realtime_cfg.live_instance_count,
     )?);
@@ -179,10 +180,10 @@ fn main() -> Result<()> {
 ///
 /// Surge XT 以外のプラグイン（Dexed 等）では、探しても見つからない Surge データの
 /// 警告が出るだけなので実行しない。
-fn apply_surge_data_home(plugin_path: &str) {
+fn apply_surge_data_home(plugin_id: Option<&str>, plugin_path: &str) {
     let started = Instant::now();
     let ms = |started: Instant| started.elapsed().as_millis();
-    if !cmrt_core::plugin_path_looks_like_surge(plugin_path) {
+    if !cmrt_core::plugin_is_surge(plugin_id, plugin_path) {
         timing::log(&format!(
             "phase=surge_data_home ms={} result=skipped detail=Surge XT 以外のプラグインのため不要 plugin_path={plugin_path}",
             ms(started)
@@ -214,7 +215,7 @@ fn run_voicing_probe(
     validate_realtime_play_server_config(&cfg, &realtime_cfg)?;
     // `std::env::set_var` の制約でスレッド生成前に呼ぶ必要があるが、どのプラグインを
     // 使うかは config を読むまで分からないので、config のロード直後に置く。
-    apply_surge_data_home(&cfg.plugin_path);
+    apply_surge_data_home(cfg.plugin_id.as_deref(), &cfg.plugin_path);
     let mut core_cfg = core_config_from_runtime(&cfg, &realtime_cfg);
     core_cfg.patch_path = None;
     let resolve_patch = |patch: &str| match (
@@ -229,7 +230,7 @@ fn run_voicing_probe(
     };
     let patch_path = resolve_patch(patch);
     let entry = cmrt_core::load_entry(&cfg.plugin_path)?;
-    let descriptor = cmrt_core::select_descriptor(&entry)
+    let descriptor = cmrt_core::select_descriptor(&entry, cfg.plugin_id.as_deref())
         .with_context(|| format!("plugin_path={}", cfg.plugin_path))?;
     eprintln!("plugin: {}", descriptor.log_fields());
     let mut renderer = RealtimeRenderer::new(&core_cfg, &entry)

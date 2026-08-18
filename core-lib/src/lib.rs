@@ -34,7 +34,7 @@ pub use render::{
     SelectedDescriptor,
 };
 pub use surge_data::{
-    apply_minimal_surge_data_home, plugin_path_looks_like_surge, MinimalSurgeDataHome,
+    apply_minimal_surge_data_home, plugin_is_surge, MinimalSurgeDataHome, SURGE_XT_PLUGIN_ID,
 };
 pub use voicing::{PatchVoicing, VoicingReport};
 pub use workspace_update::{check_workspace_update, run_workspace_update};

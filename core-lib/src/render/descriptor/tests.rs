@@ -22,14 +22,14 @@ fn capabilities(inputs: u32, outputs: u32, dialects: NoteDialects) -> PluginCapa
 
 #[test]
 fn no_descriptor_is_an_error() {
-    let error = choose_descriptor(Vec::new()).unwrap_err();
+    let error = choose_descriptor(Vec::new(), None).unwrap_err();
 
     assert!(error.to_string().contains("見つからない"));
 }
 
 #[test]
 fn a_single_descriptor_is_selected() {
-    let selected = choose_descriptor(vec![descriptor("com.digital-suburban.dexed")]).unwrap();
+    let selected = choose_descriptor(vec![descriptor("com.digital-suburban.dexed")], None).unwrap();
 
     assert_eq!(selected.id, "com.digital-suburban.dexed");
     assert_eq!(selected.version, "1.0.0");
@@ -37,17 +37,49 @@ fn a_single_descriptor_is_selected() {
 
 #[test]
 fn a_descriptor_without_an_id_is_an_error() {
-    let error = choose_descriptor(vec![descriptor("")]).unwrap_err();
+    let error = choose_descriptor(vec![descriptor("")], None).unwrap_err();
 
     assert!(error.to_string().contains("プラグインID"));
 }
 
 #[test]
 fn multiple_descriptors_report_every_id() {
-    let error = choose_descriptor(vec![
-        descriptor("org.surge-synth-team.surge-xt"),
-        descriptor("com.digital-suburban.dexed"),
-    ])
+    let error = choose_descriptor(
+        vec![
+            descriptor("org.surge-synth-team.surge-xt"),
+            descriptor("com.digital-suburban.dexed"),
+        ],
+        None,
+    )
+    .unwrap_err();
+
+    let message = error.to_string();
+    assert!(message.contains("org.surge-synth-team.surge-xt"));
+    assert!(message.contains("com.digital-suburban.dexed"));
+}
+
+/// config が `plugin_id` を書いていれば、descriptor が複数ある CLAP でも 1 件に決まる。
+#[test]
+fn an_expected_plugin_id_picks_its_descriptor_among_many() {
+    let selected = choose_descriptor(
+        vec![
+            descriptor("org.surge-synth-team.surge-xt"),
+            descriptor("com.digital-suburban.dexed"),
+        ],
+        Some("com.digital-suburban.dexed"),
+    )
+    .unwrap();
+
+    assert_eq!(selected.id, "com.digital-suburban.dexed");
+}
+
+/// config の指定ミスと CLAP の入れ替わりを切り分けられるよう、実際にあった ID を出す。
+#[test]
+fn an_expected_plugin_id_that_is_absent_reports_what_the_clap_has() {
+    let error = choose_descriptor(
+        vec![descriptor("com.digital-suburban.dexed")],
+        Some("org.surge-synth-team.surge-xt"),
+    )
     .unwrap_err();
 
     let message = error.to_string();

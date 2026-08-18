@@ -71,9 +71,16 @@ pub(super) enum NoteEventDialect {
 
 /// factory の descriptor を 1 件に決める。
 ///
-/// descriptor が 2 件以上ある CLAP は「どれを使うか」を決める材料が無いので受け付けない。
-/// Step 2 で config の `plugin_id` が届いたら、期待 ID との突き合わせをここへ足す。
-pub fn select_descriptor(entry: &PluginEntry) -> Result<SelectedDescriptor> {
+/// `expected_id` は config の `plugin_id`。`Some` ならその ID の descriptor を選ぶので、
+/// descriptor を複数持つ CLAP でも名指しで使える。ID が見つからなければ、config の
+/// 指定ミスと CLAP の入れ替わりを区別できるよう、実際にあった ID を並べてエラーにする。
+///
+/// `None`（config が `plugin_id` を書いていない）のときは、どれを使うか決める材料が
+/// 無いので descriptor が 1 件のときだけ受け付ける。
+pub fn select_descriptor(
+    entry: &PluginEntry,
+    expected_id: Option<&str>,
+) -> Result<SelectedDescriptor> {
     let plugin_factory = entry
         .get_plugin_factory()
         .ok_or_else(|| anyhow::anyhow!("PluginFactory が見つからない"))?;
@@ -86,7 +93,19 @@ pub fn select_descriptor(entry: &PluginEntry) -> Result<SelectedDescriptor> {
             version: cstr_to_string(descriptor.version()),
         })
         .collect::<Vec<_>>();
-    choose_descriptor(descriptors)
+    choose_descriptor(descriptors, expected_id)
+}
+
+/// エラー文へ並べる descriptor ID の一覧。1 件も無いときも読める形にする。
+fn describe_ids(descriptors: &[SelectedDescriptor]) -> String {
+    if descriptors.is_empty() {
+        return "(1件も無い)".to_string();
+    }
+    descriptors
+        .iter()
+        .map(|descriptor| descriptor.id.as_str())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn cstr_to_string(value: Option<&std::ffi::CStr>) -> String {
@@ -95,17 +114,28 @@ fn cstr_to_string(value: Option<&std::ffi::CStr>) -> String {
         .unwrap_or_default()
 }
 
-fn choose_descriptor(descriptors: Vec<SelectedDescriptor>) -> Result<SelectedDescriptor> {
-    if descriptors.len() > 1 {
-        let ids = descriptors
+fn choose_descriptor(
+    descriptors: Vec<SelectedDescriptor>,
+    expected_id: Option<&str>,
+) -> Result<SelectedDescriptor> {
+    if let Some(expected_id) = expected_id {
+        return descriptors
             .iter()
-            .map(|descriptor| descriptor.id.as_str())
-            .collect::<Vec<_>>()
-            .join(", ");
+            .find(|descriptor| descriptor.id == expected_id)
+            .cloned()
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "config の plugin_id = '{}' に一致するプラグインディスクリプタが無い (このCLAPが持つ descriptor ID: {})",
+                    expected_id,
+                    describe_ids(&descriptors)
+                )
+            });
+    }
+    if descriptors.len() > 1 {
         anyhow::bail!(
-            "プラグインディスクリプタが {} 件あり、どれを使うか決められない (descriptor ID: {})",
+            "プラグインディスクリプタが {} 件あり、どれを使うか決められない (descriptor ID: {}、config の plugin_id で1件を指定してください)",
             descriptors.len(),
-            ids
+            describe_ids(&descriptors)
         );
     }
     let selected = descriptors

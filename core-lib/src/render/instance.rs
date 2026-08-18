@@ -19,7 +19,10 @@ pub fn create_plugin_instance(
     cfg: &CoreConfig,
     entry: &PluginEntry,
 ) -> Result<PluginInstance<MidiRenderHost>> {
-    let descriptor = select_descriptor(entry)?;
+    // 期待 ID は `CoreConfig` に無いので渡せない（`CoreConfig` は clap-mml-render-tui の
+    // cmrt-runtime も構造体リテラルで組むため、フィールド追加が 2 repo 循環になる）。
+    // config の plugin_id 突き合わせはサーバー起動時の select_descriptor が担う。
+    let descriptor = select_descriptor(entry, None)?;
     let mut plugin_instance = create_plugin_instance_without_patch(entry, &descriptor)?;
 
     if let Some(ref patch) = cfg.patch_path {

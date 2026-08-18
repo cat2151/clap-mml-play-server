@@ -91,9 +91,10 @@ fn main() -> Result<()> {
     validate_render_server_config(&cfg)?;
     // `std::env::set_var` の制約で worker スレッド生成前に呼ぶ必要があるが、どのプラグインを
     // 使うかは config を読むまで分からないので、config のロード直後に置く。
-    apply_surge_data_home(&cfg.plugin_path);
+    apply_surge_data_home(cfg.plugin_id.as_deref(), &cfg.plugin_path);
     let core_cfg = core_config_from_runtime(&cfg);
     let plugin_path = cfg.plugin_path.clone();
+    let plugin_id = cfg.plugin_id.clone();
     let sample_rate = core_cfg.sample_rate as u32;
     let workers = cfg.offline_render_server_workers;
 
@@ -110,7 +111,7 @@ fn main() -> Result<()> {
             let entry = load_entry(&plugin_path)?;
             // どのプラグインが選ばれたかは設定ミスを診断する唯一の手掛かりなので必ず出す。
             // entry は worker ごとにロードするので、同じ行が並ばないよう 1 度だけにする。
-            let descriptor = cmrt_core::select_descriptor(&entry)
+            let descriptor = cmrt_core::select_descriptor(&entry, plugin_id.as_deref())
                 .with_context(|| format!("plugin_path={plugin_path}"))?;
             DESCRIPTOR_LOGGED.call_once(|| {
                 eprintln!(
@@ -138,8 +139,8 @@ fn main() -> Result<()> {
 ///
 /// Surge XT 以外のプラグイン（Dexed 等）では、探しても見つからない Surge データの
 /// 警告が出るだけなので実行しない。
-fn apply_surge_data_home(plugin_path: &str) {
-    if !cmrt_core::plugin_path_looks_like_surge(plugin_path) {
+fn apply_surge_data_home(plugin_id: Option<&str>, plugin_path: &str) {
+    if !cmrt_core::plugin_is_surge(plugin_id, plugin_path) {
         eprintln!(
             "cmrt-render-server: surge_data_home skipped detail=Surge XT 以外のプラグインのため不要 plugin_path={plugin_path}"
         );

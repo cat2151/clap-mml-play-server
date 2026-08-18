@@ -51,18 +51,33 @@ pub struct MinimalSurgeDataHome {
     pub rebuilt: bool,
 }
 
-/// この plugin path が Surge XT を指していそうか。
+/// Surge XT の CLAP plugin ID。組み込みプロファイルが config へ入れる値と同じ。
+pub const SURGE_XT_PLUGIN_ID: &str = "org.surge-synth-team.surge-xt";
+
+/// このプラグインが Surge XT か。
 ///
 /// [`apply_minimal_surge_data_home`] は Surge XT 専用の最適化なので、他のプラグイン
 /// （Dexed 等）で起動したときに Surge のデータディレクトリを探して警告を出さないよう、
 /// 呼ぶ前にこれで振り分ける。
 ///
-/// 判定はファイル名に `surge` を含むか（ASCII 大小無視）という粗いもの。
-/// `std::env::set_var` はスレッド生成前に呼ぶ必要があり、そのためには CLAP を
-/// ロードして descriptor を読む前に判定を終えていなければならないため、
-/// この段階では plugin path しか材料が無い。
-/// config の `plugin_id` が届いたら ID 一致による判定へ置き換えること。
-pub fn plugin_path_looks_like_surge(plugin_path: &str) -> bool {
+/// `plugin_id` は config の値（`plugins.*.plugin_id`）。あればそれだけで確実に決まる。
+/// 無いのは `active_plugin` を書いていない既定の config で、そのときだけ
+/// [`plugin_path_looks_like_surge`] のファイル名推測へ落とす。
+///
+/// `std::env::set_var` はスレッド生成前に呼ぶ必要があるため、CLAP をロードして
+/// descriptor を読んだ後の「本物の ID」はここでは使えない。材料は config だけ。
+pub fn plugin_is_surge(plugin_id: Option<&str>, plugin_path: &str) -> bool {
+    match plugin_id {
+        Some(plugin_id) => plugin_id == SURGE_XT_PLUGIN_ID,
+        None => plugin_path_looks_like_surge(plugin_path),
+    }
+}
+
+/// この plugin path が Surge XT を指していそうか。
+///
+/// 判定はファイル名に `surge` を含むか（ASCII 大小無視）という粗いもの。config が
+/// `plugin_id` を持たないときの最後の手段で、[`plugin_is_surge`] からだけ呼ぶ。
+fn plugin_path_looks_like_surge(plugin_path: &str) -> bool {
     Path::new(plugin_path)
         .file_name()
         .and_then(|name| name.to_str())

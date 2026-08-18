@@ -321,7 +321,7 @@ dependencies = [
 [[package]]
 name = "cmrt-core"
 version = "0.1.0"
-source = "git+https://github.com/cat2151/clap-mml-render-tui.git#d0bc6a50e9085be250cbac3d651643997cde96af"
+source = "git+https://github.com/cat2151/clap-mml-render-tui.git#bcc60a14a582dc18589796b42828f04e8dacbe41"
 dependencies = [
  "anyhow",
  "clack-host",
@@ -340,7 +340,7 @@ dependencies = [
 [[package]]
 name = "cmrt-runtime"
 version = "0.1.0"
-source = "git+https://github.com/cat2151/clap-mml-render-tui.git#d0bc6a50e9085be250cbac3d651643997cde96af"
+source = "git+https://github.com/cat2151/clap-mml-render-tui.git#bcc60a14a582dc18589796b42828f04e8dacbe41"
 dependencies = [
  "anyhow",
  "cmrt-core 0.1.0 (git+https://github.com/cat2151/clap-mml-render-tui.git)",
@@ -353,7 +353,7 @@ dependencies = [
 [[package]]
 name = "cmrt-surge-patches"
 version = "0.1.0"
-source = "git+https://github.com/cat2151/clap-mml-render-tui.git#d0bc6a50e9085be250cbac3d651643997cde96af"
+source = "git+https://github.com/cat2151/clap-mml-render-tui.git#bcc60a14a582dc18589796b42828f04e8dacbe41"
 dependencies = [
  "rand",
 ]
