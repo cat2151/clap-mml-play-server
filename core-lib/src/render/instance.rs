@@ -12,9 +12,15 @@ use clack_host::prelude::*;
 
 use super::descriptor::{select_descriptor, SelectedDescriptor};
 use super::patch_state::load_patch;
+use crate::dx7::is_cartridge_patch_path;
 use crate::host::{MidiRenderHost, MidiRenderHostShared};
 use crate::CoreConfig;
 
+/// `activate()` していない instance を作り、`.fxp` パッチだけロードして返す。
+///
+/// cartridge patch（Dexed）は SysEx event なので `process()` を通さないと送れない。
+/// ここでは扱えないため、黙って初期音色で返さずエラーにする。cartridge を使う経路は
+/// [`super::RealtimeRenderer`] を通すこと。
 pub fn create_plugin_instance(
     cfg: &CoreConfig,
     entry: &PluginEntry,
@@ -23,6 +29,11 @@ pub fn create_plugin_instance(
     let mut plugin_instance = create_plugin_instance_without_patch(entry, &descriptor)?;
 
     if let Some(ref patch) = cfg.patch_path {
+        if is_cartridge_patch_path(patch) {
+            anyhow::bail!(
+                "cartridge patch は activate 前にはロードできない '{patch}'（RealtimeRenderer を使うこと）"
+            );
+        }
         load_patch(&mut plugin_instance, patch)?;
     }
 

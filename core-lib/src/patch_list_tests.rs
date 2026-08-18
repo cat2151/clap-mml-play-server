@@ -104,3 +104,104 @@ fn collect_patches_missing_dir_returns_error() {
     let result = collect_patches("/nonexistent/path/that/does/not/exist");
     assert!(result.is_err());
 }
+
+#[test]
+fn collect_patches_expands_a_cartridge_into_thirty_two_programs() {
+    let tmp_dir = std::env::temp_dir().join("cmrt_test_collect_patches_cartridge");
+    let sub_dir = tmp_dir.join("SynprezFM");
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+    std::fs::create_dir_all(&sub_dir).unwrap();
+    let cartridge = sub_dir.join("SynprezFM_01.syx");
+    std::fs::write(
+        &cartridge,
+        crate::dx7::test_cartridge_bytes(&[(0, "Say Again."), (31, "LAST      ")]),
+    )
+    .unwrap();
+
+    let patches = collect_patches(tmp_dir.to_str().unwrap()).unwrap();
+
+    assert_eq!(patches.len(), 32);
+    assert_eq!(
+        to_relative(tmp_dir.to_str().unwrap(), &patches[0]),
+        "SynprezFM/SynprezFM_01.syx/00 Say Again."
+    );
+    assert_eq!(
+        to_relative(tmp_dir.to_str().unwrap(), &patches[31]),
+        "SynprezFM/SynprezFM_01.syx/31 LAST"
+    );
+    // cartridge ファイル自身は音色ではないので一覧に出さない。
+    assert!(!patches.iter().any(|path| path == &cartridge));
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn collect_patches_skips_a_broken_cartridge_but_keeps_the_rest() {
+    let tmp_dir = std::env::temp_dir().join("cmrt_test_collect_patches_broken_cartridge");
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+    std::fs::create_dir_all(&tmp_dir).unwrap();
+    std::fs::write(tmp_dir.join("broken.syx"), b"not a bulk dump").unwrap();
+    std::fs::write(
+        tmp_dir.join("good.syx"),
+        crate::dx7::test_cartridge_bytes(&[(0, "Init")]),
+    )
+    .unwrap();
+    std::fs::write(tmp_dir.join("surge.fxp"), b"dummy").unwrap();
+
+    let patches = collect_patches(tmp_dir.to_str().unwrap()).unwrap();
+
+    assert_eq!(patches.len(), 33);
+    assert!(patches.iter().any(|path| path.ends_with("surge.fxp")));
+    assert!(patches
+        .iter()
+        .all(|path| !path.to_string_lossy().contains("broken.syx")));
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn collect_patches_matches_the_extension_case_insensitively() {
+    let tmp_dir = std::env::temp_dir().join("cmrt_test_collect_patches_ext_case");
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+    std::fs::create_dir_all(&tmp_dir).unwrap();
+    std::fs::write(
+        tmp_dir.join("upper.SYX"),
+        crate::dx7::test_cartridge_bytes(&[(0, "Init")]),
+    )
+    .unwrap();
+    std::fs::write(tmp_dir.join("upper.FXP"), b"dummy").unwrap();
+
+    let patches = collect_patches(tmp_dir.to_str().unwrap()).unwrap();
+
+    assert_eq!(patches.len(), 33);
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+}
+
+/// 実物の cartridge が 1 件残らず読めること。合成 fixture では仕様の読み違いを検出できない。
+///
+/// ```text
+/// CMRT_TEST_DEXED_CARTRIDGES=C:\Users\...\DigitalSuburban\Dexed\Cartridges
+/// ```
+#[test]
+#[ignore = "実物の cartridge ディレクトリが要る"]
+fn installed_cartridges_all_parse() {
+    let Ok(dir) = std::env::var("CMRT_TEST_DEXED_CARTRIDGES") else {
+        panic!("CMRT_TEST_DEXED_CARTRIDGES が未設定");
+    };
+
+    let patches = collect_patches(&dir).unwrap();
+
+    assert!(
+        !patches.is_empty(),
+        "cartridge が 1 件も見つからない: {dir}"
+    );
+    assert_eq!(
+        patches.len() % 32,
+        0,
+        "読めなかった cartridge がある（stderr を見ること）: {} 件",
+        patches.len()
+    );
+    for patch in &patches {
+        let relative = to_relative(&dir, patch);
+        crate::dx7::parse_cartridge_patch_path(&relative)
+            .unwrap_or_else(|error| panic!("{relative}: {error:#}"));
+    }
+}

@@ -12,20 +12,23 @@ use clack_host::prelude::*;
 use cmrt_clack_timeline::{process_block_timing, ProcessBlockTiming};
 use cmrt_timeline::{BlockSpan, FreeRunningTimeline, SamplePosition, SampleRate};
 
+use crate::dx7::is_cartridge_patch_path;
 use crate::host::MidiRenderHost;
 use crate::CoreConfig;
 
+mod cartridge_patch;
 mod descriptor;
 mod instance;
 mod offline;
 mod parallel;
 mod patch_state;
+mod patch_switch;
 mod playback;
 mod process_inputs;
 mod voicing_probe;
 use descriptor::{probe_capabilities, resolve_note_dialect, NoteEventDialect, PluginCapabilities};
 use instance::create_plugin_instance_without_patch;
-use patch_state::{load_patch, load_plugin_state, save_plugin_state};
+use patch_state::{load_patch, save_plugin_state};
 use process_inputs::{input_buffer, push_offline_note_event};
 
 pub use descriptor::{select_descriptor, SelectedDescriptor};
@@ -53,7 +56,14 @@ pub struct RealtimeRenderer {
     /// パッチロード前の初期 state（Init Saw）。set_patch(None) で復元する。
     init_state: Option<Vec<u8>>,
     /// 現在ロードされているパッチのパス。None は初期 state。
+    /// 呼び出し側が要求した値をそのまま持つ（cartridge の正規化前）。
     current_patch: Option<String>,
+    /// プラグインへ送り済みの cartridge program（cartridge の path と 0-based index）。
+    /// `None` は「cartridge 由来の voice が載っていない」。
+    loaded_program: Option<(String, u8)>,
+    /// 直近に読んだ cartridge。同じ cartridge の別 program へ移るときの読み直しを省く
+    /// ためだけの cache で、プラグインの状態とは無関係。
+    cartridge_cache: Option<(String, crate::dx7::Dx7Cartridge)>,
     plugin_id: String,
     /// `activate()` の前に読んだプラグインの能力。port と event の組み立てはこれに従う。
     capabilities: PluginCapabilities,
@@ -128,7 +138,13 @@ impl RealtimeRenderer {
         let init_state = save_plugin_state(&mut plugin_instance).ok();
         timing.save_state = step.elapsed();
 
-        if let Some(ref patch) = cfg.patch_path {
+        // cartridge patch は event なので `activate()` 前には送れない。
+        // `start_processing()` のあと、下で `set_patch()` から送る。
+        let cartridge_patch = cfg
+            .patch_path
+            .as_deref()
+            .is_some_and(is_cartridge_patch_path);
+        if let (Some(patch), false) = (cfg.patch_path.as_deref(), cartridge_patch) {
             let step = Instant::now();
             load_patch(&mut plugin_instance, patch)?;
             timing.load_patch = step.elapsed();
@@ -148,11 +164,14 @@ impl RealtimeRenderer {
             .map_err(|e| anyhow::anyhow!("start_processing 失敗: {:?}", e))?;
         timing.start_processing = step.elapsed();
 
-        let renderer = Self {
+        let mut renderer = Self {
             plugin_instance: Some(plugin_instance),
             processor: Some(processor),
             init_state,
-            current_patch: cfg.patch_path.clone(),
+            // cartridge はまだ送っていないので、下の `set_patch()` を早期 return させない。
+            current_patch: (!cartridge_patch).then(|| cfg.patch_path.clone()).flatten(),
+            loaded_program: None,
+            cartridge_cache: None,
             plugin_id: descriptor.id,
             capabilities,
             note_dialect,
@@ -171,6 +190,11 @@ impl RealtimeRenderer {
             sample_rate: SampleRate::new(cfg.sample_rate)
                 .map_err(|error| anyhow::anyhow!(error))?,
         };
+        if cartridge_patch {
+            let step = Instant::now();
+            renderer.set_patch(cfg.patch_path.as_deref())?;
+            timing.load_patch = step.elapsed();
+        }
         timing.total = started.elapsed();
         Ok((renderer, timing))
     }
@@ -183,31 +207,6 @@ impl RealtimeRenderer {
         if let Some(processor) = self.processor.as_mut() {
             processor.reset();
         }
-    }
-
-    /// 再生前にパッチを切り替える。同一パッチなら何もしない。
-    /// `None` は生成直後にスナップショットした初期 state（Init Saw）へ戻す。
-    /// state のロードは main-thread 操作のため、process() と直列なスレッドから呼ぶこと。
-    pub fn set_patch(&mut self, patch: Option<&str>) -> Result<()> {
-        if self.current_patch.as_deref() == patch {
-            return Ok(());
-        }
-        let plugin_instance = self
-            .plugin_instance
-            .as_mut()
-            .expect("plugin instance is always present while renderer is alive");
-        match patch {
-            Some(path) => load_patch(plugin_instance, path)?,
-            None => {
-                let init_state = self.init_state.as_ref().ok_or_else(|| {
-                    anyhow::anyhow!("初期 state が未取得のため初期音色へ戻せない")
-                })?;
-                load_plugin_state(plugin_instance, init_state)
-                    .map_err(|e| anyhow::anyhow!("初期 state の復元に失敗: {}", e))?;
-            }
-        }
-        self.current_patch = patch.map(str::to_string);
-        Ok(())
     }
 
     pub fn render_next_chunk(

@@ -1,3 +1,4 @@
+pub mod dx7;
 pub mod host;
 pub mod midi;
 pub mod patch_list;
@@ -28,6 +29,11 @@ pub struct CoreConfig {
     pub random_patch: bool,
 }
 
+pub use dx7::{
+    cartridge_program_component, is_cartridge_patch_path, parse_cartridge_patch_path,
+    parse_dx7_cartridge, CartridgePatchPath, Dx7Cartridge, DX7_BULK_DUMP_LEN,
+    DX7_PROGRAMS_PER_CARTRIDGE,
+};
 pub use host::load_entry;
 pub use patch_list::{collect_patches, to_relative};
 pub use pipeline::{

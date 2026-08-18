@@ -294,3 +294,5 @@ fn offline_instance_creation_rejects_a_plugin_id_the_clap_does_not_have() {
     assert!(error.contains("com.example.not-installed"), "{error}");
     assert!(error.contains(DEXED_PLUGIN_ID), "{error}");
 }
+
+mod cartridge;
