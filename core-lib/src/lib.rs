@@ -45,9 +45,8 @@ pub use pipeline::{
     PreparedRealtimePlay, RenderOptions, RenderPreroll,
 };
 pub use render::{
-    create_plugin_instance, create_renderers_parallel, select_descriptor, LiveMidiEvent,
-    RealtimePlaybackSchedule, RealtimeRenderer, RendererCreated, RendererInitTiming,
-    SelectedDescriptor,
+    create_renderers_parallel, select_descriptor, LiveMidiEvent, RealtimePlaybackSchedule,
+    RealtimeRenderer, RendererCreated, RendererInitTiming, SelectedDescriptor,
 };
 pub use surge_data::{
     apply_minimal_surge_data_home, plugin_is_surge, MinimalSurgeDataHome, SURGE_XT_PLUGIN_ID,

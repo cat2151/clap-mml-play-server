@@ -32,7 +32,6 @@ use patch_state::{load_patch, save_plugin_state};
 use process_inputs::{input_buffer, push_offline_note_event};
 
 pub use descriptor::{select_descriptor, SelectedDescriptor};
-pub use instance::create_plugin_instance;
 
 #[cfg(test)]
 mod tests;

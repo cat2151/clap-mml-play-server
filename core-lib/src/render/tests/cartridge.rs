@@ -292,3 +292,69 @@ fn dexed_single_voice_sysex_sounds_like_the_program_change_reference() {
         );
     }
 }
+
+// ─── MonoMode（instance の設定であって program の属性ではない） ─────────────
+
+/// Dexed の parameter index 3。表示値は `MONO` / `POLY`。
+const DEXED_MONO_MODE_PARAM_INDEX: u32 = 3;
+
+/// `MonoMode` の現在値を表示文字列で読む。
+fn mono_mode_text(renderer: &mut RealtimeRenderer) -> String {
+    use clack_extensions::params::{ParamInfoBuffer, PluginParams};
+
+    let instance = renderer
+        .plugin_instance
+        .as_mut()
+        .expect("Dexed の instance が無い");
+    let extension = instance
+        .plugin_handle()
+        .get_extension::<PluginParams>()
+        .expect("Dexed が params 拡張を広告していない");
+    let mut buffer = ParamInfoBuffer::new();
+    let info = extension
+        .get_info(
+            &instance.plugin_handle(),
+            DEXED_MONO_MODE_PARAM_INDEX,
+            &mut buffer,
+        )
+        .expect("parameter index 3 が読めない");
+    let name = String::from_utf8_lossy(info.name).into_owned();
+    assert_eq!(name, "MonoMode", "parameter index 3 が MonoMode ではない");
+    let value = extension
+        .get_value(&instance.plugin_handle(), info.id)
+        .expect("MonoMode の値が読めない");
+    let mut text_buffer = [0_u8; 128];
+    let text = extension
+        .value_to_text(&instance.plugin_handle(), info.id, value, &mut text_buffer)
+        .expect("MonoMode の表示値が読めない");
+    String::from_utf8_lossy(text).trim().to_string()
+}
+
+/// Dexed の mono/poly は `MonoMode` ＝ instance の設定であって、cartridge program の
+/// 属性ではない。TUI 側が「Dexed の音色はすべて poly」として和音行の候補に出せるのは、
+/// この instance 設定が**既定で POLY** で、音色を選んでも変わらないからである。
+///
+/// つまりこのテストが落ちたら、TUI 側の voicing 判定（全 program を poly とみなす）
+/// の前提が崩れている。そのときは instance 生成時に MonoMode を POLY へ設定する
+/// 実装が要る。
+#[test]
+#[ignore]
+fn dexed_mono_mode_stays_poly_for_every_program() {
+    let (_entry, mut renderer) = dexed_renderer();
+    assert_eq!(mono_mode_text(&mut renderer), "POLY", "instance 生成直後");
+
+    let (first, second, other) = three_test_programs();
+    for patch in [&first, &second, &other] {
+        renderer.set_patch(Some(patch)).unwrap();
+        assert_eq!(
+            mono_mode_text(&mut renderer),
+            "POLY",
+            "program を選んだ後: {patch}"
+        );
+    }
+
+    // `set_patch(None)` は CLAP state load。ここで MONO へ戻るようだと、
+    // 音色指定の無い行だけ mono になってしまう。
+    renderer.set_patch(None).unwrap();
+    assert_eq!(mono_mode_text(&mut renderer), "POLY", "set_patch(None) 後");
+}
