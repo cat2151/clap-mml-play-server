@@ -8,6 +8,3 @@ members = [
     "timeline",
 ]
 resolver = "2"
-
-[patch."https://github.com/cat2151/clap-mml-play-server"]
-cmrt-core = { path = "core-lib" }

@@ -78,7 +78,6 @@ impl RealtimePlayer {
     pub(crate) fn new(
         core_cfg: CoreConfig,
         plugin_path: String,
-        plugin_id: Option<String>,
         render_options: RenderOptions,
         live_instance_count: usize,
     ) -> Result<Self> {
@@ -114,7 +113,6 @@ impl RealtimePlayer {
                     },
                     worker_core_cfg,
                     plugin_path,
-                    plugin_id,
                     live_instance_count,
                     init_tx,
                 );

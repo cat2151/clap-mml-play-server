@@ -7,8 +7,18 @@ pub mod surge_data;
 pub mod voicing;
 mod workspace_update;
 
-#[derive(Debug, Clone)]
+/// レンダリング 1 回ぶんの設定。
+///
+/// `Default` を derive してあるのは、テストの構造体リテラルが `..Default::default()` で
+/// 済むようにするため。フィールドを足しても別 repo（clap-mml-render-tui）のテストが
+/// 壊れなくなる。**本番のリテラル（各サーバーの `core_config_from_runtime` と
+/// TUI の `core_config_from_config`）では省略せず全フィールドを書くこと**。
+/// 省略すると、新しいフィールドの配線漏れがコンパイルエラーにならない。
+#[derive(Debug, Clone, Default)]
 pub struct CoreConfig {
+    /// config の `plugin_id`。descriptor を複数持つ CLAP で 1 件を名指しするために使う。
+    /// `None` なら descriptor が 1 件のときだけ受け付ける（[`render::select_descriptor`]）。
+    pub plugin_id: Option<String>,
     pub output_midi: String,
     pub output_wav: String,
     pub sample_rate: f64,

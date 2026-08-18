@@ -232,7 +232,7 @@ dependencies = [
  "anyhow",
  "clap",
  "cmrt-clack-timeline",
- "cmrt-core 0.1.0",
+ "cmrt-core",
  "cmrt-realtime-ipc",
  "cmrt-runtime",
  "cmrt-timeline",
@@ -249,7 +249,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "cmrt-core 0.1.0",
+ "cmrt-core",
  "cmrt-runtime",
  "ctrlc",
  "toml",
@@ -319,18 +319,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cmrt-core"
-version = "0.1.0"
-source = "git+https://github.com/cat2151/clap-mml-render-tui.git#bcc60a14a582dc18589796b42828f04e8dacbe41"
-dependencies = [
- "anyhow",
- "clack-host",
- "cmrt-core 0.1.0",
- "mmlabc-to-smf",
- "serde_json",
-]
-
-[[package]]
 name = "cmrt-realtime-ipc"
 version = "0.1.0"
 dependencies = [
@@ -340,10 +328,9 @@ dependencies = [
 [[package]]
 name = "cmrt-runtime"
 version = "0.1.0"
-source = "git+https://github.com/cat2151/clap-mml-render-tui.git#bcc60a14a582dc18589796b42828f04e8dacbe41"
+source = "git+https://github.com/cat2151/clap-mml-render-tui.git#ac4beebdc07880be18bbff8cd1c2010dd913eff2"
 dependencies = [
  "anyhow",
- "cmrt-core 0.1.0 (git+https://github.com/cat2151/clap-mml-render-tui.git)",
  "cmrt-surge-patches",
  "dirs",
  "serde",
@@ -353,7 +340,7 @@ dependencies = [
 [[package]]
 name = "cmrt-surge-patches"
 version = "0.1.0"
-source = "git+https://github.com/cat2151/clap-mml-render-tui.git#bcc60a14a582dc18589796b42828f04e8dacbe41"
+source = "git+https://github.com/cat2151/clap-mml-render-tui.git#ac4beebdc07880be18bbff8cd1c2010dd913eff2"
 dependencies = [
  "rand",
 ]

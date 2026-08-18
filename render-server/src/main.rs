@@ -94,7 +94,6 @@ fn main() -> Result<()> {
     apply_surge_data_home(cfg.plugin_id.as_deref(), &cfg.plugin_path);
     let core_cfg = core_config_from_runtime(&cfg);
     let plugin_path = cfg.plugin_path.clone();
-    let plugin_id = cfg.plugin_id.clone();
     let sample_rate = core_cfg.sample_rate as u32;
     let workers = cfg.offline_render_server_workers;
 
@@ -111,7 +110,9 @@ fn main() -> Result<()> {
             let entry = load_entry(&plugin_path)?;
             // どのプラグインが選ばれたかは設定ミスを診断する唯一の手掛かりなので必ず出す。
             // entry は worker ごとにロードするので、同じ行が並ばないよう 1 度だけにする。
-            let descriptor = cmrt_core::select_descriptor(&entry, plugin_id.as_deref())
+            // レンダリング側も同じ `core_cfg.plugin_id` で descriptor を選ぶので、
+            // このログと実際に鳴るプラグインは必ず一致する。
+            let descriptor = cmrt_core::select_descriptor(&entry, core_cfg.plugin_id.as_deref())
                 .with_context(|| format!("plugin_path={plugin_path}"))?;
             DESCRIPTOR_LOGGED.call_once(|| {
                 eprintln!(
@@ -170,6 +171,7 @@ fn validate_render_server_config(cfg: &Config) -> Result<()> {
 
 fn core_config_from_runtime(cfg: &Config) -> CoreConfig {
     CoreConfig {
+        plugin_id: cfg.plugin_id.clone(),
         output_midi: cfg.output_midi.clone(),
         output_wav: cfg.output_wav.clone(),
         sample_rate: cfg.sample_rate,
@@ -270,6 +272,28 @@ buffer_size = 512
         assert_eq!(core_cfg.buffer_size, 512);
         assert_eq!(core_cfg.patches_dir.as_deref(), Some("/tmp/surge-data"));
         assert!(!core_cfg.random_patch);
+    }
+
+    /// `plugin_id` を CoreConfig まで運べないと、descriptor を複数持つ CLAP で
+    /// 起動ログとレンダリング側の descriptor 選択が食い違う。
+    #[test]
+    fn core_config_from_runtime_carries_plugin_id() {
+        let mut cfg = test_config();
+        cfg.plugin_id = Some("com.digital-suburban.dexed".to_string());
+
+        let core_cfg = core_config_from_runtime(&cfg);
+
+        assert_eq!(
+            core_cfg.plugin_id.as_deref(),
+            Some("com.digital-suburban.dexed")
+        );
+    }
+
+    #[test]
+    fn core_config_from_runtime_leaves_plugin_id_unset_when_config_omits_it() {
+        let core_cfg = core_config_from_runtime(&test_config());
+
+        assert_eq!(core_cfg.plugin_id, None);
     }
 
     #[test]

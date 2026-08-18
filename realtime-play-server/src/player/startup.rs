@@ -11,7 +11,6 @@ const BUILD_THREADS_ENV: &str = "CMRT_INSTANCE_BUILD_THREADS";
 pub(super) fn create_live_renderers(
     core_cfg: &CoreConfig,
     plugin_path: &str,
-    expected_plugin_id: Option<&str>,
     instance_count: usize,
 ) -> anyhow::Result<Vec<RealtimeRenderer>> {
     let load_entry_started = Instant::now();
@@ -19,7 +18,9 @@ pub(super) fn create_live_renderers(
     timing::log_phase("load_entry", load_entry_started.elapsed());
 
     // どのプラグインが選ばれたかは、設定ミスを診断する唯一の手掛かりになるので必ず出す。
-    let descriptor = cmrt_core::select_descriptor(&entry, expected_plugin_id)
+    // instance 生成側（`create_renderers_parallel`）も同じ `core_cfg.plugin_id` で
+    // descriptor を選ぶので、ここのログと実際に鳴るプラグインは必ず一致する。
+    let descriptor = cmrt_core::select_descriptor(&entry, core_cfg.plugin_id.as_deref())
         .with_context(|| format!("plugin_path={plugin_path}"))?;
     timing::log(&format!(
         "phase=plugin_descriptor {} plugin_path={plugin_path}",

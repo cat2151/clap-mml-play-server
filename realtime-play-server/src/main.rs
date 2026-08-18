@@ -162,7 +162,6 @@ fn main() -> Result<()> {
     let player: Arc<dyn PlayerHandle> = Arc::new(RealtimePlayer::new(
         core_cfg,
         cfg.plugin_path.clone(),
-        cfg.plugin_id.clone(),
         RenderOptions::new().with_preroll_ms(RENDER_PREROLL_MS),
         realtime_cfg.live_instance_count,
     )?);
@@ -230,7 +229,8 @@ fn run_voicing_probe(
     };
     let patch_path = resolve_patch(patch);
     let entry = cmrt_core::load_entry(&cfg.plugin_path)?;
-    let descriptor = cmrt_core::select_descriptor(&entry, cfg.plugin_id.as_deref())
+    // 下の `RealtimeRenderer::new` も同じ `core_cfg.plugin_id` で descriptor を選ぶ。
+    let descriptor = cmrt_core::select_descriptor(&entry, core_cfg.plugin_id.as_deref())
         .with_context(|| format!("plugin_path={}", cfg.plugin_path))?;
     eprintln!("plugin: {}", descriptor.log_fields());
     let mut renderer = RealtimeRenderer::new(&core_cfg, &entry)

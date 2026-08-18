@@ -109,6 +109,7 @@ pub(crate) fn core_config_from_runtime(
     realtime_cfg: &RealtimeServerConfig,
 ) -> CoreConfig {
     CoreConfig {
+        plugin_id: cfg.plugin_id.clone(),
         output_midi: cfg.output_midi.clone(),
         output_wav: cfg.output_wav.clone(),
         sample_rate: cfg.sample_rate,
@@ -195,6 +196,49 @@ patch_path = "   "
         for value in ["0", "3", "5", "17", "33", "64", "not-a-number"] {
             assert!(parse_live_instance_count(value).is_err(), "{value}");
         }
+    }
+
+    /// `Config` は別 repo（cmrt-runtime）の型なので、構造体リテラルで書くと
+    /// あちらでフィールドが 1 つ増えるだけでこのサーバーがビルド不能になる。
+    /// 増えるフィールドには serde default が付く決まりなので、TOML から作って追従不要にする。
+    fn runtime_config(extra: &str) -> cmrt_runtime::Config {
+        let base = r#"
+plugin_path = "plugin.clap"
+input_midi = "input.mid"
+output_midi = "output.mid"
+output_wav = "output.wav"
+sample_rate = 48000
+buffer_size = 512
+"#;
+        toml::from_str(&format!("{base}{extra}")).unwrap()
+    }
+
+    /// `plugin_id` を CoreConfig まで運べないと、descriptor を複数持つ CLAP で
+    /// 起動ログとライブ instance の descriptor 選択が食い違う。
+    #[test]
+    fn core_config_from_runtime_carries_plugin_id() {
+        let cfg = runtime_config(
+            "plugin_id = \"com.digital-suburban.dexed\"
+",
+        );
+        let realtime_cfg = RealtimeServerConfig::from_toml_str("").unwrap();
+
+        let core_cfg = core_config_from_runtime(&cfg, &realtime_cfg);
+
+        assert_eq!(
+            core_cfg.plugin_id.as_deref(),
+            Some("com.digital-suburban.dexed")
+        );
+    }
+
+    #[test]
+    fn core_config_from_runtime_leaves_plugin_id_unset_when_config_omits_it() {
+        let cfg = runtime_config("");
+        let realtime_cfg = RealtimeServerConfig::from_toml_str("").unwrap();
+
+        let core_cfg = core_config_from_runtime(&cfg, &realtime_cfg);
+
+        assert_eq!(core_cfg.plugin_id, None);
     }
 
     /// 共有メモリプロトコルが表現できない数を設定で許してしまうと、

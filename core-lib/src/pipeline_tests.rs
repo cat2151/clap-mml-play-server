@@ -182,6 +182,7 @@ fn prepare_render_inputs_applies_configured_preroll() {
         patch_path: None,
         patches_dir: None,
         random_patch: false,
+        ..Default::default()
     };
 
     let prepared = prepare_render_inputs(
@@ -209,6 +210,7 @@ fn prepare_render_inputs_rejects_invalid_smf_bytes() {
         patch_path: None,
         patches_dir: None,
         random_patch: false,
+        ..Default::default()
     };
 
     let result = prepare_render_inputs(b"not a midi file", config, RenderOptions::default());
