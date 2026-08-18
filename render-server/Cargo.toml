@@ -10,8 +10,8 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
-cmrt-runtime = { git = "https://github.com/cat2151/clap-mml-render-tui.git", package = "cmrt-runtime" }
 cmrt-core = { path = "../core-lib" }
+cmrt-server-config = { path = "../server-config" }
 ctrlc = "3"
 
 [dev-dependencies]

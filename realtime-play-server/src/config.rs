@@ -1,8 +1,8 @@
 use anyhow::{Context as _, Result};
 use cmrt_core::CoreConfig;
+use cmrt_server_config::{ServerConfig, DEFAULT_REALTIME_PLAY_SERVER_PORT};
 use serde::Deserialize;
 
-pub(crate) const DEFAULT_REALTIME_PLAY_SERVER_PORT: u16 = 62154;
 pub(crate) const DEFAULT_LIVE_INSTANCE_COUNT: usize = 16;
 pub(crate) const LIVE_INSTANCE_COUNT_ENV: &str = "CMRT_LIVE_INSTANCE_COUNT";
 /// grid sequencer の chord mode は N トラックを 2 bank（= 2N instance）へ割り当てるため、
@@ -31,7 +31,7 @@ struct RealtimeOverlayToml {
 
 impl RealtimeServerConfig {
     pub(crate) fn load() -> Result<Self> {
-        let path = cmrt_runtime::config_file_path().ok_or_else(|| {
+        let path = cmrt_server_config::config_file_path().ok_or_else(|| {
             anyhow::anyhow!(
                 "システムの設定ディレクトリが取得できません。HOME 環境変数などを確認してください。"
             )
@@ -92,7 +92,7 @@ fn parse_live_instance_count(value: &str) -> Result<usize> {
 }
 
 pub(crate) fn validate_realtime_play_server_config(
-    cfg: &cmrt_runtime::Config,
+    cfg: &ServerConfig,
     realtime_cfg: &RealtimeServerConfig,
 ) -> Result<()> {
     if cfg.plugin_path.trim().is_empty() {
@@ -104,8 +104,8 @@ pub(crate) fn validate_realtime_play_server_config(
     realtime_cfg.validate()
 }
 
-pub(crate) fn core_config_from_runtime(
-    cfg: &cmrt_runtime::Config,
+pub(crate) fn core_config_from_server_config(
+    cfg: &ServerConfig,
     realtime_cfg: &RealtimeServerConfig,
 ) -> CoreConfig {
     CoreConfig {
@@ -115,7 +115,7 @@ pub(crate) fn core_config_from_runtime(
         sample_rate: cfg.sample_rate,
         buffer_size: cfg.buffer_size,
         patch_path: realtime_cfg.patch_path.clone(),
-        patches_dir: cmrt_runtime::core_config_patch_root_dir(cfg),
+        patches_dir: cfg.patch_root_dir(),
         random_patch: false,
     }
 }
@@ -198,32 +198,30 @@ patch_path = "   "
         }
     }
 
-    /// `Config` は別 repo（cmrt-runtime）の型なので、構造体リテラルで書くと
-    /// あちらでフィールドが 1 つ増えるだけでこのサーバーがビルド不能になる。
-    /// 増えるフィールドには serde default が付く決まりなので、TOML から作って追従不要にする。
-    fn runtime_config(extra: &str) -> cmrt_runtime::Config {
+    /// `ServerConfig` は増えるフィールドに serde default を付ける決まりなので、
+    /// 構造体リテラルではなく TOML から作って項目追加への追従を不要にする。
+    fn server_config(extra: &str) -> ServerConfig {
         let base = r#"
 plugin_path = "plugin.clap"
-input_midi = "input.mid"
 output_midi = "output.mid"
 output_wav = "output.wav"
 sample_rate = 48000
 buffer_size = 512
 "#;
-        toml::from_str(&format!("{base}{extra}")).unwrap()
+        ServerConfig::from_toml_str(&format!("{base}{extra}")).unwrap()
     }
 
     /// `plugin_id` を CoreConfig まで運べないと、descriptor を複数持つ CLAP で
     /// 起動ログとライブ instance の descriptor 選択が食い違う。
     #[test]
-    fn core_config_from_runtime_carries_plugin_id() {
-        let cfg = runtime_config(
+    fn core_config_from_server_config_carries_plugin_id() {
+        let cfg = server_config(
             "plugin_id = \"com.digital-suburban.dexed\"
 ",
         );
         let realtime_cfg = RealtimeServerConfig::from_toml_str("").unwrap();
 
-        let core_cfg = core_config_from_runtime(&cfg, &realtime_cfg);
+        let core_cfg = core_config_from_server_config(&cfg, &realtime_cfg);
 
         assert_eq!(
             core_cfg.plugin_id.as_deref(),
@@ -232,11 +230,11 @@ buffer_size = 512
     }
 
     #[test]
-    fn core_config_from_runtime_leaves_plugin_id_unset_when_config_omits_it() {
-        let cfg = runtime_config("");
+    fn core_config_from_server_config_leaves_plugin_id_unset_when_config_omits_it() {
+        let cfg = server_config("");
         let realtime_cfg = RealtimeServerConfig::from_toml_str("").unwrap();
 
-        let core_cfg = core_config_from_runtime(&cfg, &realtime_cfg);
+        let core_cfg = core_config_from_server_config(&cfg, &realtime_cfg);
 
         assert_eq!(core_cfg.plugin_id, None);
     }

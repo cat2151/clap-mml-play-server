@@ -4,6 +4,7 @@ members = [
     "core-lib",
     "realtime-ipc",
     "render-server",
+    "server-config",
     "realtime-play-server",
     "timeline",
 ]

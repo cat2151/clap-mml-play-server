@@ -18,7 +18,7 @@ use cmrt_core::{
     check_workspace_update, run_workspace_update, PatchVoicing, RealtimeRenderer, RenderOptions,
 };
 use config::{
-    core_config_from_runtime, validate_realtime_play_server_config, RealtimeServerConfig,
+    core_config_from_server_config, validate_realtime_play_server_config, RealtimeServerConfig,
 };
 use http::run_realtime_play_server;
 use player::{PlayerHandle, RealtimePlayer};
@@ -152,13 +152,13 @@ fn main() -> Result<()> {
     }
 
     let config_started = Instant::now();
-    let cfg = cmrt_runtime::Config::load()?;
+    let cfg = cmrt_server_config::ServerConfig::load()?;
     let realtime_cfg = RealtimeServerConfig::load()?;
     validate_realtime_play_server_config(&cfg, &realtime_cfg)?;
     timing::log_phase("config", config_started.elapsed());
     apply_surge_data_home(cfg.plugin_id.as_deref(), &cfg.plugin_path);
 
-    let core_cfg = core_config_from_runtime(&cfg, &realtime_cfg);
+    let core_cfg = core_config_from_server_config(&cfg, &realtime_cfg);
     let player: Arc<dyn PlayerHandle> = Arc::new(RealtimePlayer::new(
         core_cfg,
         cfg.plugin_path.clone(),
@@ -209,13 +209,13 @@ fn run_voicing_probe(
     json: bool,
     expect: Option<ExpectedVoicing>,
 ) -> Result<()> {
-    let cfg = cmrt_runtime::Config::load()?;
+    let cfg = cmrt_server_config::ServerConfig::load()?;
     let realtime_cfg = RealtimeServerConfig::load()?;
     validate_realtime_play_server_config(&cfg, &realtime_cfg)?;
     // `std::env::set_var` の制約でスレッド生成前に呼ぶ必要があるが、どのプラグインを
     // 使うかは config を読むまで分からないので、config のロード直後に置く。
     apply_surge_data_home(cfg.plugin_id.as_deref(), &cfg.plugin_path);
-    let mut core_cfg = core_config_from_runtime(&cfg, &realtime_cfg);
+    let mut core_cfg = core_config_from_server_config(&cfg, &realtime_cfg);
     core_cfg.patch_path = None;
     let resolve_patch = |patch: &str| match (
         &core_cfg.patches_dir,

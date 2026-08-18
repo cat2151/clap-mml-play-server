@@ -234,7 +234,7 @@ dependencies = [
  "cmrt-clack-timeline",
  "cmrt-core",
  "cmrt-realtime-ipc",
- "cmrt-runtime",
+ "cmrt-server-config",
  "cmrt-timeline",
  "cpal",
  "ctrlc",
@@ -250,7 +250,7 @@ dependencies = [
  "anyhow",
  "clap",
  "cmrt-core",
- "cmrt-runtime",
+ "cmrt-server-config",
  "ctrlc",
  "toml",
 ]
@@ -326,23 +326,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "cmrt-runtime"
+name = "cmrt-server-config"
 version = "0.1.0"
-source = "git+https://github.com/cat2151/clap-mml-render-tui.git#ac4beebdc07880be18bbff8cd1c2010dd913eff2"
 dependencies = [
  "anyhow",
- "cmrt-surge-patches",
  "dirs",
  "serde",
  "toml",
-]
-
-[[package]]
-name = "cmrt-surge-patches"
-version = "0.1.0"
-source = "git+https://github.com/cat2151/clap-mml-render-tui.git#ac4beebdc07880be18bbff8cd1c2010dd913eff2"
-dependencies = [
- "rand",
 ]
 
 [[package]]

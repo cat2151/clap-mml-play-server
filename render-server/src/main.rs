@@ -12,7 +12,7 @@ use cmrt_core::{
     check_workspace_update, encode_wav_i16, load_entry, mml_render_stateless_with_options,
     run_workspace_update, CoreConfig, RenderOptions,
 };
-use cmrt_runtime::Config;
+use cmrt_server_config::ServerConfig;
 use http::run_render_server;
 
 const RENDER_PREROLL_MS: u64 = 100;
@@ -87,12 +87,12 @@ fn main() -> Result<()> {
         }
     }
 
-    let cfg = Config::load()?;
+    let cfg = ServerConfig::load()?;
     validate_render_server_config(&cfg)?;
     // `std::env::set_var` の制約で worker スレッド生成前に呼ぶ必要があるが、どのプラグインを
     // 使うかは config を読むまで分からないので、config のロード直後に置く。
     apply_surge_data_home(cfg.plugin_id.as_deref(), &cfg.plugin_path);
-    let core_cfg = core_config_from_runtime(&cfg);
+    let core_cfg = core_config_from_server_config(&cfg);
     let plugin_path = cfg.plugin_path.clone();
     let sample_rate = core_cfg.sample_rate as u32;
     let workers = cfg.offline_render_server_workers;
@@ -159,7 +159,7 @@ fn apply_surge_data_home(plugin_id: Option<&str>, plugin_path: &str) {
     }
 }
 
-fn validate_render_server_config(cfg: &Config) -> Result<()> {
+fn validate_render_server_config(cfg: &ServerConfig) -> Result<()> {
     if cfg.plugin_path.trim().is_empty() {
         anyhow::bail!("plugin_path が空です");
     }
@@ -169,7 +169,7 @@ fn validate_render_server_config(cfg: &Config) -> Result<()> {
     Ok(())
 }
 
-fn core_config_from_runtime(cfg: &Config) -> CoreConfig {
+fn core_config_from_server_config(cfg: &ServerConfig) -> CoreConfig {
     CoreConfig {
         plugin_id: cfg.plugin_id.clone(),
         output_midi: cfg.output_midi.clone(),
@@ -177,7 +177,7 @@ fn core_config_from_runtime(cfg: &Config) -> CoreConfig {
         sample_rate: cfg.sample_rate,
         buffer_size: cfg.buffer_size,
         patch_path: None,
-        patches_dir: cmrt_runtime::core_config_patch_root_dir(cfg),
+        patches_dir: cfg.patch_root_dir(),
         random_patch: false,
     }
 }
@@ -193,14 +193,12 @@ fn install_shutdown_handler(shutdown: Arc<AtomicBool>) -> Result<()> {
 mod tests {
     use super::*;
 
-    /// `Config` は別 repo（cmrt-runtime）の型なので、構造体リテラルで書くと
-    /// あちらでフィールドが 1 つ増えるだけでこのサーバーがビルド不能になる。
-    /// 増えるフィールドには serde default が付く決まりなので、TOML から作って追従不要にする。
-    fn test_config() -> Config {
-        toml::from_str(
+    /// `ServerConfig` は増えるフィールドに serde default を付ける決まりなので、
+    /// 構造体リテラルではなく TOML から作って項目追加への追従を不要にする。
+    fn test_config() -> ServerConfig {
+        ServerConfig::from_toml_str(
             r#"
 plugin_path = "plugin.clap"
-input_midi = "input.mid"
 output_midi = "output.mid"
 output_wav = "output.wav"
 sample_rate = 48000
@@ -257,14 +255,14 @@ buffer_size = 512
     }
 
     #[test]
-    fn core_config_from_runtime_uses_cmrt_runtime_patch_root() {
+    fn core_config_from_server_config_uses_the_shared_patch_root() {
         let mut cfg = test_config();
         cfg.patches_dirs = Some(vec![
             "/tmp/surge-data/patches_factory".to_string(),
             "/tmp/surge-data/patches_3rdparty".to_string(),
         ]);
 
-        let core_cfg = core_config_from_runtime(&cfg);
+        let core_cfg = core_config_from_server_config(&cfg);
 
         assert_eq!(core_cfg.output_midi, "output.mid");
         assert_eq!(core_cfg.output_wav, "output.wav");
@@ -277,11 +275,11 @@ buffer_size = 512
     /// `plugin_id` を CoreConfig まで運べないと、descriptor を複数持つ CLAP で
     /// 起動ログとレンダリング側の descriptor 選択が食い違う。
     #[test]
-    fn core_config_from_runtime_carries_plugin_id() {
+    fn core_config_from_server_config_carries_plugin_id() {
         let mut cfg = test_config();
         cfg.plugin_id = Some("com.digital-suburban.dexed".to_string());
 
-        let core_cfg = core_config_from_runtime(&cfg);
+        let core_cfg = core_config_from_server_config(&cfg);
 
         assert_eq!(
             core_cfg.plugin_id.as_deref(),
@@ -290,8 +288,8 @@ buffer_size = 512
     }
 
     #[test]
-    fn core_config_from_runtime_leaves_plugin_id_unset_when_config_omits_it() {
-        let core_cfg = core_config_from_runtime(&test_config());
+    fn core_config_from_server_config_leaves_plugin_id_unset_when_config_omits_it() {
+        let core_cfg = core_config_from_server_config(&test_config());
 
         assert_eq!(core_cfg.plugin_id, None);
     }
