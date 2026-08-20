@@ -5,7 +5,7 @@
 //! state load より長い。
 //!
 //! # なぜ「cartridge を送って Program Change」ではないか
-//! 報告書（`DEXED_CLAP_SUPPORT_REPORT.md` 5 章）で実証されたのは
+//! 実測（`docs/adr/0003-dexed-program-change-guard.md`）で確かめたのは
 //! 「4,104 bytes の cartridge を送ってから `[0xC0|ch, program, 0]` を送る」手順だが、
 //! **直前に CLAP state load があると Program Change だけが捨てられる**。Dexed v1.0.1 は
 //! state load の直後 約 2 秒 program change を無視するためで、`set_patch(None)` は
@@ -21,14 +21,21 @@ use clack_host::events::event_types::MidiSysExEvent;
 use clack_host::prelude::EventBuffer;
 
 use super::RealtimeRenderer;
-use crate::dx7::{parse_dx7_cartridge, single_voice_sysex, CartridgePatchPath, Dx7Cartridge};
+use crate::dx7::{
+    parse_dx7_cartridge, single_voice_sysex, CartridgePatchPath, Dx7Cartridge, DEXED_PLUGIN_ID,
+};
 
 /// voice を送ったあとに空回しするブロック数。切替直後の 1 音目を取りこぼさないため。
 const VOICE_SETTLE_BLOCKS: usize = 1;
 
 impl RealtimeRenderer {
     /// cartridge の 1 program を選ぶ。
+    ///
+    /// 載っているプラグインが cartridge を解さないなら、送らずにエラーにする。
+    /// DX7 の SysEx は「知らないメーカーの SysEx」として黙って捨てられるので、
+    /// 送ってしまうと「操作は成功、音は前のまま」という静かに間違う状態になる。
     pub(super) fn load_cartridge_patch(&mut self, patch: &CartridgePatchPath) -> Result<()> {
+        self.ensure_cartridge_capable()?;
         if self.loaded_program.as_ref()
             == Some(&(patch.cartridge_path.clone(), patch.program_index))
         {
@@ -42,6 +49,17 @@ impl RealtimeRenderer {
             self.process_chunk_with_events(self.buf_size as u32, &empty)?;
         }
         Ok(())
+    }
+
+    /// cartridge patch を受け付けられるプラグインが載っているか。
+    fn ensure_cartridge_capable(&self) -> Result<()> {
+        if self.plugin_id == DEXED_PLUGIN_ID {
+            return Ok(());
+        }
+        anyhow::bail!(
+            "cartridge 形式の音色は plugin_id = '{DEXED_PLUGIN_ID}' でしか読めない（いま載っているのは '{}'）",
+            self.plugin_id
+        )
     }
 
     /// state load や `.fxp` の読み込みで、プラグインに載っている voice が

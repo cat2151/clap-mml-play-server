@@ -1,18 +1,25 @@
 use std::time::Instant;
 
 use anyhow::Context as _;
-use cmrt_core::{CoreConfig, RealtimeRenderer, RendererCreated};
+use cmrt_core::{RealtimeRenderer, RendererCreated, RendererSpec};
 
+use super::instances::PluginKind;
 use crate::timing;
 
 /// インスタンス生成に使うスレッド数を明示指定する環境変数。
 const BUILD_THREADS_ENV: &str = "CMRT_INSTANCE_BUILD_THREADS";
 
+/// 起動時に全論理スロットぶんのインスタンスを作る。
+///
+/// 起動直後はどのスロットも既定プラグインに載っている。別プラグインが要るのは
+/// クライアントがそのプラグインの音色を指定したときだけで、そこからは予備プール
+/// （[`super::instances`]）が差し替えを引き受ける。
 pub(super) fn create_live_renderers(
-    core_cfg: &CoreConfig,
-    plugin_path: &str,
+    default_kind: &PluginKind,
     instance_count: usize,
 ) -> anyhow::Result<Vec<RealtimeRenderer>> {
+    let plugin_path = default_kind.plugin_path.as_str();
+    let core_cfg = &default_kind.core_cfg;
     let load_entry_started = Instant::now();
     let entry = cmrt_core::load_entry(plugin_path)?;
     timing::log_phase("load_entry", load_entry_started.elapsed());
@@ -29,14 +36,15 @@ pub(super) fn create_live_renderers(
 
     let instances_started = Instant::now();
     let threads = instance_build_threads(instance_count);
-    let renderers = cmrt_core::create_renderers_parallel(
-        core_cfg,
-        &entry,
-        instance_count,
-        threads,
-        &log_instance_created,
-    )
-    .with_context(|| format!("plugin_path={plugin_path}"))?;
+    let specs = vec![
+        RendererSpec {
+            cfg: core_cfg,
+            entry: &entry
+        };
+        instance_count
+    ];
+    let renderers = cmrt_core::create_renderers_parallel(&specs, threads, &log_instance_created)
+        .with_context(|| format!("plugin_path={plugin_path}"))?;
     timing::log(&format!(
         "phase=instances_total ms={} count={instance_count} threads={threads}",
         instances_started.elapsed().as_millis(),

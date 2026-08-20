@@ -4,6 +4,8 @@ const PATCH_SETTLE_BLOCKS: usize = 4;
 
 pub(super) struct CommandContext<'a> {
     pub(super) renderers: &'a mut [RealtimeRenderer],
+    /// 論理スロット → 物理インスタンスの対応表と予備プール。
+    pub(super) instances: &'a mut LiveInstances,
     pub(super) limiter: &'a mut MasterLimiter,
     pub(super) limiter_meter: &'a LimiterMeterState,
     pub(super) auto_gain: &'a AutoGainControl,
@@ -16,6 +18,7 @@ pub(super) struct CommandContext<'a> {
 pub(super) fn apply_command(context: CommandContext<'_>, command: PlayerCommand) {
     let CommandContext {
         renderers,
+        instances,
         limiter,
         limiter_meter,
         auto_gain,
@@ -34,7 +37,9 @@ pub(super) fn apply_command(context: CommandContext<'_>, command: PlayerCommand)
             limiter.reset();
             limiter_meter.reset();
             auto_gain.clear_gains();
-            if let Err(error) = renderers[0].set_patch(patch.as_deref()) {
+            if let Err(error) = instances.prepare_slot_for_patch(renderers, 0, patch.as_deref()) {
+                eprintln!("realtime play patch plugin swap failed: {error}");
+            } else if let Err(error) = renderers[0].set_patch(patch.as_deref()) {
                 eprintln!("realtime play patch load failed: {error:#}");
             }
             *playback_mode = Some(PlaybackMode::Scheduled {
@@ -175,11 +180,15 @@ pub(super) fn apply_command(context: CommandContext<'_>, command: PlayerCommand)
         } => {
             ensure_live_mode(playback_mode, generation, renderers.len());
             let index = usize::from(instance_id);
-            renderers[index].reset();
-            let result = renderers[index]
-                .set_patch(patch.as_deref())
-                .and_then(|()| settle_patch(&mut renderers[index]))
-                .map_err(|error| format!("{error:#}"));
+            let result = instances
+                .prepare_slot_for_patch(renderers, index, patch.as_deref())
+                .and_then(|()| {
+                    renderers[index].reset();
+                    renderers[index]
+                        .set_patch(patch.as_deref())
+                        .and_then(|()| settle_patch(&mut renderers[index]))
+                        .map_err(|error| format!("{error:#}"))
+                });
             if let Some(PlaybackMode::Live {
                 generation: live_generation,
                 instances,
@@ -210,11 +219,15 @@ pub(super) fn apply_command(context: CommandContext<'_>, command: PlayerCommand)
         } => {
             ensure_live_mode(playback_mode, generation, renderers.len());
             let index = usize::from(instance_id);
-            renderers[index].reset();
-            let result = renderers[index]
-                .set_patch(patch.as_deref())
-                .and_then(|()| renderers[index].probe_voicing())
-                .map_err(|error| format!("{error:#}"));
+            let result = instances
+                .prepare_slot_for_patch(renderers, index, patch.as_deref())
+                .and_then(|()| {
+                    renderers[index].reset();
+                    renderers[index]
+                        .set_patch(patch.as_deref())
+                        .and_then(|()| renderers[index].probe_voicing())
+                        .map_err(|error| format!("{error:#}"))
+                });
             if let Some(PlaybackMode::Live {
                 generation: live_generation,
                 instances,

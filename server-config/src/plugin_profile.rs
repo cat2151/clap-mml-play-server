@@ -13,6 +13,7 @@
 //! プラグインをロードする側の知識なので、この解決規則は play server repo が持つ。
 
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use serde::Deserialize;
 
@@ -152,6 +153,78 @@ pub fn builtin_plugin_profiles() -> BTreeMap<String, PluginProfile> {
             },
         ),
     ])
+}
+
+/// このプラグインの音色が、patch 文字列としてどういう形で指されるか。
+///
+/// 1 プロセスに複数のプラグインを載せると、「この patch 文字列はどちらのプラグインの
+/// ものか」を決める規則が要る。現状その材料は**文字列の形だけ**で、`.syx` コンポーネントを
+/// 含むかどうかで割り切れている（`docs/adr/0007-patch-string-decides-the-plugin.md`）。
+/// patch 文字列そのものにプラグイン名を入れる仕様変更は、display 文字列が永続 ID である
+/// ため保存済みデータの移行が要る。いまは踏み込まない（同 §2.1）。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PatchForm {
+    /// ファイル 1 つ = 音色 1 つ。Surge XT の `.fxp`（CLAP state）。
+    StateFile,
+    /// cartridge ファイルの中の 1 program。Dexed の `.syx`。
+    Cartridge,
+}
+
+/// プロファイルが扱う patch 文字列の形。
+///
+/// cartridge を音色置き場にする既知のプラグインは Dexed だけ。`plugin_id` が書かれて
+/// いない config でも判定できるよう、ファイル名も最後の手段として見る
+/// （[`crate::plugin_file_stem`] と同じ考え方）。
+pub fn patch_form_of(plugin_id: Option<&str>, plugin_path: &str) -> PatchForm {
+    let is_dexed = match plugin_id {
+        Some(plugin_id) => plugin_id == DEXED_PLUGIN_ID,
+        None => crate::plugin_file_stem(plugin_path)
+            .to_lowercase()
+            .contains("dexed"),
+    };
+    if is_dexed {
+        PatchForm::Cartridge
+    } else {
+        PatchForm::StateFile
+    }
+}
+
+/// 組み込みプロファイルと config の `[plugins.*]` を合わせた一覧。
+///
+/// 同名なら config 側の「書かれている項目」が組み込みを上書きする
+/// （[`resolve_active_plugin_profile`] と同じ規則）。
+pub fn merged_plugin_profiles(
+    from_config: &BTreeMap<String, PluginProfile>,
+) -> BTreeMap<String, PluginProfile> {
+    let mut merged = builtin_plugin_profiles();
+    for (name, configured) in from_config {
+        let base = lookup(&merged, name).unwrap_or_default();
+        // 表記ゆれで組み込みに当たった場合、組み込み側のキー名へ寄せる。
+        let key = merged
+            .keys()
+            .find(|candidate| normalized(candidate) == normalized(name))
+            .cloned()
+            .unwrap_or_else(|| name.clone());
+        merged.insert(key, base.overridden_by(configured.clone()));
+    }
+    merged
+}
+
+/// [`merged_plugin_profiles`] のうち、`plugin_path` が実在するものだけ。
+///
+/// 未インストールのプラグインを候補に残すと、インスタンスを作ろうとして初めて
+/// 「ロードできない」で落ちる。**載せる前に存在を確かめる**
+/// （`docs/adr/0008-spare-instance-pool.md`）。
+pub fn installed_plugin_profiles(
+    from_config: &BTreeMap<String, PluginProfile>,
+) -> BTreeMap<String, PluginProfile> {
+    merged_plugin_profiles(from_config)
+        .into_iter()
+        .filter(|(_, profile)| {
+            let path = profile.plugin_path.trim();
+            !path.is_empty() && Path::new(path).exists()
+        })
+        .collect()
 }
 
 /// 表記ゆれを吸収するための比較用キー。`Surge XT` / `surge_xt` / `SurgeXT` を同一視する。

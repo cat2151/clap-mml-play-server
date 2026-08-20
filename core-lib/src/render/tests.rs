@@ -139,14 +139,15 @@ fn dexed_survives_parallel_creation_handoff_and_playback_of_sixteen_instances() 
     let path = plugin_path(DEXED_CLAP_ENV);
     let entry = load_entry(&path).unwrap();
 
-    let mut renderers = create_renderers_parallel(
-        &test_config(),
-        &entry,
-        LIVE_INSTANCE_COUNT,
-        BUILD_THREADS,
-        &|_| {},
-    )
-    .unwrap();
+    let cfg = test_config();
+    let specs = vec![
+        RendererSpec {
+            cfg: &cfg,
+            entry: &entry
+        };
+        LIVE_INSTANCE_COUNT
+    ];
+    let mut renderers = create_renderers_parallel(&specs, BUILD_THREADS, &|_| {}).unwrap();
 
     assert_eq!(renderers.len(), LIVE_INSTANCE_COUNT);
     for renderer in &mut renderers {

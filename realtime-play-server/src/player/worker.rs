@@ -13,6 +13,7 @@ use crate::timing;
 use super::{
     audio_output::{AudioOutputConsumer, AudioOutputControl, AudioOutputProducer},
     auto_gain::target_rms_db,
+    instances::{LiveInstances, PluginKind},
     limiter::MasterLimiter,
     mixer::add_samples_ramped,
     output_stream::build_output_stream,
@@ -47,7 +48,7 @@ pub(super) fn run_player_worker(
     inner: Arc<PlayerInner>,
     output: WorkerOutput,
     core_cfg: CoreConfig,
-    plugin_path: String,
+    kinds: Vec<PluginKind>,
     live_instance_count: usize,
     init_tx: std::sync::mpsc::Sender<std::result::Result<(), String>>,
 ) {
@@ -60,13 +61,16 @@ pub(super) fn run_player_worker(
         producer: output_producer,
         consumer: output_consumer,
     } = output;
-    let mut renderers = match create_live_renderers(&core_cfg, &plugin_path, live_instance_count) {
+    let mut renderers = match create_live_renderers(&kinds[0], live_instance_count) {
         Ok(renderers) => renderers,
         Err(error) => {
             let _ = init_tx.send(Err(format!("{error:#}")));
             return;
         }
     };
+    // 予備プールはここから背景でインスタンスを作り始める。起動時のインスタンス生成が
+    // 終わってから起こすことで、起動時間を取り合わない。
+    let mut instances = LiveInstances::new(kinds, live_instance_count);
 
     let audio_stream_started = Instant::now();
     let output_stream = match build_output_stream(output_consumer, core_cfg.sample_rate) {
@@ -89,6 +93,8 @@ pub(super) fn run_player_worker(
     let mut playback_mode: Option<PlaybackMode> = None;
     let mut timing_window = LiveTimingWindow::new(core_cfg.sample_rate);
     loop {
+        // 背景で出来上がった予備インスタンスを取り込む。ブロックしない。
+        instances.collect_ready();
         let waiting_for_timeline_events = matches!(
             playback_mode,
             Some(PlaybackMode::Live {
@@ -103,6 +109,7 @@ pub(super) fn run_player_worker(
             apply_command(
                 CommandContext {
                     renderers: &mut renderers,
+                    instances: &mut instances,
                     limiter: &mut limiter,
                     limiter_meter: &limiter_meter,
                     auto_gain: &auto_gain,
@@ -119,6 +126,7 @@ pub(super) fn run_player_worker(
             apply_command(
                 CommandContext {
                     renderers: &mut renderers,
+                    instances: &mut instances,
                     limiter: &mut limiter,
                     limiter_meter: &limiter_meter,
                     auto_gain: &auto_gain,

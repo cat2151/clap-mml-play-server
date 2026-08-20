@@ -30,6 +30,13 @@ impl HostHandlers for MidiRenderHost {
 // -----------------------------------------------------------------------
 // ヘルパー: プラグインエントリをロードして返す
 // -----------------------------------------------------------------------
+/// ロード済みの CLAP entry。生成したインスタンスが clone を保持するので、
+/// これを drop しても生きているインスタンスの足元は崩れない。
+///
+/// clack の型をそのまま出しているのは、呼び出し側（サーバー）が entry を
+/// 保持して複数のプラグインを使い分けるために型名が要るため。
+pub use clack_host::prelude::PluginEntry;
+
 pub fn load_entry(path: &str) -> Result<PluginEntry> {
     // SAFETY: CLAP プラグインのロードは unsafe を伴う
     let entry = unsafe {

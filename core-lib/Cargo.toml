@@ -12,6 +12,7 @@ path = "src/lib.rs"
 clack-host = { git = "https://github.com/prokopyl/clack.git", package = "clack-host" }
 clack-extensions = { git = "https://github.com/prokopyl/clack.git", package = "clack-extensions", features = ["audio-ports", "note-ports", "params", "state", "voice-info", "clack-host"] }
 cmrt-clack-timeline = { path = "../clack-timeline" }
+cmrt-server-config = { path = "../server-config" }
 cmrt-timeline = { path = "../timeline" }
 
 # MML → SMF (cli feature で pass1_parser が有効になる)

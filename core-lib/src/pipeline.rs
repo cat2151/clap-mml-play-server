@@ -263,6 +263,18 @@ fn utf8_path_string(path: &std::path::Path, label: &str) -> Result<String> {
         .ok_or_else(|| anyhow::anyhow!("{}が非UTF-8です: {}", label, path.display()))
 }
 
+/// MML 先頭 JSON が指す音色の display 文字列を、**解決せずそのまま**返す。
+///
+/// 「この MML をどのプラグインへ渡すか」の判別はこの未解決の文字列だけで足りる
+/// （[`crate::is_cartridge_patch_path`]）。解決の基点（`CoreConfig.patches_dir`）は
+/// プラグインごとに違うので、プラグインを決める前には選べない。
+pub fn embedded_patch_ref(mml: &str) -> Option<String> {
+    let preprocessed = mml_preprocessor::extract_embedded_json(mml);
+    let value: serde_json::Value =
+        serde_json::from_str(preprocessed.embedded_json.as_deref()?).ok()?;
+    Some(value.get("Surge XT patch")?.as_str()?.to_string())
+}
+
 /// MML先頭JSONから "Surge XT patch" キーの値を取り出し、絶対パスに変換する。
 fn extract_patch_from_json(json_str: Option<&str>, cfg: &CoreConfig) -> Option<String> {
     let json_str = json_str?;

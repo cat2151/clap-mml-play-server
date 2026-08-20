@@ -3,6 +3,7 @@ pub mod host;
 pub mod midi;
 pub mod patch_list;
 pub mod pipeline;
+pub mod plugin_catalog;
 pub mod render;
 pub mod surge_data;
 pub mod voicing;
@@ -31,22 +32,24 @@ pub struct CoreConfig {
 
 pub use dx7::{
     cartridge_program_component, is_cartridge_patch_path, parse_cartridge_patch_path,
-    parse_dx7_cartridge, CartridgePatchPath, Dx7Cartridge, DX7_BULK_DUMP_LEN,
+    parse_dx7_cartridge, CartridgePatchPath, Dx7Cartridge, DEXED_PLUGIN_ID, DX7_BULK_DUMP_LEN,
     DX7_PROGRAMS_PER_CARTRIDGE,
 };
-pub use host::load_entry;
+pub use host::{load_entry, PluginEntry};
 pub use patch_list::{collect_patches, to_relative};
 pub use pipeline::{
-    encode_wav_i16, ensure_cmrt_dir, ensure_daw_dir, ensure_phrase_dir, mml_render,
-    mml_render_for_cache, mml_render_for_cache_with_options, mml_render_stateless,
+    embedded_patch_ref, encode_wav_i16, ensure_cmrt_dir, ensure_daw_dir, ensure_phrase_dir,
+    mml_render, mml_render_for_cache, mml_render_for_cache_with_options, mml_render_stateless,
     mml_render_stateless_with_options, mml_render_with_options, mml_str_to_smf_bytes, mml_to_play,
     mml_to_play_with_options, mml_to_smf_bytes, play_samples, prepare_realtime_play,
     smf_playback_schedule_with_options, smf_render_stateless_with_options, write_wav,
     PreparedRealtimePlay, RenderOptions, RenderPreroll,
 };
+pub use plugin_catalog::{kind_for_patch, plugin_kinds, PatchBases, PluginKind};
 pub use render::{
     create_renderers_parallel, select_descriptor, LiveMidiEvent, RealtimePlaybackSchedule,
-    RealtimeRenderer, RendererCreated, RendererInitTiming, SelectedDescriptor,
+    RealtimeRenderer, RendererCreated, RendererHandoff, RendererInitTiming, RendererSpec,
+    SelectedDescriptor,
 };
 pub use surge_data::{
     apply_minimal_surge_data_home, plugin_is_surge, MinimalSurgeDataHome, SURGE_XT_PLUGIN_ID,

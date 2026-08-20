@@ -36,7 +36,7 @@ pub struct CartridgePatchPath {
 /// patch path が cartridge を指しているか。
 ///
 /// `.syx` を名前に含む Surge の `.fxp` があれば誤判定するが、実質ありえないので
-/// 型ではなく文字列で見分ける（`HANDOFF-dexed-clap-phase1.md` 1.1）。
+/// 型ではなく文字列で見分ける（`docs/adr/0007-patch-string-decides-the-plugin.md`）。
 ///
 /// program 部分が壊れている path も `true` にする。ここで `false` を返すと
 /// `.fxp` の state load へ落ちて「ファイルを読めない」という無関係なエラーになり、

@@ -1,6 +1,7 @@
 mod audio_output;
 mod auto_gain;
 mod commands;
+mod instances;
 mod limiter;
 mod live;
 mod mixer;
@@ -14,6 +15,7 @@ use std::{sync::Arc, sync::Mutex, thread::JoinHandle};
 
 use self::audio_output::{new_audio_output, AudioOutputControl};
 use self::commands::PlayerInner;
+use self::instances::PatchBases;
 use self::live::{resolve_live_patch, validate_live_instance_id};
 use self::runtime::{
     AutoGainControl, LimiterMeterState, LiveGains, LiveQueuedEvent, TimingMetricsState,
@@ -28,6 +30,8 @@ use cmrt_realtime_ipc::{
 
 // ワーカースレッド（`worker`）が `super::` 経由で参照する。
 use self::commands::PlayerCommand;
+
+pub(crate) use self::instances::{plugin_kinds, PluginKind};
 
 pub(crate) trait PlayerHandle: Send + Sync + 'static {
     fn play_smf(&self, smf: Vec<u8>) -> Result<()>;
@@ -71,17 +75,20 @@ pub(crate) struct RealtimePlayer {
     auto_gain: Arc<AutoGainControl>,
     timing_metrics: Arc<TimingMetricsState>,
     live_instance_count: usize,
+    /// 音色の相対パスを絶対パスへ直す基点。プラグインごとに音色置き場が違うので形ごとに持つ。
+    patch_bases: PatchBases,
     worker: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl RealtimePlayer {
     pub(crate) fn new(
         core_cfg: CoreConfig,
-        plugin_path: String,
+        kinds: Vec<PluginKind>,
         render_options: RenderOptions,
         live_instance_count: usize,
     ) -> Result<Self> {
         let sample_rate = core_cfg.sample_rate;
+        let patch_bases = PatchBases::from_kinds(&kinds);
         let (audio_output, output_producer, output_consumer) =
             new_audio_output(core_cfg.buffer_size);
         let inner = Arc::new(PlayerInner::default());
@@ -112,7 +119,7 @@ impl RealtimePlayer {
                         consumer: output_consumer,
                     },
                     worker_core_cfg,
-                    plugin_path,
+                    kinds,
                     live_instance_count,
                     init_tx,
                 );
@@ -138,6 +145,7 @@ impl RealtimePlayer {
             auto_gain,
             timing_metrics,
             live_instance_count,
+            patch_bases,
             worker: Mutex::new(Some(worker)),
         })
     }
@@ -207,7 +215,7 @@ impl PlayerHandle for RealtimePlayer {
 
     fn prepare_live_patch(&self, instance_id: InstanceId, patch: Option<String>) -> Result<()> {
         self.validate_live_instance_id(instance_id)?;
-        let patch = resolve_live_patch(patch, self.core_cfg.patches_dir.as_deref());
+        let patch = resolve_live_patch(patch, &self.patch_bases);
         let (completion_tx, completion_rx) = std::sync::mpsc::sync_channel(0);
         self.inner.submit_prepare_live_patch(
             instance_id,
@@ -227,7 +235,7 @@ impl PlayerHandle for RealtimePlayer {
         patch: Option<String>,
     ) -> Result<VoicingReport> {
         self.validate_live_instance_id(instance_id)?;
-        let patch = resolve_live_patch(patch, self.core_cfg.patches_dir.as_deref());
+        let patch = resolve_live_patch(patch, &self.patch_bases);
         let (completion_tx, completion_rx) = std::sync::mpsc::sync_channel(0);
         self.inner.submit_probe_live_patch(
             instance_id,

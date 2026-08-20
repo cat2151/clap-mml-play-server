@@ -9,8 +9,9 @@ use std::sync::{
 use anyhow::{Context as _, Result};
 use clap::{error::ErrorKind, Parser, Subcommand};
 use cmrt_core::{
-    check_workspace_update, encode_wav_i16, load_entry, mml_render_stateless_with_options,
-    run_workspace_update, CoreConfig, RenderOptions,
+    check_workspace_update, embedded_patch_ref, encode_wav_i16, kind_for_patch, load_entry,
+    mml_render_stateless_with_options, plugin_kinds, run_workspace_update, CoreConfig, PluginKind,
+    RenderOptions,
 };
 use cmrt_server_config::ServerConfig;
 use http::run_render_server;
@@ -89,11 +90,14 @@ fn main() -> Result<()> {
 
     let cfg = ServerConfig::load()?;
     validate_render_server_config(&cfg)?;
+    let core_cfg = core_config_from_server_config(&cfg);
+    // 受け取る MML の音色がどのプラグインのものかは、リクエストが来るまで分からない。
+    // 載りうるものを最初に全部並べておき、レンダリングのたびに patch 文字列で引き分ける
+    // （`docs/adr/0007-patch-string-decides-the-plugin.md`）。
+    let kinds = plugin_kinds(&cfg, &core_cfg);
     // `std::env::set_var` の制約で worker スレッド生成前に呼ぶ必要があるが、どのプラグインを
     // 使うかは config を読むまで分からないので、config のロード直後に置く。
-    apply_surge_data_home(cfg.plugin_id.as_deref(), &cfg.plugin_path);
-    let core_cfg = core_config_from_server_config(&cfg);
-    let plugin_path = cfg.plugin_path.clone();
+    apply_surge_data_home_for(&kinds);
     let sample_rate = core_cfg.sample_rate as u32;
     let workers = cfg.offline_render_server_workers;
 
@@ -106,31 +110,66 @@ fn main() -> Result<()> {
         workers,
         shutdown,
         move || {
-            let core_cfg = core_cfg.clone();
-            let entry = load_entry(&plugin_path)?;
+            let kinds = kinds.clone();
+            // entry は worker ごとにロードする（今までどおり）。載りうるプラグインぶん
+            // 並べるので、Dexed の音色を受け取っても worker を作り直さずに済む。
+            let entries = kinds
+                .iter()
+                .map(|kind| load_entry(&kind.plugin_path))
+                .collect::<Result<Vec<_>>>()?;
             // どのプラグインが選ばれたかは設定ミスを診断する唯一の手掛かりなので必ず出す。
-            // entry は worker ごとにロードするので、同じ行が並ばないよう 1 度だけにする。
+            // 同じ行が並ばないよう worker 数によらず 1 度だけにする。
             // レンダリング側も同じ `core_cfg.plugin_id` で descriptor を選ぶので、
             // このログと実際に鳴るプラグインは必ず一致する。
-            let descriptor = cmrt_core::select_descriptor(&entry, core_cfg.plugin_id.as_deref())
-                .with_context(|| format!("plugin_path={plugin_path}"))?;
+            let mut descriptors = Vec::with_capacity(kinds.len());
+            for (kind, entry) in kinds.iter().zip(&entries) {
+                let descriptor =
+                    cmrt_core::select_descriptor(entry, kind.core_cfg.plugin_id.as_deref())
+                        .with_context(|| format!("plugin_path={}", kind.plugin_path))?;
+                descriptors.push(format!(
+                    "cmrt-render-server: plugin {} plugin_path={}",
+                    descriptor.log_fields(),
+                    kind.plugin_path
+                ));
+            }
             DESCRIPTOR_LOGGED.call_once(|| {
-                eprintln!(
-                    "cmrt-render-server: plugin {} plugin_path={plugin_path}",
-                    descriptor.log_fields()
-                );
+                for line in descriptors {
+                    eprintln!("{line}");
+                }
             });
             Ok(move |mml: &str| {
+                // 音色無指定の MML は既定プラグイン（先頭）で鳴らす。
+                let index = kind_for_patch(&kinds, 0, embedded_patch_ref(mml).as_deref())
+                    .map_err(|error| anyhow::anyhow!(error))?;
                 let samples = mml_render_stateless_with_options(
                     mml,
-                    &core_cfg,
-                    &entry,
+                    &kinds[index].core_cfg,
+                    &entries[index],
                     RenderOptions::new().with_preroll_ms(RENDER_PREROLL_MS),
                 )?;
                 encode_wav_i16(&samples, sample_rate)
             })
         },
     )
+}
+
+/// 載りうるプラグインの中に Surge XT があるなら、そのデータディレクトリを絞る。
+///
+/// 既定プラグインが Dexed でも、`.fxp` の音色を受け取れば Surge のインスタンスを作る。
+/// `std::env::set_var` はスレッド生成前にしか呼べないので、既定プラグインだけを見て
+/// 判断すると、あとから作る Surge インスタンスが絞り込みの恩恵を受けられない。
+fn apply_surge_data_home_for(kinds: &[PluginKind]) {
+    let surge = kinds.iter().find(|kind| {
+        cmrt_core::plugin_is_surge(kind.core_cfg.plugin_id.as_deref(), &kind.plugin_path)
+    });
+    match surge {
+        Some(kind) => apply_surge_data_home(kind.core_cfg.plugin_id.as_deref(), &kind.plugin_path),
+        // Surge が 1 つも無い構成。ログの体裁を既定プラグインで揃えるためだけに渡す。
+        None => apply_surge_data_home(
+            kinds[0].core_cfg.plugin_id.as_deref(),
+            &kinds[0].plugin_path,
+        ),
+    }
 }
 
 /// Surge XT のデータディレクトリを最小構成へ向けて `init()` を速くする。

@@ -1,18 +1,34 @@
 use super::*;
 use std::path::Path;
 
+fn test_bases() -> PatchBases {
+    PatchBases::from_bases(Some("/patches"), Some("/cartridges"))
+}
+
 #[test]
 fn resolve_live_patch_uses_root_only_for_relative_paths() {
-    let relative = resolve_live_patch(Some("Keys/Piano.fxp".into()), Some("/patches")).unwrap();
+    let relative = resolve_live_patch(Some("Keys/Piano.fxp".into()), &test_bases()).unwrap();
     assert_eq!(
         relative,
         Path::new("/patches")
             .join("Keys/Piano.fxp")
             .to_string_lossy()
     );
+    assert_eq!(resolve_live_patch(Some("  ".into()), &test_bases()), None);
+}
+
+/// 音色置き場はプラグインごとに別の場所なので、cartridge の相対パスを Surge の
+/// 音色置き場へ join してしまうと存在しないファイルを指す。
+#[test]
+fn resolve_live_patch_picks_the_base_that_matches_the_patch_form() {
+    let cartridge =
+        resolve_live_patch(Some("Dexed_01.syx/00 Say Again.".into()), &test_bases()).unwrap();
+
     assert_eq!(
-        resolve_live_patch(Some("  ".into()), Some("/patches")),
-        None
+        cartridge,
+        Path::new("/cartridges")
+            .join("Dexed_01.syx/00 Say Again.")
+            .to_string_lossy()
     );
 }
 

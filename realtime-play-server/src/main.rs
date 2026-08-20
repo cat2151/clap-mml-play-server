@@ -12,16 +12,17 @@ use std::{
     time::Instant,
 };
 
-use anyhow::{Context as _, Result};
+use anyhow::{anyhow, Context as _, Result};
 use clap::{error::ErrorKind, Parser, Subcommand, ValueEnum};
 use cmrt_core::{
-    check_workspace_update, run_workspace_update, PatchVoicing, RealtimeRenderer, RenderOptions,
+    check_workspace_update, kind_for_patch, run_workspace_update, PatchBases, PatchVoicing,
+    RealtimeRenderer, RenderOptions,
 };
 use config::{
     core_config_from_server_config, validate_realtime_play_server_config, RealtimeServerConfig,
 };
 use http::run_realtime_play_server;
-use player::{PlayerHandle, RealtimePlayer};
+use player::{plugin_kinds, PlayerHandle, PluginKind, RealtimePlayer};
 
 const RENDER_PREROLL_MS: u64 = 100;
 const BUILD_COMMIT_HASH: &str = env!("BUILD_COMMIT_HASH");
@@ -156,12 +157,16 @@ fn main() -> Result<()> {
     let realtime_cfg = RealtimeServerConfig::load()?;
     validate_realtime_play_server_config(&cfg, &realtime_cfg)?;
     timing::log_phase("config", config_started.elapsed());
-    apply_surge_data_home(cfg.plugin_id.as_deref(), &cfg.plugin_path);
 
     let core_cfg = core_config_from_server_config(&cfg, &realtime_cfg);
+    // 1 プロセスに複数のプラグインを載せうるので、Surge データディレクトリの判定も
+    // 「載りうるものの中に Surge があるか」で行う。
+    let kinds = plugin_kinds(&cfg, &core_cfg);
+    apply_surge_data_home_for(&kinds);
+
     let player: Arc<dyn PlayerHandle> = Arc::new(RealtimePlayer::new(
         core_cfg,
-        cfg.plugin_path.clone(),
+        kinds,
         RenderOptions::new().with_preroll_ms(RENDER_PREROLL_MS),
         realtime_cfg.live_instance_count,
     )?);
@@ -170,6 +175,25 @@ fn main() -> Result<()> {
     install_shutdown_handler(Arc::clone(&shutdown))?;
 
     run_realtime_play_server(realtime_cfg.realtime_play_server_port, shutdown, player)
+}
+
+/// 載りうるプラグインの中に Surge XT があるなら、そのデータディレクトリを絞る。
+///
+/// 予備インスタンスプールは Surge を「既定プラグインではないが背景で作りうるもの」として
+/// 持ちうる。`std::env::set_var` はスレッド生成前にしか呼べないので、既定プラグインだけを
+/// 見て判断すると、あとから作る Surge インスタンスが絞り込みの恩恵を受けられない。
+fn apply_surge_data_home_for(kinds: &[PluginKind]) {
+    let surge = kinds.iter().find(|kind| {
+        cmrt_core::plugin_is_surge(kind.core_cfg.plugin_id.as_deref(), &kind.plugin_path)
+    });
+    match surge {
+        Some(kind) => apply_surge_data_home(kind.core_cfg.plugin_id.as_deref(), &kind.plugin_path),
+        // Surge が 1 つも無い構成。ログの体裁を既定プラグインで揃えるためだけに渡す。
+        None => apply_surge_data_home(
+            kinds[0].core_cfg.plugin_id.as_deref(),
+            &kinds[0].plugin_path,
+        ),
+    }
 }
 
 /// Surge XT のデータディレクトリを最小構成へ向けて `init()` を速くする。
@@ -212,13 +236,18 @@ fn run_voicing_probe(
     let cfg = cmrt_server_config::ServerConfig::load()?;
     let realtime_cfg = RealtimeServerConfig::load()?;
     validate_realtime_play_server_config(&cfg, &realtime_cfg)?;
-    // `std::env::set_var` の制約でスレッド生成前に呼ぶ必要があるが、どのプラグインを
-    // 使うかは config を読むまで分からないので、config のロード直後に置く。
-    apply_surge_data_home(cfg.plugin_id.as_deref(), &cfg.plugin_path);
     let mut core_cfg = core_config_from_server_config(&cfg, &realtime_cfg);
     core_cfg.patch_path = None;
+    // probe する音色がどのプラグインのものかは patch 文字列の形で決まる。既定プラグインで
+    // 決め打つと、Dexed を既定にした環境で `.fxp` を probe できない（逆も同じ）。
+    let kinds = plugin_kinds(&cfg, &core_cfg);
+    // `std::env::set_var` の制約でスレッド生成前に呼ぶ必要があるが、どのプラグインを
+    // 使うかは config を読むまで分からないので、config のロード直後に置く。
+    apply_surge_data_home_for(&kinds);
+    let kind = &kinds[kind_for_patch(&kinds, 0, Some(patch)).map_err(|error| anyhow!(error))?];
+    let bases = PatchBases::from_kinds(&kinds);
     let resolve_patch = |patch: &str| match (
-        &core_cfg.patches_dir,
+        bases.base_for(patch),
         std::path::Path::new(patch).is_absolute(),
     ) {
         (_, true) | (None, false) => patch.to_string(),
@@ -228,14 +257,26 @@ fn run_voicing_probe(
             .into_owned(),
     };
     let patch_path = resolve_patch(patch);
-    let entry = cmrt_core::load_entry(&cfg.plugin_path)?;
+    let entry = cmrt_core::load_entry(&kind.plugin_path)?;
     // 下の `RealtimeRenderer::new` も同じ `core_cfg.plugin_id` で descriptor を選ぶ。
-    let descriptor = cmrt_core::select_descriptor(&entry, core_cfg.plugin_id.as_deref())
-        .with_context(|| format!("plugin_path={}", cfg.plugin_path))?;
+    let descriptor = cmrt_core::select_descriptor(&entry, kind.core_cfg.plugin_id.as_deref())
+        .with_context(|| format!("plugin_path={}", kind.plugin_path))?;
     eprintln!("plugin: {}", descriptor.log_fields());
-    let mut renderer = RealtimeRenderer::new(&core_cfg, &entry)
-        .with_context(|| format!("plugin_path={}", cfg.plugin_path))?;
+    let mut renderer = RealtimeRenderer::new(&kind.core_cfg, &entry)
+        .with_context(|| format!("plugin_path={}", kind.plugin_path))?;
     if let Some(previous_patch) = previous_patch {
+        // 1 つのインスタンスで両方を鳴らす probe なので、プラグインをまたぐ組み合わせは
+        // 成立しない。黙って別プラグインの音色を読ませると「操作は成功したが前の音のまま」
+        // になるため、ここで落とす。
+        let previous_kind =
+            kind_for_patch(&kinds, 0, Some(previous_patch)).map_err(|error| anyhow!(error))?;
+        if kinds[previous_kind].plugin_path != kind.plugin_path {
+            anyhow::bail!(
+                "--previous-patch はプラグインをまたげません: '{previous_patch}' は {} / '{patch}' は {}",
+                kinds[previous_kind].name,
+                kind.name
+            );
+        }
         renderer.set_patch(Some(&resolve_patch(previous_patch)))?;
         let _ = renderer.probe_voicing()?;
     }

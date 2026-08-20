@@ -36,7 +36,7 @@ pub use descriptor::{select_descriptor, SelectedDescriptor};
 #[cfg(test)]
 mod tests;
 pub use offline::{render, render_to_memory};
-pub use parallel::{create_renderers_parallel, RendererCreated};
+pub use parallel::{create_renderers_parallel, RendererCreated, RendererHandoff, RendererSpec};
 pub use playback::RealtimePlaybackSchedule;
 
 /// live MIDI 1.0 short message と、その chunk 先頭からのフレームオフセット。
@@ -268,6 +268,14 @@ impl RealtimeRenderer {
     /// 1 chunk のフレーム数。live のスケジューラが chunk 境界を計算するのに使う。
     pub fn buf_size(&self) -> usize {
         self.buf_size
+    }
+
+    /// 実際に載っている CLAP plugin ID。
+    ///
+    /// 論理 instance と物理インスタンスを分離した呼び出し側（再生サーバーの予備プール）が、
+    /// 「このスロットにいま何が載っているか」を確かめるために使う。
+    pub fn plugin_id(&self) -> &str {
+        &self.plugin_id
     }
 
     /// timestampを持たないlive MIDI 1.0 short message群を、順序を保って

@@ -22,7 +22,8 @@ pub use plugin_defaults::{
 };
 pub use plugin_identity::{plugin_file_stem, DEXED_PLUGIN_ID, SURGE_XT_PLUGIN_ID};
 pub use plugin_profile::{
-    builtin_plugin_profiles, resolve_active_plugin_profile, PatchRoleFilters, PluginProfile,
+    builtin_plugin_profiles, installed_plugin_profiles, merged_plugin_profiles, patch_form_of,
+    resolve_active_plugin_profile, PatchForm, PatchRoleFilters, PluginProfile,
 };
 
 use std::collections::BTreeMap;
@@ -136,6 +137,14 @@ impl ServerConfig {
     /// `CoreConfig.patches_dir` へ渡す 1 本のディレクトリ。
     pub fn patch_root_dir(&self) -> Option<String> {
         patch_root_dir(self.patches_dirs.as_deref())
+    }
+
+    /// このマシンで実際に使えるプラグインのプロファイル（`plugin_path` が実在するものだけ）。
+    ///
+    /// `active_plugin` が指す 1 つではなく、**同じプロセスに同時に載せられる候補**を返す。
+    /// 再生サーバーの予備インスタンスプールが、行ごとに違うプラグインを載せるために使う。
+    pub fn installed_plugin_profiles(&self) -> BTreeMap<String, PluginProfile> {
+        installed_plugin_profiles(&self.plugins)
     }
 }
 

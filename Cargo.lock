@@ -308,6 +308,7 @@ dependencies = [
  "clack-extensions",
  "clack-host",
  "cmrt-clack-timeline",
+ "cmrt-server-config",
  "cmrt-timeline",
  "dirs",
  "hound",
