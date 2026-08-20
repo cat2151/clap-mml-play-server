@@ -10,8 +10,8 @@ use anyhow::{Context as _, Result};
 use clap::{error::ErrorKind, Parser, Subcommand};
 use cmrt_core::{
     check_workspace_update, embedded_patch_ref, encode_wav_i16, kind_for_patch, load_entry,
-    mml_render_stateless_with_options, plugin_kinds, run_workspace_update, CoreConfig, PluginKind,
-    RenderOptions,
+    log_boot, log_boot_fatal, mml_render_stateless_with_options, plugin_kinds,
+    run_workspace_update, CoreConfig, PluginKind, RenderOptions,
 };
 use cmrt_server_config::ServerConfig;
 use http::run_render_server;
@@ -71,7 +71,20 @@ where
     }
 }
 
+/// config 由来の失敗は「このサーバーが起動できない理由」そのものなので、
+/// anyhow で返すだけでなく boot ログにも 1 行残す。理由は realtime-play-server 側と同じ。
+fn load_config() -> Result<ServerConfig> {
+    let loaded = (|| {
+        let cfg = ServerConfig::load()?;
+        validate_render_server_config(&cfg)?;
+        Ok(cfg)
+    })();
+    loaded.inspect_err(|error: &anyhow::Error| log_boot_fatal("config", &format!("{error:#}")))
+}
+
 fn main() -> Result<()> {
+    // 「どの実体を、どの版で起動したか」を、失敗しうる処理より前に残す。
+    log_boot(BUILD_COMMIT_HASH);
     match parse_cli(std::env::args_os())? {
         CliAction::Run => {}
         CliAction::Update => {
@@ -88,8 +101,7 @@ fn main() -> Result<()> {
         }
     }
 
-    let cfg = ServerConfig::load()?;
-    validate_render_server_config(&cfg)?;
+    let cfg = load_config()?;
     let core_cfg = core_config_from_server_config(&cfg);
     // 受け取る MML の音色がどのプラグインのものかは、リクエストが来るまで分からない。
     // 載りうるものを最初に全部並べておき、レンダリングのたびに patch 文字列で引き分ける

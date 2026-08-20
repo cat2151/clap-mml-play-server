@@ -15,8 +15,8 @@ use std::{
 use anyhow::{anyhow, Context as _, Result};
 use clap::{error::ErrorKind, Parser, Subcommand, ValueEnum};
 use cmrt_core::{
-    check_workspace_update, kind_for_patch, run_workspace_update, PatchBases, PatchVoicing,
-    RealtimeRenderer, RenderOptions,
+    check_workspace_update, kind_for_patch, log_boot, log_boot_fatal, run_workspace_update,
+    PatchBases, PatchVoicing, RealtimeRenderer, RenderOptions,
 };
 use config::{
     core_config_from_server_config, validate_realtime_play_server_config, RealtimeServerConfig,
@@ -124,9 +124,27 @@ where
     }
 }
 
+/// config 由来の失敗は「このサーバーが起動できない理由」そのものなので、
+/// anyhow で返すだけでなく boot ログにも 1 行残す。
+///
+/// クライアントから見ると config エラーは「子プロセスが即死した」だけで、
+/// 何が悪いのかは stderr を読むまで分からない。プレフィックス付きの 1 行にしておけば、
+/// `cmrt-server-boot:` で grep したときに起動した版と失敗理由が並んで出る。
+fn load_configs() -> Result<(cmrt_server_config::ServerConfig, RealtimeServerConfig)> {
+    let loaded = (|| {
+        let cfg = cmrt_server_config::ServerConfig::load()?;
+        let realtime_cfg = RealtimeServerConfig::load()?;
+        validate_realtime_play_server_config(&cfg, &realtime_cfg)?;
+        Ok((cfg, realtime_cfg))
+    })();
+    loaded.inspect_err(|error: &anyhow::Error| log_boot_fatal("config", &format!("{error:#}")))
+}
+
 fn main() -> Result<()> {
     // 起動時間計測の基準点。以降 timing::log() が「起動から何 ms か」を添える。
     timing::boot();
+    // 「どの実体を、どの版で起動したか」を、失敗しうる処理より前に残す。
+    log_boot(BUILD_COMMIT_HASH);
     match parse_cli(std::env::args_os())? {
         CliAction::Run => {}
         CliAction::Update => {
@@ -153,9 +171,7 @@ fn main() -> Result<()> {
     }
 
     let config_started = Instant::now();
-    let cfg = cmrt_server_config::ServerConfig::load()?;
-    let realtime_cfg = RealtimeServerConfig::load()?;
-    validate_realtime_play_server_config(&cfg, &realtime_cfg)?;
+    let (cfg, realtime_cfg) = load_configs()?;
     timing::log_phase("config", config_started.elapsed());
 
     let core_cfg = core_config_from_server_config(&cfg, &realtime_cfg);

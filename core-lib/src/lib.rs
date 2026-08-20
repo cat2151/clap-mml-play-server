@@ -1,3 +1,4 @@
+pub mod boot_log;
 pub mod dx7;
 pub mod host;
 pub mod midi;
@@ -30,6 +31,7 @@ pub struct CoreConfig {
     pub random_patch: bool,
 }
 
+pub use boot_log::{log_boot, log_boot_fatal};
 pub use dx7::{
     cartridge_program_component, is_cartridge_patch_path, parse_cartridge_patch_path,
     parse_dx7_cartridge, CartridgePatchPath, Dx7Cartridge, DEXED_PLUGIN_ID, DX7_BULK_DUMP_LEN,
