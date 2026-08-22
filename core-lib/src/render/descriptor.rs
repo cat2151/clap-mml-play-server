@@ -18,7 +18,7 @@ use crate::host::MidiRenderHost;
 const STEREO_CHANNELS: u32 = 2;
 
 /// factory から選ばれた 1 件の plugin descriptor。
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct SelectedDescriptor {
     pub id: String,
     pub name: String,
@@ -160,7 +160,9 @@ pub(super) fn probe_capabilities(
     Ok(capabilities)
 }
 
-fn read_capabilities(plugin_instance: &mut PluginInstance<MidiRenderHost>) -> PluginCapabilities {
+pub(super) fn read_capabilities(
+    plugin_instance: &mut PluginInstance<MidiRenderHost>,
+) -> PluginCapabilities {
     let handle = plugin_instance.plugin_handle();
     // extension が無いプラグインは、その種類の port を 1 つも持たない（CLAP の規約）。
     let (audio_input_ports, audio_output_ports, main_output_channels, main_output_is_main) =
@@ -203,7 +205,7 @@ fn read_capabilities(plugin_instance: &mut PluginInstance<MidiRenderHost>) -> Pl
     }
 }
 
-fn validate_capabilities(
+pub(super) fn validate_capabilities(
     capabilities: &PluginCapabilities,
     descriptor: &SelectedDescriptor,
 ) -> Result<()> {

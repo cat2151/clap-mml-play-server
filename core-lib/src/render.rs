@@ -14,8 +14,10 @@ use cmrt_timeline::{BlockSpan, FreeRunningTimeline, SamplePosition, SampleRate};
 
 use crate::dx7::is_cartridge_patch_path;
 use crate::host::MidiRenderHost;
+use crate::vvp::is_vvp_patch_path;
 use crate::CoreConfig;
 
+mod capability_probe;
 mod cartridge_patch;
 mod descriptor;
 mod instance;
@@ -25,13 +27,18 @@ mod patch_state;
 mod patch_switch;
 mod playback;
 mod process_inputs;
+mod serial_instantiation;
 mod voicing_probe;
+mod vvp_patch;
 use descriptor::{probe_capabilities, resolve_note_dialect, NoteEventDialect, PluginCapabilities};
 use instance::create_plugin_instance_without_patch;
 use patch_state::{load_patch, save_plugin_state};
 use process_inputs::{input_buffer, push_offline_note_event};
+use vvp_patch::{ensure_vvp_capable, load_vvp_state};
 
+pub use capability_probe::{probe_plugin_capabilities, PluginProbeReport, ProbedDescriptor};
 pub use descriptor::{select_descriptor, SelectedDescriptor};
+pub use serial_instantiation::plugin_requires_serial_instantiation;
 
 #[cfg(test)]
 mod tests;
@@ -145,7 +152,15 @@ impl RealtimeRenderer {
             .is_some_and(is_cartridge_patch_path);
         if let (Some(patch), false) = (cfg.patch_path.as_deref(), cartridge_patch) {
             let step = Instant::now();
-            load_patch(&mut plugin_instance, patch)?;
+            // `.vvp` も state なので activate 前でよいが、**渡す前に XML を包む**必要がある。
+            // `load_patch()` は `.fxp` の chunk 切り出ししか知らないので、そのまま渡すと
+            // Vaporizer2 が読めない生 XML を state として押し込むことになる。
+            if is_vvp_patch_path(patch) {
+                ensure_vvp_capable(&descriptor.id)?;
+                load_vvp_state(&mut plugin_instance, patch)?;
+            } else {
+                load_patch(&mut plugin_instance, patch)?;
+            }
             timing.load_patch = step.elapsed();
         }
         let audio_config = PluginAudioConfiguration {

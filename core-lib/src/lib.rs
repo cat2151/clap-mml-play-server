@@ -8,6 +8,7 @@ pub mod plugin_catalog;
 pub mod render;
 pub mod surge_data;
 pub mod voicing;
+pub mod vvp;
 mod workspace_update;
 
 /// レンダリング 1 回ぶんの設定。
@@ -49,12 +50,17 @@ pub use pipeline::{
 };
 pub use plugin_catalog::{kind_for_patch, plugin_kinds, PatchBases, PluginKind};
 pub use render::{
-    create_renderers_parallel, select_descriptor, LiveMidiEvent, RealtimePlaybackSchedule,
-    RealtimeRenderer, RendererCreated, RendererHandoff, RendererInitTiming, RendererSpec,
-    SelectedDescriptor,
+    create_renderers_parallel, plugin_requires_serial_instantiation, probe_plugin_capabilities,
+    select_descriptor, LiveMidiEvent, RealtimePlaybackSchedule, RealtimeRenderer, RendererCreated,
+    RendererHandoff, RendererInitTiming, RendererSpec, SelectedDescriptor,
 };
+pub use render::{PluginProbeReport, ProbedDescriptor};
 pub use surge_data::{
     apply_minimal_surge_data_home, plugin_is_surge, MinimalSurgeDataHome, SURGE_XT_PLUGIN_ID,
 };
 pub use voicing::{PatchVoicing, VoicingReport};
+pub use vvp::{
+    is_vvp_patch_path, parse_vvp_header, read_vvp_header, vvp_state_blob, VvpHeader,
+    VAPORIZER2_PLUGIN_ID,
+};
 pub use workspace_update::{check_workspace_update, run_workspace_update};

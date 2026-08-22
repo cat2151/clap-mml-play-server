@@ -2,7 +2,7 @@ use super::*;
 use std::path::Path;
 
 fn test_bases() -> PatchBases {
-    PatchBases::from_bases(Some("/patches"), Some("/cartridges"))
+    PatchBases::from_bases(Some("/patches"), Some("/cartridges"), Some("/vvp"))
 }
 
 #[test]

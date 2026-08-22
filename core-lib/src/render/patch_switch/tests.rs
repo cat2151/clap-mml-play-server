@@ -19,3 +19,15 @@ fn a_cartridge_path_resolves_to_its_cartridge_and_program() {
         }
     );
 }
+
+/// 3 つ目の形が増えても、判定の順番が入れ替わって取り違えないこと。
+#[test]
+fn vvp_paths_are_told_apart_from_both_other_forms_by_the_path_alone() {
+    assert!(is_vvp_patch_path("AR Accent Arp.vvp"));
+    assert!(is_vvp_patch_path("User/PD Emily.VVP"));
+    assert!(!is_vvp_patch_path("Pads/Pad 1.fxp"));
+    assert!(!is_vvp_patch_path("Dexed_01.syx/00 Init"));
+    assert!(!is_cartridge_patch_path("AR Accent Arp.vvp"));
+    // 拡張子だけの名前は音色ファイルではない。
+    assert!(!is_vvp_patch_path(".vvp"));
+}

@@ -1,6 +1,6 @@
 # ADR — 設計判断の記録
 
-CLAP プラグイン（Surge XT / Dexed）の**実測仕様**と、サーバー側の**確定した設計判断**。
+CLAP プラグイン（Surge XT / Dexed / Vaporizer2）の**実測仕様**と、サーバー側の**確定した設計判断**。
 「なぜそうしなかったのか」と「再取得コストの高い実測値」を残している。
 
 実装はすべて完了済み。
@@ -22,3 +22,5 @@ TUI 側（データ表現・config・カタログ）は `../clap-mml-render-tui/
 | [0010](0010-surge-data-home-and-plugin-identity.md) | `SURGE_DATA_HOME` 最適化は Surge 限定 / プラグイン同定の優先順位 |
 | [0011](0011-clack-host-notes.md) | clack / host 実装の知識 |
 | [0012](0012-measured-baselines.md) | 実測ベースライン（退行検知用） |
+| [0013](0013-serial-instantiation.md) | 並列生成に耐えないプラグインだけ instance 生成を直列化する |
+| [0014](0014-vvp-as-clap-state.md) | `.vvp` は CLAP state として流す（列挙も選択も host 側） |

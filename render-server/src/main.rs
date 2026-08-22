@@ -1,9 +1,12 @@
 mod http;
 mod lifetime_guard;
 
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
+use std::{
+    path::PathBuf,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 
 use anyhow::{Context as _, Result};
@@ -25,7 +28,10 @@ static DESCRIPTOR_LOGGED: std::sync::Once = std::sync::Once::new();
 
 #[derive(Debug, PartialEq, Eq)]
 enum CliAction {
-    Run,
+    /// `config` を渡すと既定の置き場ではなくそのファイルを読む（診断用）。
+    Run {
+        config: Option<PathBuf>,
+    },
     Update,
     Check,
     PrintHelp(String),
@@ -41,6 +47,10 @@ enum CliAction {
     after_help = "CONFIG:\n    config_local_dir()/clap-mml-render-tui/config.toml\n\nHTTP:\n    POST /render\n    response: audio/wav, 16bit stereo 48000Hz"
 )]
 struct Cli {
+    /// 既定の置き場ではなく、この config.toml を読む（診断用）
+    #[arg(long, value_name = "PATH")]
+    config: Option<PathBuf>,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -62,7 +72,7 @@ where
         Ok(cli) => match cli.command {
             Some(Commands::Update) => Ok(CliAction::Update),
             Some(Commands::Check) => Ok(CliAction::Check),
-            None => Ok(CliAction::Run),
+            None => Ok(CliAction::Run { config: cli.config }),
         },
         Err(error) if error.kind() == ErrorKind::DisplayHelp => {
             Ok(CliAction::PrintHelp(error.to_string()))
@@ -73,9 +83,12 @@ where
 
 /// config 由来の失敗は「このサーバーが起動できない理由」そのものなので、
 /// anyhow で返すだけでなく boot ログにも 1 行残す。理由は realtime-play-server 側と同じ。
-fn load_config() -> Result<ServerConfig> {
+fn load_config(path: Option<&std::path::Path>) -> Result<ServerConfig> {
     let loaded = (|| {
-        let cfg = ServerConfig::load()?;
+        let cfg = match path {
+            Some(path) => ServerConfig::load_from_path(path)?,
+            None => ServerConfig::load()?,
+        };
         validate_render_server_config(&cfg)?;
         Ok(cfg)
     })();
@@ -85,8 +98,8 @@ fn load_config() -> Result<ServerConfig> {
 fn main() -> Result<()> {
     // 「どの実体を、どの版で起動したか」を、失敗しうる処理より前に残す。
     log_boot(BUILD_COMMIT_HASH);
-    match parse_cli(std::env::args_os())? {
-        CliAction::Run => {}
+    let config_path = match parse_cli(std::env::args_os())? {
+        CliAction::Run { config } => config,
         CliAction::Update => {
             run_workspace_update()?;
             return Ok(());
@@ -99,9 +112,9 @@ fn main() -> Result<()> {
             print!("{help}");
             return Ok(());
         }
-    }
+    };
 
-    let cfg = load_config()?;
+    let cfg = load_config(config_path.as_deref())?;
     let core_cfg = core_config_from_server_config(&cfg);
     // 受け取る MML の音色がどのプラグインのものかは、リクエストが来るまで分からない。
     // 載りうるものを最初に全部並べておき、レンダリングのたびに patch 文字列で引き分ける
@@ -263,7 +276,19 @@ buffer_size = 512
     fn cli_without_subcommand_runs_server() {
         assert_eq!(
             parse_cli(["clap-mml-render-server"]).unwrap(),
-            CliAction::Run
+            CliAction::Run { config: None }
+        );
+    }
+
+    /// 実ユーザーの config.toml を書き換えずに `[plugins.*]` を試すための入口。
+    /// TUI 側の `cmrt patch-roles --config` / `cmrt render-mml --config` と対になる。
+    #[test]
+    fn cli_takes_an_optional_config_path() {
+        assert_eq!(
+            parse_cli(["clap-mml-render-server", "--config", "/tmp/try.toml"]).unwrap(),
+            CliAction::Run {
+                config: Some(PathBuf::from("/tmp/try.toml"))
+            }
         );
     }
 

@@ -18,9 +18,11 @@ pub use patch_dirs::{configured_patch_dirs, patch_root_dir, shared_patch_root_di
 pub use paths::{config_app_dir, config_file_path};
 pub use plugin_defaults::{
     default_dexed_cartridge_dirs, default_dexed_plugin_path, default_patches_dirs,
-    default_plugin_path,
+    default_plugin_path, default_vaporizer2_plugin_path,
 };
-pub use plugin_identity::{plugin_file_stem, DEXED_PLUGIN_ID, SURGE_XT_PLUGIN_ID};
+pub use plugin_identity::{
+    plugin_file_stem, DEXED_PLUGIN_ID, SURGE_XT_PLUGIN_ID, VAPORIZER2_PLUGIN_ID,
+};
 pub use plugin_profile::{
     builtin_plugin_profiles, installed_plugin_profiles, merged_plugin_profiles, patch_form_of,
     resolve_active_plugin_profile, PatchForm, PatchRoleFilters, PluginProfile,
@@ -92,6 +94,19 @@ impl ServerConfig {
                 path.display()
             )
         })?;
+        Self::from_toml_str(&text)
+            .with_context(|| format!("config.toml の読み込みに失敗 ({})", path.display()))
+    }
+
+    /// 既定の置き場ではなく、指定した config.toml を読む。
+    ///
+    /// **診断用。** 実ユーザーの config.toml を書き換えずに `active_plugin` や
+    /// `[plugins.*]` を差し替えて試すための入口で、TUI 側の
+    /// `cmrt_runtime::Config::load_from_path` と対になる。既定の置き場を探しに
+    /// 行かないので、実ユーザーの設定には 1 バイトも触らない。
+    pub fn load_from_path(path: &std::path::Path) -> Result<Self> {
+        let text = std::fs::read_to_string(path)
+            .with_context(|| format!("config.toml が読めない ({})", path.display()))?;
         Self::from_toml_str(&text)
             .with_context(|| format!("config.toml の読み込みに失敗 ({})", path.display()))
     }

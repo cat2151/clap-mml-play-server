@@ -5,8 +5,10 @@
 //! - Surge XT: `.fxp` 1 ファイル = 1 音色。ファイルパスがそのまま音色。
 //! - Dexed: `.syx` 1 ファイル = 32 program。cartridge を仮想ディレクトリに見立てて
 //!   `<cartridge>.syx/NN 名前` へ展開する（[`crate::dx7`]）。
+//! - Vaporizer2: `.vvp` 1 ファイル = 1 音色。`.fxp` と同じく展開は要らない
+//!   （中身は XML だが、ここでは開かない。460 ファイル 681MB を読むことになるため）。
 //!
-//! 両方を同じ `Vec<PathBuf>` で返すので、呼び出し側（TUI の一覧・検索・カテゴリ分け）は
+//! どれも同じ `Vec<PathBuf>` で返すので、呼び出し側（TUI の一覧・検索・カテゴリ分け）は
 //! プラグインの違いを知らないまま動く。
 
 use anyhow::Result;
@@ -34,7 +36,7 @@ fn visit_dir(dir: &Path, list: &mut Vec<PathBuf>) -> Result<()> {
             continue;
         }
         match extension_lowercase(&path).as_deref() {
-            Some("fxp") => list.push(path),
+            Some("fxp") | Some("vvp") => list.push(path),
             Some("syx") => push_cartridge_programs(&path, list),
             _ => {}
         }
@@ -89,5 +91,4 @@ pub fn to_relative(patches_dir: &str, abs_path: &Path) -> String {
 }
 
 #[cfg(test)]
-#[path = "patch_list_tests.rs"]
 mod tests;

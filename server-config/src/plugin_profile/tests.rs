@@ -252,6 +252,71 @@ fn the_builtin_surge_profile_writes_no_patch_role_filters() {
     assert_eq!(profile.patch_roles, PatchRoleFilters::default());
 }
 
+/// Vaporizer2 も名前 1 行で使える。**ただし音色置き場は組み込みでは埋まらない。**
+/// プリセット置き場はユーザーが決めるものなので、config に書いてもらう
+/// （書かなければ音色置き場が空のままカタログに載らない、という安全側の倒れ方をする）。
+#[test]
+fn the_builtin_vaporizer2_profile_brings_no_patch_directories() {
+    let profile = resolve_builtin("Vaporizer2").unwrap();
+
+    assert_eq!(profile.plugin_path, default_vaporizer2_plugin_path());
+    assert_eq!(profile.plugin_id.as_deref(), Some("com.vastdynamics.VAST2"));
+    assert_eq!(profile.patches_dirs, None);
+    assert!(configured_patch_dirs(profile.patches_dirs.as_deref()).is_empty());
+}
+
+/// Surge と同じく絞り込みを 1 つも書かない。用途別カテゴリの実データは TUI 側の担当で、
+/// ここへ書くと play server → TUI の逆向き依存が復活する。
+#[test]
+fn the_builtin_vaporizer2_profile_writes_no_patch_role_filters() {
+    let profile = resolve_builtin("Vaporizer2").unwrap();
+
+    assert_eq!(profile.patch_roles, PatchRoleFilters::default());
+}
+
+/// 標準の場所へ入れているユーザーが書くのは `patches_dirs` の 1 行だけで済む。
+#[test]
+fn a_vaporizer2_profile_only_needs_its_patches_dirs() {
+    let profile = resolve(
+        "Vaporizer2",
+        r#"
+[plugins.Vaporizer2]
+patches_dirs = ["/presets/Vaporizer2"]
+"#,
+    )
+    .unwrap();
+
+    assert_eq!(profile.plugin_path, default_vaporizer2_plugin_path());
+    assert_eq!(profile.plugin_id.as_deref(), Some("com.vastdynamics.VAST2"));
+    assert_eq!(
+        configured_patch_dirs(profile.patches_dirs.as_deref()),
+        vec!["/presets/Vaporizer2".to_string()]
+    );
+}
+
+/// 3 つ目の組み込み名が、名前を間違えたときの案内にも出ること。
+#[test]
+fn the_available_names_now_list_three_builtins() {
+    let error = resolve("vaporiser2", "").unwrap_err();
+
+    let message = error.to_string();
+    assert!(message.contains("Surge XT"), "{message}");
+    assert!(message.contains("Dexed"), "{message}");
+    assert!(message.contains("Vaporizer2"), "{message}");
+}
+
+#[test]
+fn the_vaporizer2_builtin_name_ignores_case_and_spaces() {
+    for name in ["vaporizer2", "VAPORIZER2", "Vaporizer 2", "vaporizer_2"] {
+        let profile = resolve_builtin(name).unwrap();
+        assert_eq!(
+            profile.plugin_id.as_deref(),
+            Some("com.vastdynamics.VAST2"),
+            "{name}"
+        );
+    }
+}
+
 /// プロファイル側にカテゴリを書けば、そのプラグインだけ絞り込める。
 /// 書かなかった項目は組み込みの「絞らない」が残る。
 #[test]
@@ -272,5 +337,50 @@ chord_patch_categories = ["SynprezFM"]
     assert_eq!(
         profile.patch_roles.bass_patch_categories,
         Some(Vec::<String>::new())
+    );
+}
+
+/// `plugin_id` が書いてあるなら、それだけで形が決まること。
+#[test]
+fn the_plugin_id_decides_the_patch_form() {
+    assert_eq!(
+        patch_form_of(Some(SURGE_XT_PLUGIN_ID), "whatever.clap"),
+        PatchForm::StateFile
+    );
+    assert_eq!(
+        patch_form_of(Some(DEXED_PLUGIN_ID), "whatever.clap"),
+        PatchForm::Cartridge
+    );
+    assert_eq!(
+        patch_form_of(Some(VAPORIZER2_PLUGIN_ID), "whatever.clap"),
+        PatchForm::Vvp
+    );
+}
+
+/// `plugin_id` を書いていない config でも、ファイル名から拾えること。
+/// 実ファイル名は `VASTvaporizer2.clap` なので、大文字小文字を無視して照合する。
+#[test]
+fn the_file_name_is_the_last_resort_when_no_plugin_id_is_written() {
+    assert_eq!(
+        patch_form_of(None, r"C:\CLAP\VASTvaporizer2.clap"),
+        PatchForm::Vvp
+    );
+    assert_eq!(
+        patch_form_of(None, r"C:\CLAP\Dexed.clap"),
+        PatchForm::Cartridge
+    );
+    assert_eq!(
+        patch_form_of(None, r"C:\CLAP\Surge XT.clap"),
+        PatchForm::StateFile
+    );
+}
+
+/// 知らないプラグインは `StateFile` へ落とす。`.vvp` / `.syx` を読む CLAP は
+/// 実質 1 つずつしかないので、既定は Surge と同じ形のほうが当たる見込みが高い。
+#[test]
+fn an_unknown_plugin_still_falls_back_to_the_state_file_form() {
+    assert_eq!(
+        patch_form_of(Some("com.example.unknown"), "Unknown.clap"),
+        PatchForm::StateFile
     );
 }

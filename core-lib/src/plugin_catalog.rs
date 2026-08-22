@@ -13,7 +13,7 @@
 
 use std::path::Path;
 
-use crate::{is_cartridge_patch_path, CoreConfig};
+use crate::{is_cartridge_patch_path, is_vvp_patch_path, CoreConfig};
 use cmrt_server_config::{patch_form_of, PatchForm, ServerConfig};
 
 /// 1 プロセスへ載せうるプラグイン 1 種別。
@@ -80,11 +80,7 @@ pub fn kind_for_patch(
     let Some(patch) = patch else {
         return Ok(default_kind);
     };
-    let form = if is_cartridge_patch_path(patch) {
-        PatchForm::Cartridge
-    } else {
-        PatchForm::StateFile
-    };
+    let form = patch_form_of_path(patch);
     if kinds[default_kind].patch_form == form {
         return Ok(default_kind);
     }
@@ -103,6 +99,21 @@ pub fn kind_for_patch(
         })
 }
 
+/// patch 文字列そのものから形を読む。
+///
+/// [`kind_for_patch`] と [`PatchBases::base_for`] の両方が同じ規則を使う。
+/// 別々に書くと、片方だけ直したときに「選ばれたプラグインと基点が食い違う」
+/// という静かな間違いになる。
+fn patch_form_of_path(patch: &str) -> PatchForm {
+    if is_cartridge_patch_path(patch) {
+        PatchForm::Cartridge
+    } else if is_vvp_patch_path(patch) {
+        PatchForm::Vvp
+    } else {
+        PatchForm::StateFile
+    }
+}
+
 /// patch 文字列の形ごとの、相対パスを絶対パスへ直す基点。
 ///
 /// 音色置き場はプラグインごとに別の場所なので、基点も形ごとに分かれる。
@@ -110,16 +121,14 @@ pub fn kind_for_patch(
 pub struct PatchBases {
     state_file: Option<String>,
     cartridge: Option<String>,
+    vvp: Option<String>,
 }
 
 impl PatchBases {
     pub fn from_kinds(kinds: &[PluginKind]) -> Self {
         let mut bases = Self::default();
         for kind in kinds {
-            let slot = match kind.patch_form {
-                PatchForm::StateFile => &mut bases.state_file,
-                PatchForm::Cartridge => &mut bases.cartridge,
-            };
+            let slot = bases.slot_mut(kind.patch_form);
             // 先頭（既定プラグイン）の基点を優先する。
             if slot.is_none() {
                 slot.clone_from(&kind.core_cfg.patches_dir);
@@ -129,19 +138,32 @@ impl PatchBases {
     }
 
     /// 基点を直接指定して作る。プラグイン一覧を組まずに解決だけ確かめたいとき用。
-    pub fn from_bases(state_file: Option<&str>, cartridge: Option<&str>) -> Self {
+    pub fn from_bases(
+        state_file: Option<&str>,
+        cartridge: Option<&str>,
+        vvp: Option<&str>,
+    ) -> Self {
         Self {
             state_file: state_file.map(str::to_string),
             cartridge: cartridge.map(str::to_string),
+            vvp: vvp.map(str::to_string),
         }
     }
 
     /// この patch 文字列に対応する基点。
     pub fn base_for(&self, patch: &str) -> Option<&str> {
-        if is_cartridge_patch_path(patch) {
-            self.cartridge.as_deref()
-        } else {
-            self.state_file.as_deref()
+        match patch_form_of_path(patch) {
+            PatchForm::StateFile => self.state_file.as_deref(),
+            PatchForm::Cartridge => self.cartridge.as_deref(),
+            PatchForm::Vvp => self.vvp.as_deref(),
+        }
+    }
+
+    fn slot_mut(&mut self, form: PatchForm) -> &mut Option<String> {
+        match form {
+            PatchForm::StateFile => &mut self.state_file,
+            PatchForm::Cartridge => &mut self.cartridge,
+            PatchForm::Vvp => &mut self.vvp,
         }
     }
 }

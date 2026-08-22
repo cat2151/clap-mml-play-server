@@ -175,6 +175,96 @@ fn collect_patches_matches_the_extension_case_insensitively() {
     let _ = std::fs::remove_dir_all(&tmp_dir);
 }
 
+#[test]
+fn collect_patches_lists_a_vvp_file_as_one_patch() {
+    let tmp_dir = std::env::temp_dir().join("cmrt_test_collect_patches_vvp");
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+    let sub_dir = tmp_dir.join("Presets");
+    std::fs::create_dir_all(&sub_dir).unwrap();
+    std::fs::write(sub_dir.join("AR Accent Arp.vvp"), b"<VASTvaporizer2/>").unwrap();
+    std::fs::write(sub_dir.join("BA Deep.VVP"), b"<VASTvaporizer2/>").unwrap();
+    std::fs::write(sub_dir.join("notes.txt"), b"not a patch").unwrap();
+
+    let patches = collect_patches(tmp_dir.to_str().unwrap()).unwrap();
+
+    // `.fxp` と同じく 1 ファイル = 1 音色。`.syx` のような 32 program 展開はしない。
+    assert_eq!(patches.len(), 2);
+    assert_eq!(
+        to_relative(tmp_dir.to_str().unwrap(), &patches[0]),
+        "Presets/AR Accent Arp.vvp"
+    );
+    assert_eq!(
+        to_relative(tmp_dir.to_str().unwrap(), &patches[1]),
+        "Presets/BA Deep.VVP"
+    );
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+}
+
+/// 3 種別が同じディレクトリに混ざっていても、それぞれの数え方で 1 つの一覧になる。
+#[test]
+fn collect_patches_mixes_all_three_patch_forms() {
+    let tmp_dir = std::env::temp_dir().join("cmrt_test_collect_patches_three_forms");
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+    std::fs::create_dir_all(&tmp_dir).unwrap();
+    std::fs::write(tmp_dir.join("surge.fxp"), b"dummy").unwrap();
+    std::fs::write(
+        tmp_dir.join("dexed.syx"),
+        crate::dx7::test_cartridge_bytes(&[(0, "Init")]),
+    )
+    .unwrap();
+    std::fs::write(tmp_dir.join("vapor.vvp"), b"<VASTvaporizer2/>").unwrap();
+
+    let patches = collect_patches(tmp_dir.to_str().unwrap()).unwrap();
+
+    // 1 + 32 + 1
+    assert_eq!(patches.len(), 34);
+    assert!(patches.iter().any(|path| path.ends_with("surge.fxp")));
+    assert!(patches.iter().any(|path| path.ends_with("vapor.vvp")));
+    // cartridge ファイル自身は音色ではない（`.vvp` はファイルそのものが音色）。
+    assert!(!patches.iter().any(|path| path.ends_with("dexed.syx")));
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+}
+
+/// 実物のプリセット置き場が丸ごと列挙できること。
+/// 資料の実測（460 件・フラット・すべて `.vvp`）と突き合わせる。
+///
+/// ```text
+/// CMRT_TEST_VAPORIZER2_PRESETS=N:\app4HDD\Vaporizer2\Presets
+/// ```
+#[test]
+#[ignore = "実物の Vaporizer2 プリセット置き場が要る"]
+fn installed_vaporizer2_presets_are_all_listed() {
+    let Ok(dir) = std::env::var("CMRT_TEST_VAPORIZER2_PRESETS") else {
+        panic!("CMRT_TEST_VAPORIZER2_PRESETS が未設定");
+    };
+
+    let patches = collect_patches(&dir).unwrap();
+
+    assert!(
+        !patches.is_empty(),
+        "プリセットが 1 件も見つからない: {dir}"
+    );
+    // ディレクトリを走査して数えた「`.vvp` の実ファイル数」と一致すること。
+    let on_disk = std::fs::read_dir(&dir)
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry
+                .path()
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| e.eq_ignore_ascii_case("vvp"))
+        })
+        .count();
+    assert_eq!(patches.len(), on_disk);
+    assert!(
+        patches
+            .iter()
+            .all(|path| crate::vvp::is_vvp_patch_path(&path.to_string_lossy())),
+        "`.vvp` 以外が混ざっている"
+    );
+}
+
 /// 実物の cartridge が 1 件残らず読めること。合成 fixture では仕様の読み違いを検出できない。
 ///
 /// ```text

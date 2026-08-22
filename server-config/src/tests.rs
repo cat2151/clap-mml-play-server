@@ -102,6 +102,44 @@ fn an_active_plugin_is_baked_into_the_top_level_fields() {
     );
 }
 
+/// Vaporizer2 の組み込みプロファイルは `patches_dirs` を持たない。焼き込みは
+/// **無条件の代入**なので、`active_plugin = 'Vaporizer2'` にすると
+/// トップレベルに書いてあった Surge の音色置き場は `None` で消える。
+///
+/// これが消えないと、`C:\ProgramData\Surge XT\...` の `.fxp` が Vaporizer2 の音色として
+/// 一覧に出て、Vaporizer2 のインスタンスへ送られる（ADR 0001 の穴の実害そのもの）。
+/// **「音色 0 件」で倒れるのが正しい。**
+#[test]
+fn making_vaporizer2_the_active_plugin_does_not_inherit_the_surge_patch_dirs() {
+    let cfg = load(
+        "patches_dirs = ['/surge/patches_factory']
+active_plugin = 'Vaporizer2'
+",
+    );
+
+    assert_eq!(cfg.plugin_path, default_vaporizer2_plugin_path());
+    assert_eq!(cfg.plugin_id.as_deref(), Some(VAPORIZER2_PLUGIN_ID));
+    assert_eq!(cfg.patches_dirs, None);
+    assert_eq!(cfg.patch_root_dir(), None);
+}
+
+/// 音色置き場だけを `[plugins.Vaporizer2]` に書けば、それが焼き込まれる。
+#[test]
+fn a_vaporizer2_profile_supplies_the_patch_dirs_the_builtin_lacks() {
+    let cfg = load(
+        "active_plugin = 'Vaporizer2'
+[plugins.Vaporizer2]
+patches_dirs = ['/presets/Vaporizer2']
+",
+    );
+
+    assert_eq!(cfg.plugin_path, default_vaporizer2_plugin_path());
+    assert_eq!(
+        cfg.patches_dirs.as_deref().map(<[String]>::to_vec),
+        Some(vec!["/presets/Vaporizer2".to_string()])
+    );
+}
+
 #[test]
 fn a_config_without_active_plugin_keeps_its_top_level_settings() {
     let cfg = load("patches_dirs = ['/surge/patches_factory']\n");

@@ -19,12 +19,13 @@ use serde::Deserialize;
 
 use crate::{
     default_dexed_cartridge_dirs, default_dexed_plugin_path, default_patches_dirs,
-    default_plugin_path, DEXED_PLUGIN_ID, SURGE_XT_PLUGIN_ID,
+    default_plugin_path, default_vaporizer2_plugin_path, DEXED_PLUGIN_ID, SURGE_XT_PLUGIN_ID,
+    VAPORIZER2_PLUGIN_ID,
 };
 
 /// `[plugins.<名前>]` 1 つ分のプラグイン設定。
 ///
-/// Surge XT と Dexed の両方を config に残したまま、`active_plugin` 1 行で
+/// Surge XT / Dexed / Vaporizer2 を config に残したまま、`active_plugin` 1 行で
 /// 行き来できるようにするためのもの。
 ///
 /// 各項目は「書かなければ組み込みプロファイルの値を引き継ぐ」。`patches_dirs` を
@@ -152,6 +153,22 @@ pub fn builtin_plugin_profiles() -> BTreeMap<String, PluginProfile> {
                 patch_roles: PatchRoleFilters::unfiltered(),
             },
         ),
+        (
+            "Vaporizer2".to_string(),
+            PluginProfile {
+                plugin_path: default_vaporizer2_plugin_path().to_string(),
+                plugin_id: Some(VAPORIZER2_PLUGIN_ID.to_string()),
+                // 音色置き場に既定値は無い（[`default_vaporizer2_plugin_path`] の理由）。
+                // `None` は「書かれていない」なので、config の `[plugins.Vaporizer2]` に
+                // `patches_dirs` を書けばそれがそのまま効く。書かなければ音色置き場が
+                // 空のままカタログに載らない。
+                patches_dirs: None,
+                // 用途別カテゴリの実データ（`Pad` / `Bass` / `Arpeggio` …）は TUI 側にしか
+                // 置けない。ここへ書くと play server → TUI の逆向き依存が復活する
+                // （`docs/adr/0007-patch-string-decides-the-plugin.md` / `0010`）。
+                patch_roles: PatchRoleFilters::default(),
+            },
+        ),
     ])
 }
 
@@ -168,22 +185,36 @@ pub enum PatchForm {
     StateFile,
     /// cartridge ファイルの中の 1 program。Dexed の `.syx`。
     Cartridge,
+    /// ファイル 1 つ = 音色 1 つ。Vaporizer2 の `.vvp`（XML を CLAP state へ包む）。
+    ///
+    /// 単位は [`PatchForm::StateFile`] と同じだが、**別の形として数える**。
+    /// 一緒にしてしまうと Surge XT と Vaporizer2 のどちらへ送るべき patch なのかが
+    /// 決まらず、片方の音色がもう片方のインスタンスへ流れる（ADR 0007 が
+    /// 「承知したうえで受け入れた弱点」として挙げていた穴）。`.vvp` という固有拡張子が
+    /// あるおかげで、patch 文字列を変えずに（＝永続 ID を壊さずに）分けられる。
+    Vvp,
 }
 
 /// プロファイルが扱う patch 文字列の形。
 ///
-/// cartridge を音色置き場にする既知のプラグインは Dexed だけ。`plugin_id` が書かれて
-/// いない config でも判定できるよう、ファイル名も最後の手段として見る
+/// cartridge を音色置き場にする既知のプラグインは Dexed だけ、`.vvp` は Vaporizer2 だけ。
+/// `plugin_id` が書かれていない config でも判定できるよう、ファイル名も最後の手段として見る
 /// （[`crate::plugin_file_stem`] と同じ考え方）。
+///
+/// 未知のプラグインが [`PatchForm::StateFile`] へ落ちるのは変えていない。`.fxp` を
+/// 読む CLAP は他にもありうるが、`.syx` や `.vvp` を読むものは実質この 2 つだけなので、
+/// 「知らないものは Surge と同じ形」という既定のほうが当たる見込みが高い。
 pub fn patch_form_of(plugin_id: Option<&str>, plugin_path: &str) -> PatchForm {
-    let is_dexed = match plugin_id {
-        Some(plugin_id) => plugin_id == DEXED_PLUGIN_ID,
+    let matches = |id: &str, stem_keyword: &str| match plugin_id {
+        Some(plugin_id) => plugin_id == id,
         None => crate::plugin_file_stem(plugin_path)
             .to_lowercase()
-            .contains("dexed"),
+            .contains(stem_keyword),
     };
-    if is_dexed {
+    if matches(DEXED_PLUGIN_ID, "dexed") {
         PatchForm::Cartridge
+    } else if matches(VAPORIZER2_PLUGIN_ID, "vaporizer") {
+        PatchForm::Vvp
     } else {
         PatchForm::StateFile
     }
