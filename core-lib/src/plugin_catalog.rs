@@ -13,14 +13,14 @@
 
 use std::path::Path;
 
-use crate::{
-    is_cartridge_patch_path, is_floe_preset_path, is_sfz_patch_path, is_vvp_patch_path, CoreConfig,
-};
+use crate::{audio_plugin::patch_form_of_path, CoreConfig, PluginKey};
 use cmrt_server_config::{patch_form_of, PatchForm, ServerConfig};
 
 /// 1 プロセスへ載せうるプラグイン 1 種別。
 #[derive(Clone, Debug)]
 pub struct PluginKind {
+    /// プロセス内で plugin を一意に参照する、表示名や Vec の並び順に依存しないキー。
+    pub key: PluginKey,
     /// プロファイル名。ログとエラー文にしか使わない。
     pub name: String,
     pub plugin_path: String,
@@ -46,6 +46,7 @@ pub fn plugin_kinds(cfg: &ServerConfig, core_cfg: &CoreConfig) -> Vec<PluginKind
         );
     }
     let default_kind = PluginKind {
+        key: PluginKey::from_identity(cfg.plugin_id.as_deref(), &cfg.plugin_path),
         name: cfg
             .active_plugin
             .clone()
@@ -66,6 +67,7 @@ pub fn plugin_kinds(cfg: &ServerConfig, core_cfg: &CoreConfig) -> Vec<PluginKind
             cmrt_server_config::patch_root_dir(profile.patches_dirs.as_deref())
         };
         kinds.push(PluginKind {
+            key: PluginKey::from_identity(profile.plugin_id.as_deref(), &profile.plugin_path),
             name,
             plugin_path: profile.plugin_path.clone(),
             patch_form,
@@ -88,50 +90,46 @@ pub fn plugin_kinds(cfg: &ServerConfig, core_cfg: &CoreConfig) -> Vec<PluginKind
 /// 既定プラグインへ固定する。そうしておくと、無指定の行が鳴るプラグインが常に
 /// 1 つに決まり、MML 文字列を鍵にしている cache が衝突しない（同 §5.3）。
 ///
-/// 同じ形を扱う種別が複数あるときは既定プラグインを優先し、無ければ先頭のものを使う。
+/// 同じ形を扱う種別が複数あるときは、誤った plugin へ黙って流さず曖昧さを報告する。
 pub fn kind_for_patch(
     kinds: &[PluginKind],
     default_kind: usize,
     patch: Option<&str>,
 ) -> Result<usize, String> {
+    if default_kind >= kinds.len() {
+        return Err(format!(
+            "既定プラグインの添字がcatalog範囲外です: {default_kind}"
+        ));
+    }
     let Some(patch) = patch else {
         return Ok(default_kind);
     };
     let form = patch_form_of_path(patch);
-    if kinds[default_kind].patch_form == form {
-        return Ok(default_kind);
-    }
-    kinds
+    let matches = kinds
         .iter()
-        .position(|kind| kind.patch_form == form)
-        .ok_or_else(|| {
+        .enumerate()
+        .filter(|(_, kind)| kind.patch_form == form)
+        .collect::<Vec<_>>();
+    match matches.as_slice() {
+        [] => {
             let installed = kinds
                 .iter()
                 .map(|kind| kind.name.as_str())
                 .collect::<Vec<_>>()
                 .join(", ");
-            format!(
+            Err(format!(
                 "この音色を読めるプラグインがインストールされていない: '{patch}'（使えるプラグイン: {installed}）"
-            )
-        })
-}
-
-/// patch 文字列そのものから形を読む。
-///
-/// [`kind_for_patch`] と [`PatchBases::base_for`] の両方が同じ規則を使う。
-/// 別々に書くと、片方だけ直したときに「選ばれたプラグインと基点が食い違う」
-/// という静かな間違いになる。
-fn patch_form_of_path(patch: &str) -> PatchForm {
-    if is_cartridge_patch_path(patch) {
-        PatchForm::Cartridge
-    } else if is_sfz_patch_path(patch) {
-        PatchForm::Sfz
-    } else if is_floe_preset_path(patch) {
-        PatchForm::FloePreset
-    } else if is_vvp_patch_path(patch) {
-        PatchForm::Vvp
-    } else {
-        PatchForm::StateFile
+            ))
+        }
+        [(index, _)] => Ok(*index),
+        _ => Err(format!(
+            "音色のプラグインを一意に決められない: '{patch}'（候補: {}）",
+            matches
+                .iter()
+                .map(|(_, kind)| format!("{} [{}]", kind.name, kind.key))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
     }
 }
 

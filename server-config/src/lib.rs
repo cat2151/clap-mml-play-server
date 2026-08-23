@@ -10,6 +10,7 @@
 
 mod patch_catalog;
 mod patch_dirs;
+mod patch_role_defaults;
 mod paths;
 mod plugin_defaults;
 mod plugin_identity;
@@ -19,6 +20,12 @@ mod sforzando_programs;
 
 pub use patch_catalog::{resolve_patch_catalog, PatchCatalogResolution};
 pub use patch_dirs::{configured_patch_dirs, patch_root_dir, shared_patch_root_dir};
+pub use patch_role_defaults::{
+    builtin_patch_role_filters, HIHAT_KEYWORDS, KICK_KEYWORDS, SNARE_KEYWORDS,
+    SURGE_ARPEGGIO_CATEGORIES, SURGE_BASS_CATEGORIES, SURGE_CHORD_CATEGORIES,
+    SURGE_DRUM_CATEGORIES, VAPORIZER2_ARPEGGIO_CATEGORIES, VAPORIZER2_BASS_CATEGORIES,
+    VAPORIZER2_CATEGORY_CODES, VAPORIZER2_CHORD_CATEGORIES, VAPORIZER2_DRUM_CATEGORIES,
+};
 pub use paths::{config_app_dir, config_file_path};
 pub use plugin_defaults::{
     default_dexed_cartridge_dirs, default_dexed_plugin_path, default_floe_plugin_path,

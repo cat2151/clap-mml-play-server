@@ -18,7 +18,7 @@
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use cmrt_core::CoreConfig;
+use cmrt_core::{CoreConfig, PluginKey};
 use cmrt_server_config::PatchForm;
 
 use super::super::startup::create_live_renderers;
@@ -49,6 +49,7 @@ fn test_core_cfg() -> CoreConfig {
 
 fn fake_kind(name: &str, patch_form: PatchForm, patches_dir: Option<&str>) -> PluginKind {
     PluginKind {
+        key: PluginKey::from_identity(None, &format!("{name}.clap")),
         name: name.to_string(),
         plugin_path: format!("{name}.clap"),
         patch_form,
@@ -65,6 +66,7 @@ fn fake_kind(name: &str, patch_form: PatchForm, patches_dir: Option<&str>) -> Pl
 fn real_kinds() -> Vec<PluginKind> {
     vec![
         PluginKind {
+            key: PluginKey::from_identity(Some(SURGE_PLUGIN_ID), ""),
             name: "Surge XT".to_string(),
             plugin_path: env_path(SURGE_CLAP_ENV),
             patch_form: PatchForm::StateFile,
@@ -74,6 +76,7 @@ fn real_kinds() -> Vec<PluginKind> {
             },
         },
         PluginKind {
+            key: PluginKey::from_identity(Some(DEXED_PLUGIN_ID), ""),
             name: "Dexed".to_string(),
             plugin_path: env_path(DEXED_CLAP_ENV),
             patch_form: PatchForm::Cartridge,
@@ -103,6 +106,7 @@ fn real_kinds_dexed_default() -> Vec<PluginKind> {
 fn real_kinds_with_vaporizer2() -> Vec<PluginKind> {
     let mut kinds = real_kinds();
     kinds.push(PluginKind {
+        key: PluginKey::from_identity(Some(VAPORIZER2_PLUGIN_ID), ""),
         name: "Vaporizer2".to_string(),
         plugin_path: env_path(VAPORIZER2_CLAP_ENV),
         patch_form: PatchForm::Vvp,

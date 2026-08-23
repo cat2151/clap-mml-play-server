@@ -164,9 +164,9 @@ pub fn builtin_plugin_profiles() -> BTreeMap<String, PluginProfile> {
                 // `patches_dirs` を書けばそれがそのまま効く。書かなければ音色置き場が
                 // 空のままカタログに載らない。
                 patches_dirs: None,
-                // 用途別カテゴリの実データ（`Pad` / `Bass` / `Arpeggio` …）は TUI 側にしか
-                // 置けない。ここへ書くと play server → TUI の逆向き依存が復活する
-                // （`docs/adr/0007-patch-string-decides-the-plugin.md` / `0010`）。
+                // 用途別カテゴリの実データは同じserver-configの
+                // `builtin_patch_role_filters`が持つ。profile解決では呼び出し側の
+                // overrideと区別するため、ここには焼き込まない。
                 patch_roles: PatchRoleFilters::default(),
             },
         ),

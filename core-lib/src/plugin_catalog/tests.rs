@@ -2,6 +2,7 @@ use super::*;
 
 fn fake_kind(name: &str, patch_form: PatchForm, patches_dir: Option<&str>) -> PluginKind {
     PluginKind {
+        key: PluginKey::from_identity(None, &format!("{name}.clap")),
         name: name.to_string(),
         plugin_path: format!("{name}.clap"),
         patch_form,
@@ -10,6 +11,20 @@ fn fake_kind(name: &str, patch_form: PatchForm, patches_dir: Option<&str>) -> Pl
             ..Default::default()
         },
     }
+}
+
+#[test]
+fn duplicate_patch_forms_are_ambiguous_instead_of_using_the_first_plugin() {
+    let kinds = vec![
+        fake_kind("Surge XT A", PatchForm::StateFile, None),
+        fake_kind("Surge XT B", PatchForm::StateFile, None),
+    ];
+
+    let error = kind_for_patch(&kinds, 0, Some("Keys/Piano.fxp")).unwrap_err();
+
+    assert!(error.contains("一意に決められない"), "{error}");
+    assert!(error.contains("Surge XT A"), "{error}");
+    assert!(error.contains("Surge XT B"), "{error}");
 }
 
 /// Surge のインスタンスへ DX7 の SysEx を送っても、Surge は理解できない 163 byte を
