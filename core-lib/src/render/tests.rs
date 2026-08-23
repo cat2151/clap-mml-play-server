@@ -8,6 +8,8 @@
 //! CMRT_TEST_SURGE_CLAP=C:\Program Files\Common Files\CLAP\Surge Synth Team\Surge XT.clap
 //! CMRT_TEST_VAPORIZER2_CLAP=C:\Program Files\Common Files\CLAP\VASTvaporizer2.clap
 //! CMRT_TEST_VAPORIZER2_PRESETS=<.vvp を置いてあるディレクトリ>
+//! CMRT_TEST_FLOE_CLAP=C:\Program Files\Common Files\CLAP\Floe.clap
+//! CMRT_TEST_FLOE_PRESETS=<.floe-preset を置いてあるディレクトリ>
 //! CMRT_TEST_DEXED_CARTRIDGES=%APPDATA%\DigitalSuburban\Dexed\Cartridges
 //! cargo test -p cmrt-core -- --ignored --test-threads=1
 //! ```
@@ -84,6 +86,7 @@ fn render_live_note(renderer: &mut RealtimeRenderer) -> Vec<f32> {
 
 mod cartridge;
 mod dexed;
+mod floe;
 mod plugin_id;
 mod surge;
 mod vaporizer2;

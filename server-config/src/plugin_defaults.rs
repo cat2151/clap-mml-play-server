@@ -80,6 +80,31 @@ pub fn default_vaporizer2_plugin_path() -> &'static str {
     ""
 }
 
+/// OS ごとのデフォルト Floe パスを返す。
+/// `active_plugin = 'Floe'` の 1 行だけで本体を選べるようにするための組み込み値。
+///
+/// **音色置き場の既定値は用意しない。** Floe の preset library はユーザーが任意の
+/// drive / directory へ置けるため、`patches_dirs` は config.toml で明示してもらう。
+#[cfg(target_os = "windows")]
+pub fn default_floe_plugin_path() -> &'static str {
+    r"C:\Program Files\Common Files\CLAP\Floe.clap"
+}
+
+#[cfg(target_os = "macos")]
+pub fn default_floe_plugin_path() -> &'static str {
+    "/Library/Audio/Plug-Ins/CLAP/Floe.clap"
+}
+
+#[cfg(target_os = "linux")]
+pub fn default_floe_plugin_path() -> &'static str {
+    "/usr/lib/clap/Floe.clap"
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+pub fn default_floe_plugin_path() -> &'static str {
+    ""
+}
+
 /// OS ごとのデフォルト patches_dirs を返す。
 /// 既知 OS でない場合や取得できない場合は空配列を返す（ユーザーに設定を促す）。
 #[cfg(target_os = "windows")]

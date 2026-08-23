@@ -2,18 +2,32 @@
 //!
 //! clack-host の公式 README の HostHandlers モデルに従う。
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use anyhow::Result;
 use clack_host::prelude::*;
 
 // -----------------------------------------------------------------------
 // HostShared – スレッド間で共有される状態（今は空）
 // -----------------------------------------------------------------------
-pub struct MidiRenderHostShared;
+#[derive(Default)]
+pub struct MidiRenderHostShared {
+    callback_requested: AtomicBool,
+}
+
+impl MidiRenderHostShared {
+    /// プラグインが要求した main-thread callback を一度だけ取り出す。
+    pub(crate) fn take_callback_request(&self) -> bool {
+        self.callback_requested.swap(false, Ordering::AcqRel)
+    }
+}
 
 impl<'a> SharedHandler<'a> for MidiRenderHostShared {
     fn request_restart(&self) {}
     fn request_process(&self) {}
-    fn request_callback(&self) {}
+    fn request_callback(&self) {
+        self.callback_requested.store(true, Ordering::Release);
+    }
 }
 
 // -----------------------------------------------------------------------

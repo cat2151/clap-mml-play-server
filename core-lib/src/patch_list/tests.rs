@@ -225,6 +225,52 @@ fn collect_patches_mixes_all_three_patch_forms() {
     let _ = std::fs::remove_dir_all(&tmp_dir);
 }
 
+#[test]
+fn collect_patches_lists_only_floe_presets_from_a_floe_library() {
+    let tmp_dir = std::env::temp_dir().join("cmrt_test_collect_patches_floe");
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+    let bank = tmp_dir.join("Taiko Drums Factory Presets");
+    let details = tmp_dir.join("Floe-Details");
+    std::fs::create_dir_all(&bank).unwrap();
+    std::fs::create_dir_all(&details).unwrap();
+    std::fs::write(bank.join("Taiko Beat.floe-preset"), b"state").unwrap();
+    std::fs::write(bank.join("Taiko Beat 2.FLOE-PRESET"), b"state").unwrap();
+    std::fs::write(tmp_dir.join("Library.floe-pkg"), b"package").unwrap();
+    std::fs::write(tmp_dir.join("floe-preset-bank.ini"), b"ini").unwrap();
+    std::fs::write(details.join("checksums.crc32"), b"crc").unwrap();
+
+    let patches = collect_patches(tmp_dir.to_str().unwrap()).unwrap();
+
+    assert_eq!(patches.len(), 2);
+    assert!(patches
+        .iter()
+        .all(|path| crate::is_floe_preset_path(&path.to_string_lossy())));
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn collect_patches_mixes_all_four_patch_forms() {
+    let tmp_dir = std::env::temp_dir().join("cmrt_test_collect_patches_four_forms");
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+    std::fs::create_dir_all(&tmp_dir).unwrap();
+    std::fs::write(tmp_dir.join("surge.fxp"), b"dummy").unwrap();
+    std::fs::write(
+        tmp_dir.join("dexed.syx"),
+        crate::dx7::test_cartridge_bytes(&[(0, "Init")]),
+    )
+    .unwrap();
+    std::fs::write(tmp_dir.join("vapor.vvp"), b"xml").unwrap();
+    std::fs::write(tmp_dir.join("floe.floe-preset"), b"state").unwrap();
+
+    let patches = collect_patches(tmp_dir.to_str().unwrap()).unwrap();
+
+    assert_eq!(patches.len(), 35);
+    assert!(patches
+        .iter()
+        .any(|path| path.ends_with("floe.floe-preset")));
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+}
+
 /// 実物のプリセット置き場が丸ごと列挙できること。
 /// 資料の実測（460 件・フラット・すべて `.vvp`）と突き合わせる。
 ///

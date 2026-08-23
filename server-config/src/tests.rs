@@ -141,6 +141,23 @@ patches_dirs = ['/presets/Vaporizer2']
 }
 
 #[test]
+fn a_floe_profile_supplies_the_patch_dirs_the_builtin_lacks() {
+    let cfg = load(
+        "active_plugin = 'Floe'
+[plugins.Floe]
+patches_dirs = ['/presets/Floe']
+",
+    );
+
+    assert_eq!(cfg.plugin_path, default_floe_plugin_path());
+    assert_eq!(cfg.plugin_id.as_deref(), Some(FLOE_PLUGIN_ID));
+    assert_eq!(
+        cfg.patches_dirs.as_deref().map(<[String]>::to_vec),
+        Some(vec!["/presets/Floe".to_string()])
+    );
+}
+
+#[test]
 fn a_config_without_active_plugin_keeps_its_top_level_settings() {
     let cfg = load("patches_dirs = ['/surge/patches_factory']\n");
 

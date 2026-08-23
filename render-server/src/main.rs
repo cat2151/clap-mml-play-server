@@ -371,6 +371,41 @@ buffer_size = 512
     }
 
     #[test]
+    fn render_server_plugin_kinds_retain_floe_as_a_distinct_form() {
+        let root = std::env::temp_dir().join("cmrt_render_server_floe_kind");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("presets")).unwrap();
+        std::fs::write(root.join("Floe.clap"), b"fixture").unwrap();
+        let plugin = root.join("Floe.clap").to_string_lossy().replace('\\', "/");
+        let presets = root.join("presets").to_string_lossy().replace('\\', "/");
+        let cfg = ServerConfig::from_toml_str(&format!(
+            r#"
+plugin_path = "default.clap"
+output_midi = "output.mid"
+output_wav = "output.wav"
+sample_rate = 48000
+buffer_size = 512
+
+[plugins.Floe]
+plugin_path = "{plugin}"
+patches_dirs = ["{presets}"]
+"#
+        ))
+        .unwrap();
+
+        let kinds = plugin_kinds(&cfg, &core_config_from_server_config(&cfg));
+        let floe = kinds.iter().find(|kind| kind.name == "Floe").unwrap();
+
+        assert_eq!(floe.patch_form, cmrt_server_config::PatchForm::FloePreset);
+        assert_eq!(
+            floe.core_cfg.plugin_id.as_deref(),
+            Some(cmrt_server_config::FLOE_PLUGIN_ID)
+        );
+        assert_eq!(floe.core_cfg.patches_dir.as_deref(), Some(presets.as_str()));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn validate_render_server_config_rejects_non_48khz() {
         let mut cfg = test_config();
         cfg.sample_rate = 44_100.0;

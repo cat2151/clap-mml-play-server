@@ -17,11 +17,11 @@ mod plugin_profile;
 pub use patch_dirs::{configured_patch_dirs, patch_root_dir, shared_patch_root_dir};
 pub use paths::{config_app_dir, config_file_path};
 pub use plugin_defaults::{
-    default_dexed_cartridge_dirs, default_dexed_plugin_path, default_patches_dirs,
-    default_plugin_path, default_vaporizer2_plugin_path,
+    default_dexed_cartridge_dirs, default_dexed_plugin_path, default_floe_plugin_path,
+    default_patches_dirs, default_plugin_path, default_vaporizer2_plugin_path,
 };
 pub use plugin_identity::{
-    plugin_file_stem, DEXED_PLUGIN_ID, SURGE_XT_PLUGIN_ID, VAPORIZER2_PLUGIN_ID,
+    plugin_file_stem, DEXED_PLUGIN_ID, FLOE_PLUGIN_ID, SURGE_XT_PLUGIN_ID, VAPORIZER2_PLUGIN_ID,
 };
 pub use plugin_profile::{
     builtin_plugin_profiles, installed_plugin_profiles, merged_plugin_profiles, patch_form_of,

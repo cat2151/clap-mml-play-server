@@ -11,6 +11,7 @@ use std::path::PathBuf;
 pub const SURGE_XT_PLUGIN_ID: &str = "org.surge-synth-team.surge-xt";
 pub const DEXED_PLUGIN_ID: &str = "com.digital-suburban.dexed";
 pub const VAPORIZER2_PLUGIN_ID: &str = "com.vastdynamics.VAST2";
+pub const FLOE_PLUGIN_ID: &str = "com.floe-audio.floe";
 
 /// `plugin_path` のファイル名から拡張子を落としたもの（`Surge XT.clap` → `Surge XT`）。
 ///

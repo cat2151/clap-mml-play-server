@@ -31,3 +31,12 @@ fn vvp_paths_are_told_apart_from_both_other_forms_by_the_path_alone() {
     // 拡張子だけの名前は音色ファイルではない。
     assert!(!is_vvp_patch_path(".vvp"));
 }
+
+#[test]
+fn floe_paths_are_told_apart_from_all_other_forms() {
+    assert!(is_floe_preset_path("Harp/Realistic.floe-preset"));
+    assert!(is_floe_preset_path("Harp\\Realistic.FLOE-PRESET"));
+    assert!(!is_floe_preset_path("Pads/Pad 1.fxp"));
+    assert!(!is_floe_preset_path("Dexed.syx/00 Init"));
+    assert!(!is_floe_preset_path("PD Emily.vvp"));
+}

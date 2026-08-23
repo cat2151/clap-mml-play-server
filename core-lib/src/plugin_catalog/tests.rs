@@ -134,3 +134,49 @@ fn patch_bases_keep_a_separate_root_for_vvp() {
     assert_eq!(bases.base_for("Dexed_01.syx/00 Say."), Some("/dexed"));
     assert_eq!(bases.base_for("AR Accent Arp.vvp"), Some("/vaporizer2"));
 }
+
+#[test]
+fn four_plugins_route_each_patch_to_its_own_instance() {
+    let kinds = vec![
+        fake_kind("Surge XT", PatchForm::StateFile, None),
+        fake_kind("Dexed", PatchForm::Cartridge, None),
+        fake_kind("Vaporizer2", PatchForm::Vvp, None),
+        fake_kind("Floe", PatchForm::FloePreset, None),
+    ];
+
+    assert_eq!(
+        kind_for_patch(&kinds, 0, Some("Keys/Piano.fxp")).unwrap(),
+        0
+    );
+    assert_eq!(
+        kind_for_patch(&kinds, 0, Some("Dexed.syx/00 Init")).unwrap(),
+        1
+    );
+    assert_eq!(kind_for_patch(&kinds, 0, Some("PD Emily.vvp")).unwrap(), 2);
+    assert_eq!(
+        kind_for_patch(&kinds, 0, Some("Harp/Realistic.floe-preset")).unwrap(),
+        3
+    );
+}
+
+#[test]
+fn patch_bases_keep_a_separate_root_for_floe() {
+    let bases = PatchBases::from_all_bases(
+        Some("/surge"),
+        Some("/dexed"),
+        Some("/vaporizer2"),
+        Some("/floe"),
+    );
+
+    assert_eq!(bases.base_for("Keys/Piano.fxp"), Some("/surge"));
+    assert_eq!(bases.base_for("Dexed.syx/00 Init"), Some("/dexed"));
+    assert_eq!(bases.base_for("PD Emily.vvp"), Some("/vaporizer2"));
+    assert_eq!(bases.base_for("Harp/Realistic.floe-preset"), Some("/floe"));
+}
+
+#[test]
+fn legacy_patch_bases_constructor_leaves_floe_unconfigured() {
+    let bases = PatchBases::from_bases(Some("/surge"), Some("/dexed"), Some("/vaporizer2"));
+
+    assert_eq!(bases.base_for("Harp/Realistic.floe-preset"), None);
+}

@@ -13,7 +13,7 @@
 
 use std::path::Path;
 
-use crate::{is_cartridge_patch_path, is_vvp_patch_path, CoreConfig};
+use crate::{is_cartridge_patch_path, is_floe_preset_path, is_vvp_patch_path, CoreConfig};
 use cmrt_server_config::{patch_form_of, PatchForm, ServerConfig};
 
 /// 1 プロセスへ載せうるプラグイン 1 種別。
@@ -107,6 +107,8 @@ pub fn kind_for_patch(
 fn patch_form_of_path(patch: &str) -> PatchForm {
     if is_cartridge_patch_path(patch) {
         PatchForm::Cartridge
+    } else if is_floe_preset_path(patch) {
+        PatchForm::FloePreset
     } else if is_vvp_patch_path(patch) {
         PatchForm::Vvp
     } else {
@@ -122,6 +124,7 @@ pub struct PatchBases {
     state_file: Option<String>,
     cartridge: Option<String>,
     vvp: Option<String>,
+    floe_preset: Option<String>,
 }
 
 impl PatchBases {
@@ -143,10 +146,21 @@ impl PatchBases {
         cartridge: Option<&str>,
         vvp: Option<&str>,
     ) -> Self {
+        Self::from_all_bases(state_file, cartridge, vvp, None)
+    }
+
+    /// Floe を含む全形式の基点を直接指定して作る。
+    pub fn from_all_bases(
+        state_file: Option<&str>,
+        cartridge: Option<&str>,
+        vvp: Option<&str>,
+        floe_preset: Option<&str>,
+    ) -> Self {
         Self {
             state_file: state_file.map(str::to_string),
             cartridge: cartridge.map(str::to_string),
             vvp: vvp.map(str::to_string),
+            floe_preset: floe_preset.map(str::to_string),
         }
     }
 
@@ -156,6 +170,7 @@ impl PatchBases {
             PatchForm::StateFile => self.state_file.as_deref(),
             PatchForm::Cartridge => self.cartridge.as_deref(),
             PatchForm::Vvp => self.vvp.as_deref(),
+            PatchForm::FloePreset => self.floe_preset.as_deref(),
         }
     }
 
@@ -164,6 +179,7 @@ impl PatchBases {
             PatchForm::StateFile => &mut self.state_file,
             PatchForm::Cartridge => &mut self.cartridge,
             PatchForm::Vvp => &mut self.vvp,
+            PatchForm::FloePreset => &mut self.floe_preset,
         }
     }
 }

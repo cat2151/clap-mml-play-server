@@ -35,7 +35,7 @@ pub(super) fn create_plugin_instance_without_patch(
     // なので、保持するのはこの区間だけでよい（doc は serial_instantiation を見ること）。
     let _permit = InstantiationPermit::acquire(&descriptor.id);
     let plugin_instance = PluginInstance::<MidiRenderHost>::new(
-        |_| MidiRenderHostShared,
+        |_| MidiRenderHostShared::default(),
         |_| (),
         entry,
         &plugin_id,

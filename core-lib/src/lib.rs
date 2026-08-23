@@ -1,5 +1,6 @@
 pub mod boot_log;
 pub mod dx7;
+pub mod floe;
 pub mod host;
 pub mod midi;
 pub mod patch_list;
@@ -38,6 +39,7 @@ pub use dx7::{
     parse_dx7_cartridge, CartridgePatchPath, Dx7Cartridge, DEXED_PLUGIN_ID, DX7_BULK_DUMP_LEN,
     DX7_PROGRAMS_PER_CARTRIDGE,
 };
+pub use floe::{is_floe_preset_path, FLOE_PLUGIN_ID};
 pub use host::{load_entry, PluginEntry};
 pub use patch_list::{collect_patches, to_relative};
 pub use pipeline::{

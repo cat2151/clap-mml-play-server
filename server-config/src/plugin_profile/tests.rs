@@ -294,15 +294,45 @@ patches_dirs = ["/presets/Vaporizer2"]
     );
 }
 
+#[test]
+fn the_builtin_floe_profile_has_identity_but_no_patch_directories() {
+    let profile = resolve_builtin("Floe").unwrap();
+
+    assert_eq!(profile.plugin_path, default_floe_plugin_path());
+    assert_eq!(profile.plugin_id.as_deref(), Some(FLOE_PLUGIN_ID));
+    assert_eq!(profile.patches_dirs, None);
+    assert_eq!(profile.patch_roles, PatchRoleFilters::default());
+}
+
+#[test]
+fn a_floe_profile_only_needs_its_patches_dirs() {
+    let profile = resolve(
+        "Floe",
+        r#"
+[plugins.Floe]
+patches_dirs = ["/presets/Floe"]
+"#,
+    )
+    .unwrap();
+
+    assert_eq!(profile.plugin_path, default_floe_plugin_path());
+    assert_eq!(profile.plugin_id.as_deref(), Some(FLOE_PLUGIN_ID));
+    assert_eq!(
+        configured_patch_dirs(profile.patches_dirs.as_deref()),
+        vec!["/presets/Floe".to_string()]
+    );
+}
+
 /// 3 つ目の組み込み名が、名前を間違えたときの案内にも出ること。
 #[test]
-fn the_available_names_now_list_three_builtins() {
+fn the_available_names_list_all_builtins() {
     let error = resolve("vaporiser2", "").unwrap_err();
 
     let message = error.to_string();
     assert!(message.contains("Surge XT"), "{message}");
     assert!(message.contains("Dexed"), "{message}");
     assert!(message.contains("Vaporizer2"), "{message}");
+    assert!(message.contains("Floe"), "{message}");
 }
 
 #[test]
@@ -355,6 +385,10 @@ fn the_plugin_id_decides_the_patch_form() {
         patch_form_of(Some(VAPORIZER2_PLUGIN_ID), "whatever.clap"),
         PatchForm::Vvp
     );
+    assert_eq!(
+        patch_form_of(Some(FLOE_PLUGIN_ID), "whatever.clap"),
+        PatchForm::FloePreset
+    );
 }
 
 /// `plugin_id` を書いていない config でも、ファイル名から拾えること。
@@ -372,6 +406,10 @@ fn the_file_name_is_the_last_resort_when_no_plugin_id_is_written() {
     assert_eq!(
         patch_form_of(None, r"C:\CLAP\Surge XT.clap"),
         PatchForm::StateFile
+    );
+    assert_eq!(
+        patch_form_of(None, r"C:\CLAP\FLOE.clap"),
+        PatchForm::FloePreset
     );
 }
 

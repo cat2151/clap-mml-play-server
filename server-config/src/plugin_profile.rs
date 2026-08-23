@@ -18,9 +18,9 @@ use std::path::Path;
 use serde::Deserialize;
 
 use crate::{
-    default_dexed_cartridge_dirs, default_dexed_plugin_path, default_patches_dirs,
-    default_plugin_path, default_vaporizer2_plugin_path, DEXED_PLUGIN_ID, SURGE_XT_PLUGIN_ID,
-    VAPORIZER2_PLUGIN_ID,
+    default_dexed_cartridge_dirs, default_dexed_plugin_path, default_floe_plugin_path,
+    default_patches_dirs, default_plugin_path, default_vaporizer2_plugin_path, DEXED_PLUGIN_ID,
+    FLOE_PLUGIN_ID, SURGE_XT_PLUGIN_ID, VAPORIZER2_PLUGIN_ID,
 };
 
 /// `[plugins.<名前>]` 1 つ分のプラグイン設定。
@@ -169,6 +169,16 @@ pub fn builtin_plugin_profiles() -> BTreeMap<String, PluginProfile> {
                 patch_roles: PatchRoleFilters::default(),
             },
         ),
+        (
+            "Floe".to_string(),
+            PluginProfile {
+                plugin_path: default_floe_plugin_path().to_string(),
+                plugin_id: Some(FLOE_PLUGIN_ID.to_string()),
+                // preset library は環境依存なので config の `[plugins.Floe]` で指定する。
+                patches_dirs: None,
+                patch_roles: PatchRoleFilters::default(),
+            },
+        ),
     ])
 }
 
@@ -193,6 +203,11 @@ pub enum PatchForm {
     /// 「承知したうえで受け入れた弱点」として挙げていた穴）。`.vvp` という固有拡張子が
     /// あるおかげで、patch 文字列を変えずに（＝永続 ID を壊さずに）分けられる。
     Vvp,
+    /// ファイル 1 つ = 音色 1 つ。Floe の `.floe-preset`（Floe 固有 loader）。
+    ///
+    /// [`PatchForm::StateFile`] と分けることで、Surge XT の instance へ Floe preset を
+    /// 誤投入しない。固有拡張子なので display 文字列を変えずに routing できる。
+    FloePreset,
 }
 
 /// プロファイルが扱う patch 文字列の形。
@@ -213,6 +228,8 @@ pub fn patch_form_of(plugin_id: Option<&str>, plugin_path: &str) -> PatchForm {
     };
     if matches(DEXED_PLUGIN_ID, "dexed") {
         PatchForm::Cartridge
+    } else if matches(FLOE_PLUGIN_ID, "floe") {
+        PatchForm::FloePreset
     } else if matches(VAPORIZER2_PLUGIN_ID, "vaporizer") {
         PatchForm::Vvp
     } else {

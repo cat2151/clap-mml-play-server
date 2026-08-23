@@ -2,7 +2,12 @@ use super::*;
 use std::path::Path;
 
 fn test_bases() -> PatchBases {
-    PatchBases::from_bases(Some("/patches"), Some("/cartridges"), Some("/vvp"))
+    PatchBases::from_all_bases(
+        Some("/patches"),
+        Some("/cartridges"),
+        Some("/vvp"),
+        Some("/floe"),
+    )
 }
 
 #[test]
@@ -28,6 +33,14 @@ fn resolve_live_patch_picks_the_base_that_matches_the_patch_form() {
         cartridge,
         Path::new("/cartridges")
             .join("Dexed_01.syx/00 Say Again.")
+            .to_string_lossy()
+    );
+    let floe =
+        resolve_live_patch(Some("Taiko/Taiko Beat.floe-preset".into()), &test_bases()).unwrap();
+    assert_eq!(
+        floe,
+        Path::new("/floe")
+            .join("Taiko/Taiko Beat.floe-preset")
             .to_string_lossy()
     );
 }

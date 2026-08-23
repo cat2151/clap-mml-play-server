@@ -13,6 +13,7 @@ use cmrt_clack_timeline::{process_block_timing, ProcessBlockTiming};
 use cmrt_timeline::{BlockSpan, FreeRunningTimeline, SamplePosition, SampleRate};
 
 use crate::dx7::is_cartridge_patch_path;
+use crate::floe::is_floe_preset_path;
 use crate::host::MidiRenderHost;
 use crate::vvp::is_vvp_patch_path;
 use crate::CoreConfig;
@@ -20,6 +21,7 @@ use crate::CoreConfig;
 mod capability_probe;
 mod cartridge_patch;
 mod descriptor;
+mod floe_preset;
 mod instance;
 mod offline;
 mod parallel;
@@ -31,6 +33,7 @@ mod serial_instantiation;
 mod voicing_probe;
 mod vvp_patch;
 use descriptor::{probe_capabilities, resolve_note_dialect, NoteEventDialect, PluginCapabilities};
+use floe_preset::{ensure_floe_capable, load_floe_state};
 use instance::create_plugin_instance_without_patch;
 use patch_state::{load_patch, save_plugin_state};
 use process_inputs::{input_buffer, push_offline_note_event};
@@ -155,7 +158,10 @@ impl RealtimeRenderer {
             // `.vvp` も state なので activate 前でよいが、**渡す前に XML を包む**必要がある。
             // `load_patch()` は `.fxp` の chunk 切り出ししか知らないので、そのまま渡すと
             // Vaporizer2 が読めない生 XML を state として押し込むことになる。
-            if is_vvp_patch_path(patch) {
+            if is_floe_preset_path(patch) {
+                ensure_floe_capable(&descriptor.id)?;
+                load_floe_state(&mut plugin_instance, patch)?;
+            } else if is_vvp_patch_path(patch) {
                 ensure_vvp_capable(&descriptor.id)?;
                 load_vvp_state(&mut plugin_instance, patch)?;
             } else {

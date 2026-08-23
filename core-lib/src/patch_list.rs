@@ -7,6 +7,7 @@
 //!   `<cartridge>.syx/NN 名前` へ展開する（[`crate::dx7`]）。
 //! - Vaporizer2: `.vvp` 1 ファイル = 1 音色。`.fxp` と同じく展開は要らない
 //!   （中身は XML だが、ここでは開かない。460 ファイル 681MB を読むことになるため）。
+//! - Floe: `.floe-preset` 1 ファイル = 1 音色。`.floe-pkg` などは列挙しない。
 //!
 //! どれも同じ `Vec<PathBuf>` で返すので、呼び出し側（TUI の一覧・検索・カテゴリ分け）は
 //! プラグインの違いを知らないまま動く。
@@ -36,7 +37,7 @@ fn visit_dir(dir: &Path, list: &mut Vec<PathBuf>) -> Result<()> {
             continue;
         }
         match extension_lowercase(&path).as_deref() {
-            Some("fxp") | Some("vvp") => list.push(path),
+            Some("fxp") | Some("vvp") | Some("floe-preset") => list.push(path),
             Some("syx") => push_cartridge_programs(&path, list),
             _ => {}
         }

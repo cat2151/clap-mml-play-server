@@ -38,3 +38,18 @@ fn a_prepaid_spares_are_all_ordered_up_front() {
     assert_eq!(instances.outstanding[0], 0);
     assert_eq!(instances.outstanding[1], 8);
 }
+
+#[test]
+fn floe_is_retained_as_its_own_spare_pool_kind() {
+    let kinds = vec![
+        fake_kind("Surge XT", PatchForm::StateFile, None),
+        fake_kind("Dexed", PatchForm::Cartridge, None),
+        fake_kind("Vaporizer2", PatchForm::Vvp, None),
+        fake_kind("Floe", PatchForm::FloePreset, None),
+    ];
+    let instances = LiveInstances::new(kinds, 4);
+
+    assert_eq!(instances.kinds.len(), 4);
+    assert_eq!(instances.kinds[3].patch_form, PatchForm::FloePreset);
+    assert_eq!(instances.outstanding, vec![0, 4, 4, 4]);
+}
