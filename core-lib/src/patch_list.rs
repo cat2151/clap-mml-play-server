@@ -8,6 +8,7 @@
 //! - Vaporizer2: `.vvp` 1 ファイル = 1 音色。`.fxp` と同じく展開は要らない
 //!   （中身は XML だが、ここでは開かない。460 ファイル 681MB を読むことになるため）。
 //! - Floe: `.floe-preset` 1 ファイル = 1 音色。`.floe-pkg` などは列挙しない。
+//! - sforzando: `.sfz` 1 ファイル = 1 音色。
 //!
 //! どれも同じ `Vec<PathBuf>` で返すので、呼び出し側（TUI の一覧・検索・カテゴリ分け）は
 //! プラグインの違いを知らないまま動く。
@@ -15,7 +16,10 @@
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 
-use crate::dx7::{cartridge_program_component, parse_dx7_cartridge};
+use crate::{
+    dx7::{cartridge_program_component, parse_dx7_cartridge},
+    logging::emit_diagnostic,
+};
 
 /// patches_dir 以下の音色をすべて列挙して返す。
 /// 戻り値は絶対パス（Dexed は cartridge の下に program コンポーネントが付いた仮想パス）。
@@ -37,7 +41,7 @@ fn visit_dir(dir: &Path, list: &mut Vec<PathBuf>) -> Result<()> {
             continue;
         }
         match extension_lowercase(&path).as_deref() {
-            Some("fxp") | Some("vvp") | Some("floe-preset") => list.push(path),
+            Some("fxp") | Some("vvp") | Some("floe-preset") | Some("sfz") => list.push(path),
             Some("syx") => push_cartridge_programs(&path, list),
             _ => {}
         }
@@ -54,23 +58,27 @@ fn extension_lowercase(path: &Path) -> Option<String> {
 /// cartridge 1 個を 32 件へ展開する。
 ///
 /// 読めない `.syx` があっても一覧全体は返す。1 ファイルの破損で音色選択が
-/// まるごと使えなくなるほうが困るため。理由は stderr に 1 行出す。
+/// まるごと使えなくなるほうが困るため。理由は host process の診断 sink に 1 行出す。
 fn push_cartridge_programs(cartridge: &Path, list: &mut Vec<PathBuf>) {
     let bytes = match std::fs::read(cartridge) {
         Ok(bytes) => bytes,
         Err(error) => {
-            eprintln!("cartridge を読めない {}: {}", cartridge.display(), error);
+            emit_diagnostic(format!(
+                "cartridge を読めない {}: {}",
+                cartridge.display(),
+                error
+            ));
             return;
         }
     };
     let parsed = match parse_dx7_cartridge(bytes) {
         Ok(parsed) => parsed,
         Err(error) => {
-            eprintln!(
+            emit_diagnostic(format!(
                 "cartridge として読めない {}: {:#}",
                 cartridge.display(),
                 error
-            );
+            ));
             return;
         }
     };

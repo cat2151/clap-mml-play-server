@@ -2,11 +2,13 @@ pub mod boot_log;
 pub mod dx7;
 pub mod floe;
 pub mod host;
+mod logging;
 pub mod midi;
 pub mod patch_list;
 pub mod pipeline;
 pub mod plugin_catalog;
 pub mod render;
+pub mod sforzando;
 pub mod surge_data;
 pub mod voicing;
 pub mod vvp;
@@ -41,6 +43,7 @@ pub use dx7::{
 };
 pub use floe::{is_floe_preset_path, FLOE_PLUGIN_ID};
 pub use host::{load_entry, PluginEntry};
+pub use logging::{set_log_sink, LogSink};
 pub use patch_list::{collect_patches, to_relative};
 pub use pipeline::{
     embedded_patch_ref, encode_wav_i16, ensure_cmrt_dir, ensure_daw_dir, ensure_phrase_dir,
@@ -57,6 +60,7 @@ pub use render::{
     RendererHandoff, RendererInitTiming, RendererSpec, SelectedDescriptor,
 };
 pub use render::{PluginProbeReport, ProbedDescriptor};
+pub use sforzando::{is_sfz_patch_path, SFORZANDO_PLUGIN_ID};
 pub use surge_data::{
     apply_minimal_surge_data_home, plugin_is_surge, MinimalSurgeDataHome, SURGE_XT_PLUGIN_ID,
 };

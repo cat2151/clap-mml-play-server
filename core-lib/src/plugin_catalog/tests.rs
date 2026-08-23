@@ -160,18 +160,66 @@ fn four_plugins_route_each_patch_to_its_own_instance() {
 }
 
 #[test]
+fn five_plugins_route_sfz_only_to_sforzando() {
+    let kinds = vec![
+        fake_kind("Surge XT", PatchForm::StateFile, None),
+        fake_kind("Dexed", PatchForm::Cartridge, None),
+        fake_kind("Vaporizer2", PatchForm::Vvp, None),
+        fake_kind("Floe", PatchForm::FloePreset, None),
+        fake_kind("Sforzando", PatchForm::Sfz, None),
+    ];
+
+    assert_eq!(
+        kind_for_patch(&kinds, 0, Some("Garritan/Glockenspiel.sfz")).unwrap(),
+        4
+    );
+    assert_eq!(
+        kind_for_patch(&kinds, 0, Some("Garritan/Glockenspiel.SFZ")).unwrap(),
+        4
+    );
+}
+
+#[test]
+fn an_sfz_patch_without_sforzando_is_an_error() {
+    let kinds = vec![fake_kind("Surge XT", PatchForm::StateFile, None)];
+
+    let error = kind_for_patch(&kinds, 0, Some("Garritan/Glockenspiel.sfz")).unwrap_err();
+
+    assert!(error.contains("Glockenspiel.sfz"), "{error}");
+    assert!(error.contains("Surge XT"), "{error}");
+}
+
+#[test]
 fn patch_bases_keep_a_separate_root_for_floe() {
     let bases = PatchBases::from_all_bases(
         Some("/surge"),
         Some("/dexed"),
         Some("/vaporizer2"),
         Some("/floe"),
+        None,
     );
 
     assert_eq!(bases.base_for("Keys/Piano.fxp"), Some("/surge"));
     assert_eq!(bases.base_for("Dexed.syx/00 Init"), Some("/dexed"));
     assert_eq!(bases.base_for("PD Emily.vvp"), Some("/vaporizer2"));
     assert_eq!(bases.base_for("Harp/Realistic.floe-preset"), Some("/floe"));
+}
+
+#[test]
+fn patch_bases_keep_a_separate_root_for_sfz() {
+    let bases = PatchBases::from_all_bases(
+        Some("/surge"),
+        Some("/dexed"),
+        Some("/vaporizer2"),
+        Some("/floe"),
+        Some("/sfz"),
+    );
+
+    assert_eq!(bases.base_for("Keys/Piano.fxp"), Some("/surge"));
+    assert_eq!(bases.base_for("Dexed.syx/00 Init"), Some("/dexed"));
+    assert_eq!(bases.base_for("PD Emily.vvp"), Some("/vaporizer2"));
+    assert_eq!(bases.base_for("Harp/Realistic.floe-preset"), Some("/floe"));
+    assert_eq!(bases.base_for("Garritan/Glockenspiel.sfz"), Some("/sfz"));
 }
 
 #[test]

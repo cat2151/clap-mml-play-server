@@ -5,7 +5,13 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::Result;
+use clack_extensions::preset_discovery::{
+    preset_data::Location, HostPresetLoad, HostPresetLoadImpl,
+};
 use clack_host::prelude::*;
+use std::ffi::CStr;
+
+use crate::logging::emit_diagnostic;
 
 // -----------------------------------------------------------------------
 // HostShared – スレッド間で共有される状態（今は空）
@@ -35,10 +41,37 @@ impl<'a> SharedHandler<'a> for MidiRenderHostShared {
 // -----------------------------------------------------------------------
 pub struct MidiRenderHost;
 
+pub struct MidiRenderHostMainThread;
+
+impl MainThreadHandler<'_> for MidiRenderHostMainThread {}
+
+impl HostPresetLoadImpl for MidiRenderHostMainThread {
+    fn on_error(
+        &self,
+        location: Location,
+        _load_key: Option<&CStr>,
+        os_error: i32,
+        message: Option<&CStr>,
+    ) {
+        emit_diagnostic(format!(
+            "CLAP preset-load error: location={location:?} os_error={os_error} detail={}",
+            message
+                .map(|message| message.to_string_lossy())
+                .unwrap_or_default()
+        ));
+    }
+
+    fn loaded(&self, _location: Location, _load_key: Option<&CStr>) {}
+}
+
 impl HostHandlers for MidiRenderHost {
     type Shared<'a> = MidiRenderHostShared;
-    type MainThread<'a> = (); // メインスレッド処理は今回不要
+    type MainThread<'a> = MidiRenderHostMainThread;
     type AudioProcessor<'a> = (); // オーディオスレッド処理も今回不要
+
+    fn declare_extensions(builder: &mut HostExtensions<Self>, _shared: &Self::Shared<'_>) {
+        builder.register::<HostPresetLoad>();
+    }
 }
 
 // -----------------------------------------------------------------------

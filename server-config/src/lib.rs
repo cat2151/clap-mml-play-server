@@ -8,25 +8,33 @@
 //! repo 間の依存が「TUI → play server」の一方向になる。プラグインの標準インストール先や
 //! `active_plugin` の解決規則も、プラグインをロードするこちら側の知識としてここが持つ。
 
+mod patch_catalog;
 mod patch_dirs;
 mod paths;
 mod plugin_defaults;
 mod plugin_identity;
 mod plugin_profile;
+mod preset_discovery;
+mod sforzando_programs;
 
+pub use patch_catalog::{resolve_patch_catalog, PatchCatalogResolution};
 pub use patch_dirs::{configured_patch_dirs, patch_root_dir, shared_patch_root_dir};
 pub use paths::{config_app_dir, config_file_path};
 pub use plugin_defaults::{
     default_dexed_cartridge_dirs, default_dexed_plugin_path, default_floe_plugin_path,
-    default_patches_dirs, default_plugin_path, default_vaporizer2_plugin_path,
+    default_patches_dirs, default_plugin_path, default_sforzando_plugin_path,
+    default_vaporizer2_plugin_path,
 };
 pub use plugin_identity::{
-    plugin_file_stem, DEXED_PLUGIN_ID, FLOE_PLUGIN_ID, SURGE_XT_PLUGIN_ID, VAPORIZER2_PLUGIN_ID,
+    plugin_file_stem, DEXED_PLUGIN_ID, FLOE_PLUGIN_ID, SFORZANDO_PLUGIN_ID, SURGE_XT_PLUGIN_ID,
+    VAPORIZER2_PLUGIN_ID,
 };
 pub use plugin_profile::{
     builtin_plugin_profiles, installed_plugin_profiles, merged_plugin_profiles, patch_form_of,
     resolve_active_plugin_profile, PatchForm, PatchRoleFilters, PluginProfile,
 };
+pub use preset_discovery::{resolve_sforzando_patch_dirs, PatchDirResolution};
+pub use sforzando_programs::{resolve_sforzando_program, SforzandoProgramRef};
 
 use std::collections::BTreeMap;
 

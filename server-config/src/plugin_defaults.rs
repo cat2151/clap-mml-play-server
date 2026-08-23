@@ -105,6 +105,30 @@ pub fn default_floe_plugin_path() -> &'static str {
     ""
 }
 
+/// OS ごとのデフォルト sforzando パスを返す。
+///
+/// 音色置き場は組み込みで決め打ちせず、CLAP preset-discovery と
+/// `[plugins.Sforzando].patches_dirs` の和集合から得る。
+#[cfg(target_os = "windows")]
+pub fn default_sforzando_plugin_path() -> &'static str {
+    r"C:\Program Files\Common Files\CLAP\Plogue\sforzando_x64.clap"
+}
+
+#[cfg(target_os = "macos")]
+pub fn default_sforzando_plugin_path() -> &'static str {
+    "/Library/Audio/Plug-Ins/CLAP/sforzando.clap"
+}
+
+#[cfg(target_os = "linux")]
+pub fn default_sforzando_plugin_path() -> &'static str {
+    "/usr/lib/clap/sforzando.clap"
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+pub fn default_sforzando_plugin_path() -> &'static str {
+    ""
+}
+
 /// OS ごとのデフォルト patches_dirs を返す。
 /// 既知 OS でない場合や取得できない場合は空配列を返す（ユーザーに設定を促す）。
 #[cfg(target_os = "windows")]

@@ -13,6 +13,7 @@
 //! reset 解釈の両方から独立して、音は必ず止まる。
 
 use super::{LiveMidiEvent, RealtimeRenderer};
+use crate::logging::emit_diagnostic;
 
 const MIDI_CHANNEL_COUNT: u8 = 16;
 const MIDI_CONTROL_CHANGE: u8 = 0xB0;
@@ -32,7 +33,7 @@ impl RealtimeRenderer {
         }
         let events = all_sound_off_events();
         if let Err(error) = self.render_live_chunk_with_offsets(&events) {
-            eprintln!("all sound off failed: {error:#}");
+            emit_diagnostic(format!("all sound off failed: {error:#}"));
         }
     }
 }

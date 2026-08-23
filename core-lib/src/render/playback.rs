@@ -92,5 +92,4 @@ fn build_transport(tempo_map: &[SmfTempoChange]) -> Option<TempoMapTimeline> {
 }
 
 #[cfg(test)]
-#[path = "playback_tests.rs"]
 mod tests;

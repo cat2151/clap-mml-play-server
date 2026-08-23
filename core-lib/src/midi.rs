@@ -273,5 +273,4 @@ fn collect_meta_changes(smf: &Smf) -> Vec<(u64, MetaChange)> {
 }
 
 #[cfg(test)]
-#[path = "midi_tests.rs"]
 mod tests;

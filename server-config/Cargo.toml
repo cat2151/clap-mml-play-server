@@ -9,6 +9,12 @@ path = "src/lib.rs"
 
 [dependencies]
 anyhow = "1"
+clack-host = { git = "https://github.com/prokopyl/clack.git", package = "clack-host" }
+clack-extensions = { git = "https://github.com/prokopyl/clack.git", package = "clack-extensions", features = ["preset-discovery", "clack-host"] }
 dirs = "6"
 serde = { version = "1", features = ["derive"] }
 toml = "1"
+xmltree = "0.11"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"

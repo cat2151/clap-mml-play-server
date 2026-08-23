@@ -305,6 +305,16 @@ fn the_builtin_floe_profile_has_identity_but_no_patch_directories() {
 }
 
 #[test]
+fn the_builtin_sforzando_profile_has_identity_and_unfiltered_roles() {
+    let profile = resolve_builtin("Sforzando").unwrap();
+
+    assert_eq!(profile.plugin_path, default_sforzando_plugin_path());
+    assert_eq!(profile.plugin_id.as_deref(), Some(SFORZANDO_PLUGIN_ID));
+    assert_eq!(profile.patches_dirs, None);
+    assert_eq!(profile.patch_roles, PatchRoleFilters::unfiltered());
+}
+
+#[test]
 fn a_floe_profile_only_needs_its_patches_dirs() {
     let profile = resolve(
         "Floe",
@@ -333,6 +343,7 @@ fn the_available_names_list_all_builtins() {
     assert!(message.contains("Dexed"), "{message}");
     assert!(message.contains("Vaporizer2"), "{message}");
     assert!(message.contains("Floe"), "{message}");
+    assert!(message.contains("Sforzando"), "{message}");
 }
 
 #[test]
@@ -389,6 +400,10 @@ fn the_plugin_id_decides_the_patch_form() {
         patch_form_of(Some(FLOE_PLUGIN_ID), "whatever.clap"),
         PatchForm::FloePreset
     );
+    assert_eq!(
+        patch_form_of(Some(SFORZANDO_PLUGIN_ID), "whatever.clap"),
+        PatchForm::Sfz
+    );
 }
 
 /// `plugin_id` を書いていない config でも、ファイル名から拾えること。
@@ -410,6 +425,10 @@ fn the_file_name_is_the_last_resort_when_no_plugin_id_is_written() {
     assert_eq!(
         patch_form_of(None, r"C:\CLAP\FLOE.clap"),
         PatchForm::FloePreset
+    );
+    assert_eq!(
+        patch_form_of(None, r"C:\CLAP\sforzando_x64.clap"),
+        PatchForm::Sfz
     );
 }
 

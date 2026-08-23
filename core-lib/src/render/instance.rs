@@ -16,7 +16,7 @@ use clack_host::prelude::*;
 
 use super::descriptor::SelectedDescriptor;
 use super::serial_instantiation::InstantiationPermit;
-use crate::host::{MidiRenderHost, MidiRenderHostShared};
+use crate::host::{MidiRenderHost, MidiRenderHostMainThread, MidiRenderHostShared};
 
 pub(super) fn create_plugin_instance_without_patch(
     entry: &PluginEntry,
@@ -36,7 +36,7 @@ pub(super) fn create_plugin_instance_without_patch(
     let _permit = InstantiationPermit::acquire(&descriptor.id);
     let plugin_instance = PluginInstance::<MidiRenderHost>::new(
         |_| MidiRenderHostShared::default(),
-        |_| (),
+        |_| MidiRenderHostMainThread,
         entry,
         &plugin_id,
         &host_info,

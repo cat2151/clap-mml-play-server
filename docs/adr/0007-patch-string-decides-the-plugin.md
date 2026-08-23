@@ -1,6 +1,6 @@
 # ADR 0007: patch 文字列でプラグインを判別する（IPC / SHM は無改修）
 
-- 状態: 採用（2026-08-20 / 2026-08-22 に `.vvp` を第 3 の形として追加）
+- 状態: 採用（2026-08-23 に `.floe-preset` と `.sfz` を追加）
 - 関連: [0008](0008-spare-instance-pool.md) / [0014](0014-vvp-as-clap-state.md) /
   clap-mml-render-tui `docs/adr/0001-patch-string-decides-the-plugin.md`（決定の本体）
 
@@ -22,13 +22,15 @@ pub fn is_vvp_patch_path(patch: &str) -> bool {
 `core-lib/src/render.rs` のロード経路は**すでにこれで分岐しており `plugin_id` を見ていない**。
 つまりこの関数は混在対応の前から存在していた。
 
-## `PatchForm` は 3 値（2026-08-22）
+## `PatchForm` は 5 値（2026-08-23）
 
 | 形 | 拡張子 | 単位 | ロードのしかた |
 |---|---|---|---|
 | `StateFile` | `.fxp` | 1 ファイル = 1 音色 | FXP の chunk を切り出して `clap.state` へ |
 | `Cartridge` | `.syx` | 1 ファイル = 32 program | packed voice を single voice SysEx で送る（[0003](0003-dexed-program-change-guard.md)） |
 | **`Vvp`** | **`.vvp`** | 1 ファイル = 1 音色 | XML に 9 バイト被せて `clap.state` へ（[0014](0014-vvp-as-clap-state.md)） |
+| `FloePreset` | `.floe-preset` | 1 ファイル = 1 音色 | Floe 固有 extension へ |
+| **`Sfz`** | **`.sfz`** | 1 ファイル = 1 音色 | ARIA program 解決 + vendor state（[0015](0015-sforzando-sfz-preset-load.md)） |
 
 `Vvp` の単位は `StateFile` と同じだが、**別の形として数える**。一緒にすると
 Surge XT と Vaporizer2 のどちらへ送るべき patch かが決まらず、片方の音色が
@@ -37,7 +39,7 @@ Surge XT と Vaporizer2 のどちらへ送るべき patch かが決まらず、�
 **判別規則は `patch_form_of_path()`（`core-lib/src/plugin_catalog.rs`）へ 1 本化してある。**
 `kind_for_patch()` と `PatchBases::base_for()` が別々に書いていると、
 **片方だけ直したときに「選ばれたプラグインと基点が食い違う」**という静かな間違いになる。
-順序は cartridge → vvp → state_file（`StateFile` が「どれでもない」の受け皿）。
+順序は cartridge → sfz → floe-preset → vvp → state_file（`StateFile` が「どれでもない」の受け皿）。
 
 ## もともと混在対応済みだった箇所
 
@@ -104,3 +106,5 @@ clap-mml-render-tui `docs/adr/0010-two-repo-layout.md` と整合する）。
 - 判別材料は patch 文字列の形だけなので、**同じ形を扱うプラグインが 2 つ載ると区別できない**。
   `.fxp` と `.vvp` はこの穴の 1 例目だったが、**固有拡張子があったので永続 ID を変えずに解けた**。
   拡張子まで同じプラグインが 2 つ載る日には解けない（TUI 側 ADR 0001 の「未解決の論点」）
+- **`.sfz` は Sforzando が無ければ既定プラグインへ fallback しない。** `kind_for_patch()` が
+  Sforzando 不在をエラーにし、loader も plugin ID と ARIA program mapping を照合してから state load する

@@ -271,6 +271,47 @@ fn collect_patches_mixes_all_four_patch_forms() {
     let _ = std::fs::remove_dir_all(&tmp_dir);
 }
 
+#[test]
+fn collect_patches_lists_sfz_case_insensitively_and_ignores_other_files() {
+    let tmp_dir = std::env::temp_dir().join("cmrt_test_collect_patches_sfz");
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+    let bank = tmp_dir.join("Garritan");
+    std::fs::create_dir_all(&bank).unwrap();
+    std::fs::write(bank.join("Glockenspiel.sfz"), b"<region>").unwrap();
+    std::fs::write(bank.join("Piano.SFZ"), b"<region>").unwrap();
+    std::fs::write(bank.join("notes.txt"), b"not a patch").unwrap();
+
+    let patches = collect_patches(tmp_dir.to_str().unwrap()).unwrap();
+
+    assert_eq!(patches.len(), 2);
+    assert!(patches
+        .iter()
+        .all(|path| crate::is_sfz_patch_path(&path.to_string_lossy())));
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn collect_patches_mixes_all_five_patch_forms() {
+    let tmp_dir = std::env::temp_dir().join("cmrt_test_collect_patches_five_forms");
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+    std::fs::create_dir_all(&tmp_dir).unwrap();
+    std::fs::write(tmp_dir.join("surge.fxp"), b"dummy").unwrap();
+    std::fs::write(
+        tmp_dir.join("dexed.syx"),
+        crate::dx7::test_cartridge_bytes(&[(0, "Init")]),
+    )
+    .unwrap();
+    std::fs::write(tmp_dir.join("vapor.vvp"), b"xml").unwrap();
+    std::fs::write(tmp_dir.join("floe.floe-preset"), b"state").unwrap();
+    std::fs::write(tmp_dir.join("orchestra.sfz"), b"<region>").unwrap();
+
+    let patches = collect_patches(tmp_dir.to_str().unwrap()).unwrap();
+
+    assert_eq!(patches.len(), 36);
+    assert!(patches.iter().any(|path| path.ends_with("orchestra.sfz")));
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+}
+
 /// 実物のプリセット置き場が丸ごと列挙できること。
 /// 資料の実測（460 件・フラット・すべて `.vvp`）と突き合わせる。
 ///

@@ -1,7 +1,7 @@
-//! server プロセスが「どの実体を、どの版で」起動したかを stderr へ 1 行で残す。
+//! server プロセスが「どの実体を、どの版で」起動したかを診断 stream へ 1 行で残す。
 //!
 //! クライアント（clap-mml-render-tui）は子プロセスの stderr を全行 `log.txt` へ
-//! 転送するため、ここで `eprintln!` するだけでログに残る。tui 側の実装は要らない。
+//! 転送する。core が別 process に埋め込まれた場合は [`crate::set_log_sink`] の注入先へ送る。
 //!
 //! この 1 行が無かったために、install 済みの古い exe を掴んでいた事故で
 //! 「MML overlay が無音」以上の手がかりが残らなかった。config を読むより前、
@@ -12,23 +12,25 @@
 
 use std::path::Path;
 
+use crate::logging::emit_diagnostic;
+
 /// 起動ログのプレフィックス。クライアント側の grep はこれを使う。
 const BOOT_PREFIX: &str = "cmrt-server-boot:";
 
 /// ログに載せる commit hash の長さ。`git show` に渡せて、かつ 1 行が読める長さ。
 const COMMIT_HASH_LOG_LEN: usize = 12;
 
-/// 起動した実体と版を stderr へ 1 行で出す。`main()` の先頭で呼ぶこと。
+/// 起動した実体と版を診断 stream へ 1 行で出す。`main()` の先頭で呼ぶこと。
 pub fn log_boot(commit_hash: &str) {
     let exe = std::env::current_exe().ok();
-    eprintln!("{}", boot_line(commit_hash, exe.as_deref()));
+    emit_diagnostic(boot_line(commit_hash, exe.as_deref()));
 }
 
-/// 起動できずに終わる理由を stderr へ 1 行で出す。
+/// 起動できずに終わる理由を診断 stream へ 1 行で出す。
 ///
 /// anyhow のエラー鎖は `{:#}` でも複数行になりうるが、ログは 1 行 1 イベントなので畳む。
 pub fn log_boot_fatal(stage: &str, detail: &str) {
-    eprintln!("{}", fatal_line(stage, detail));
+    emit_diagnostic(fatal_line(stage, detail));
 }
 
 fn boot_line(commit_hash: &str, exe: Option<&Path>) -> String {

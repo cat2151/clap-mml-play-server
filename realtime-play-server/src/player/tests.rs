@@ -7,6 +7,7 @@ fn test_bases() -> PatchBases {
         Some("/cartridges"),
         Some("/vvp"),
         Some("/floe"),
+        Some("/sfz"),
     )
 }
 

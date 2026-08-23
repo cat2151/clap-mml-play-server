@@ -13,7 +13,9 @@
 
 use std::path::Path;
 
-use crate::{is_cartridge_patch_path, is_floe_preset_path, is_vvp_patch_path, CoreConfig};
+use crate::{
+    is_cartridge_patch_path, is_floe_preset_path, is_sfz_patch_path, is_vvp_patch_path, CoreConfig,
+};
 use cmrt_server_config::{patch_form_of, PatchForm, ServerConfig};
 
 /// 1 プロセスへ載せうるプラグイン 1 種別。
@@ -34,30 +36,45 @@ pub struct PluginKind {
 /// そのまま使う。残りは同じ config から引ける他のプロファイルのうち、**本体が実在する**もの。
 /// 実在しないものを候補に残すと、差し替えのたびにロード失敗で初めて気付くことになる。
 pub fn plugin_kinds(cfg: &ServerConfig, core_cfg: &CoreConfig) -> Vec<PluginKind> {
+    let default_form = patch_form_of(cfg.plugin_id.as_deref(), &cfg.plugin_path);
+    let mut default_core_cfg = core_cfg.clone();
+    if default_form == PatchForm::Sfz {
+        default_core_cfg.patches_dir = sforzando_patch_root(
+            &cfg.plugin_path,
+            cfg.patches_dirs.as_deref(),
+            cfg.active_plugin.as_deref().unwrap_or("Sforzando"),
+        );
+    }
     let default_kind = PluginKind {
         name: cfg
             .active_plugin
             .clone()
             .unwrap_or_else(|| cmrt_server_config::plugin_file_stem(&cfg.plugin_path)),
         plugin_path: cfg.plugin_path.clone(),
-        patch_form: patch_form_of(cfg.plugin_id.as_deref(), &cfg.plugin_path),
-        core_cfg: core_cfg.clone(),
+        patch_form: default_form,
+        core_cfg: default_core_cfg,
     };
     let mut kinds = vec![default_kind];
     for (name, profile) in cfg.installed_plugin_profiles() {
         if same_plugin(&profile.plugin_path, &kinds[0].plugin_path) {
             continue;
         }
+        let patch_form = patch_form_of(profile.plugin_id.as_deref(), &profile.plugin_path);
+        let patches_dir = if patch_form == PatchForm::Sfz {
+            sforzando_patch_root(&profile.plugin_path, profile.patches_dirs.as_deref(), &name)
+        } else {
+            cmrt_server_config::patch_root_dir(profile.patches_dirs.as_deref())
+        };
         kinds.push(PluginKind {
             name,
             plugin_path: profile.plugin_path.clone(),
-            patch_form: patch_form_of(profile.plugin_id.as_deref(), &profile.plugin_path),
+            patch_form,
             core_cfg: CoreConfig {
                 plugin_id: profile.plugin_id.clone(),
                 // 起動時の音色（config の `patch_path`）は既定プラグイン向けの指定なので、
                 // 他の種別へ持ち込まない。持ち込むと形の違う音色を読もうとして失敗する。
                 patch_path: None,
-                patches_dir: cmrt_server_config::patch_root_dir(profile.patches_dirs.as_deref()),
+                patches_dir,
                 ..core_cfg.clone()
             },
         });
@@ -107,6 +124,8 @@ pub fn kind_for_patch(
 fn patch_form_of_path(patch: &str) -> PatchForm {
     if is_cartridge_patch_path(patch) {
         PatchForm::Cartridge
+    } else if is_sfz_patch_path(patch) {
+        PatchForm::Sfz
     } else if is_floe_preset_path(patch) {
         PatchForm::FloePreset
     } else if is_vvp_patch_path(patch) {
@@ -125,6 +144,7 @@ pub struct PatchBases {
     cartridge: Option<String>,
     vvp: Option<String>,
     floe_preset: Option<String>,
+    sfz: Option<String>,
 }
 
 impl PatchBases {
@@ -146,7 +166,7 @@ impl PatchBases {
         cartridge: Option<&str>,
         vvp: Option<&str>,
     ) -> Self {
-        Self::from_all_bases(state_file, cartridge, vvp, None)
+        Self::from_all_bases(state_file, cartridge, vvp, None, None)
     }
 
     /// Floe を含む全形式の基点を直接指定して作る。
@@ -155,12 +175,14 @@ impl PatchBases {
         cartridge: Option<&str>,
         vvp: Option<&str>,
         floe_preset: Option<&str>,
+        sfz: Option<&str>,
     ) -> Self {
         Self {
             state_file: state_file.map(str::to_string),
             cartridge: cartridge.map(str::to_string),
             vvp: vvp.map(str::to_string),
             floe_preset: floe_preset.map(str::to_string),
+            sfz: sfz.map(str::to_string),
         }
     }
 
@@ -171,6 +193,7 @@ impl PatchBases {
             PatchForm::Cartridge => self.cartridge.as_deref(),
             PatchForm::Vvp => self.vvp.as_deref(),
             PatchForm::FloePreset => self.floe_preset.as_deref(),
+            PatchForm::Sfz => self.sfz.as_deref(),
         }
     }
 
@@ -180,8 +203,32 @@ impl PatchBases {
             PatchForm::Cartridge => &mut self.cartridge,
             PatchForm::Vvp => &mut self.vvp,
             PatchForm::FloePreset => &mut self.floe_preset,
+            PatchForm::Sfz => &mut self.sfz,
         }
     }
+}
+
+fn sforzando_patch_root(
+    plugin_path: &str,
+    configured: Option<&[String]>,
+    plugin_name: &str,
+) -> Option<String> {
+    let resolved = cmrt_server_config::resolve_patch_catalog(
+        Some(cmrt_server_config::SFORZANDO_PLUGIN_ID),
+        plugin_path,
+        configured,
+    );
+    for notice in &resolved.notices {
+        crate::logging::emit_diagnostic(format!(
+            "cmrt-catalog: plugin={plugin_name} source-notice: {notice}"
+        ));
+    }
+    if let Some(error) = &resolved.source_error {
+        crate::logging::emit_diagnostic(format!(
+            "cmrt-catalog: plugin={plugin_name} source-error: {error}"
+        ));
+    }
+    cmrt_server_config::shared_patch_root_dir(&resolved.dirs)
 }
 
 /// 同じプラグイン本体を指しているか。既定プラグインとプロファイルの重複を避けるための比較。

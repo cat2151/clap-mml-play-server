@@ -12,6 +12,7 @@ use super::RealtimeRenderer;
 use crate::dx7::{is_cartridge_patch_path, parse_cartridge_patch_path, CartridgePatchPath};
 use crate::floe::is_floe_preset_path;
 use crate::host::MidiRenderHost;
+use crate::sforzando::is_sfz_patch_path;
 use crate::vvp::is_vvp_patch_path;
 
 impl RealtimeRenderer {
@@ -36,6 +37,10 @@ impl RealtimeRenderer {
             PatchTarget::FloePreset(path) => {
                 self.forget_cartridge_program();
                 self.load_floe_preset(&path)?;
+            }
+            PatchTarget::Sfz(path) => {
+                self.forget_cartridge_program();
+                self.load_sfz_state(&path)?;
             }
             PatchTarget::StateFile(path) => {
                 self.forget_cartridge_program();
@@ -69,6 +74,8 @@ impl RealtimeRenderer {
         };
         if is_cartridge_patch_path(path) {
             Ok(PatchTarget::Cartridge(parse_cartridge_patch_path(path)?))
+        } else if is_sfz_patch_path(path) {
+            Ok(PatchTarget::Sfz(path.to_string()))
         } else if is_floe_preset_path(path) {
             Ok(PatchTarget::FloePreset(path.to_string()))
         } else if is_vvp_patch_path(path) {
@@ -93,6 +100,8 @@ enum PatchTarget {
     Vvp(String),
     /// Floe: `.floe-preset` を Floe 固有 extension でロード。
     FloePreset(String),
+    /// sforzando: 解決済み ARIA program を vendor state としてロード。
+    Sfz(String),
     /// Surge XT: `.fxp` を CLAP state としてロード。
     StateFile(String),
     /// 生成直後にスナップショットした state へ戻す。

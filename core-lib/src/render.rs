@@ -15,6 +15,7 @@ use cmrt_timeline::{BlockSpan, FreeRunningTimeline, SamplePosition, SampleRate};
 use crate::dx7::is_cartridge_patch_path;
 use crate::floe::is_floe_preset_path;
 use crate::host::MidiRenderHost;
+use crate::sforzando::is_sfz_patch_path;
 use crate::vvp::is_vvp_patch_path;
 use crate::CoreConfig;
 
@@ -23,6 +24,7 @@ mod cartridge_patch;
 mod descriptor;
 mod floe_preset;
 mod instance;
+mod lifecycle;
 mod offline;
 mod parallel;
 mod patch_state;
@@ -30,6 +32,7 @@ mod patch_switch;
 mod playback;
 mod process_inputs;
 mod serial_instantiation;
+mod sfz_state;
 mod voicing_probe;
 mod vvp_patch;
 use descriptor::{probe_capabilities, resolve_note_dialect, NoteEventDialect, PluginCapabilities};
@@ -37,6 +40,7 @@ use floe_preset::{ensure_floe_capable, load_floe_state};
 use instance::create_plugin_instance_without_patch;
 use patch_state::{load_patch, save_plugin_state};
 use process_inputs::{input_buffer, push_offline_note_event};
+use sfz_state::load_initial_sfz_state;
 use vvp_patch::{ensure_vvp_capable, load_vvp_state};
 
 pub use capability_probe::{probe_plugin_capabilities, PluginProbeReport, ProbedDescriptor};
@@ -158,7 +162,15 @@ impl RealtimeRenderer {
             // `.vvp` も state なので activate 前でよいが、**渡す前に XML を包む**必要がある。
             // `load_patch()` は `.fxp` の chunk 切り出ししか知らないので、そのまま渡すと
             // Vaporizer2 が読めない生 XML を state として押し込むことになる。
-            if is_floe_preset_path(patch) {
+            if is_sfz_patch_path(patch) {
+                let template = init_state.as_deref().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Sforzando init state を保存できない requested='{patch}' plugin_id='{}'",
+                        descriptor.id
+                    )
+                })?;
+                load_initial_sfz_state(&mut plugin_instance, template, patch, &descriptor.id)?;
+            } else if is_floe_preset_path(patch) {
                 ensure_floe_capable(&descriptor.id)?;
                 load_floe_state(&mut plugin_instance, patch)?;
             } else if is_vvp_patch_path(patch) {
@@ -430,17 +442,4 @@ impl RealtimeRenderer {
 struct ProcessedChunk {
     samples: Vec<f32>,
     ended_note_ids: Vec<u32>,
-}
-
-impl Drop for RealtimeRenderer {
-    fn drop(&mut self) {
-        let Some(processor) = self.processor.take() else {
-            return;
-        };
-        let Some(mut plugin_instance) = self.plugin_instance.take() else {
-            return;
-        };
-        let stopped = processor.stop_processing();
-        plugin_instance.deactivate(stopped);
-    }
 }

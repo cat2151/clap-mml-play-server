@@ -10,6 +10,9 @@
 //! CMRT_TEST_VAPORIZER2_PRESETS=<.vvp を置いてあるディレクトリ>
 //! CMRT_TEST_FLOE_CLAP=C:\Program Files\Common Files\CLAP\Floe.clap
 //! CMRT_TEST_FLOE_PRESETS=<.floe-preset を置いてあるディレクトリ>
+//! CMRT_TEST_SFORZANDO_CLAP=C:\Program Files\Common Files\CLAP\Plogue\sforzando_x64.clap
+//! CMRT_TEST_SFORZANDO_PATCH_A=<Free Sounds の .sfz>
+//! CMRT_TEST_SFORZANDO_PATCH_B=<別 library の melodic .sfz>
 //! CMRT_TEST_DEXED_CARTRIDGES=%APPDATA%\DigitalSuburban\Dexed\Cartridges
 //! cargo test -p cmrt-core -- --ignored --test-threads=1
 //! ```
@@ -88,5 +91,6 @@ mod cartridge;
 mod dexed;
 mod floe;
 mod plugin_id;
+mod sforzando;
 mod surge;
 mod vaporizer2;

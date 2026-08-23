@@ -11,24 +11,21 @@ use crate::CoreConfig;
 use mmlabc_to_smf::{mml_preprocessor, raw_mml_to_smf_bytes_with_options, SmfConversionOptions};
 
 mod audio;
-#[path = "pipeline_dirs.rs"]
-mod pipeline_dirs;
-#[path = "pipeline_render.rs"]
-mod pipeline_render;
+mod output_dirs;
+mod rendering;
 #[cfg(test)]
-#[path = "pipeline_test_support.rs"]
-mod pipeline_test_support;
+mod test_support;
 
 pub use audio::{encode_wav_i16, play_samples, write_wav};
-pub use pipeline_dirs::{ensure_cmrt_dir, ensure_daw_dir, ensure_phrase_dir};
+pub use output_dirs::{ensure_cmrt_dir, ensure_daw_dir, ensure_phrase_dir};
 #[cfg(test)]
-use pipeline_render::{apply_render_preroll, trim_render_preroll};
-use pipeline_render::{
+use rendering::{apply_render_preroll, trim_render_preroll};
+use rendering::{
     prepare_playback_schedule, prepare_render_inputs, render_prepared_inputs, PreparedRenderInputs,
 };
-pub use pipeline_render::{RenderOptions, RenderPreroll};
+pub use rendering::{RenderOptions, RenderPreroll};
 #[cfg(test)]
-pub(crate) use pipeline_test_support::{env_lock, EnvVarGuard};
+pub(crate) use test_support::{env_lock, EnvVarGuard};
 
 static TEMP_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -431,5 +428,4 @@ impl Drop for RenderTempDir {
     }
 }
 #[cfg(test)]
-#[path = "pipeline_tests.rs"]
 mod tests;

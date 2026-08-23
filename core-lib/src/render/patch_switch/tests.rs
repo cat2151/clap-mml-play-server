@@ -40,3 +40,13 @@ fn floe_paths_are_told_apart_from_all_other_forms() {
     assert!(!is_floe_preset_path("Dexed.syx/00 Init"));
     assert!(!is_floe_preset_path("PD Emily.vvp"));
 }
+
+#[test]
+fn sfz_paths_are_told_apart_from_all_other_forms() {
+    assert!(is_sfz_patch_path("Garritan/Glockenspiel.sfz"));
+    assert!(is_sfz_patch_path("Garritan\\Glockenspiel.SFZ"));
+    assert!(!is_sfz_patch_path("Pads/Pad 1.fxp"));
+    assert!(!is_sfz_patch_path("Dexed.syx/00 Init"));
+    assert!(!is_sfz_patch_path("PD Emily.vvp"));
+    assert!(!is_sfz_patch_path("Harp/Realistic.floe-preset"));
+}

@@ -1,6 +1,6 @@
-# ADR 0006: CLAP 汎用 preset API を採らない
+# ADR 0006: CLAP 汎用 preset API は原則採らない
 
-- 状態: 採用（2026-08-20 / 2026-08-22 に Vaporizer2 の実測で再確認）
+- 状態: 採用（2026-08-23、Sforzando だけ例外を追加）
 - 関連: [0001](0001-measured-plugin-capabilities.md) / [0004](0004-syx-format-and-persistent-ids.md) /
   [0007](0007-patch-string-decides-the-plugin.md) / [0014](0014-vvp-as-clap-state.md)
 
@@ -15,6 +15,7 @@ CLAP には preset の一覧・選択 API が対で存在する（`clap_preset_d
 | Dexed 1.0.1 | 安定 ID / `draft-2` とも **NULL** | `clap.preset-load` / `/draft-2` / `.draft/2` すべて **NULL** |
 | Surge XT 1.3.4 | **`…-factory/2` が非 NULL**（安定 ID） | **`clap.preset-load/2` と `.draft/2` の両方が非 NULL** |
 | **Vaporizer2 3.5.0** | 安定 ID / draft とも **NULL** | 安定 ID / draft とも **NULL** |
+| **Sforzando 2.1.2.4** | `/2` あり。factory の PLUGIN location 1 件 | `/2` と `.draft/2` あり。factory key は成功、任意 `.sfz` FILE は両方 `false` |
 
 2026-08-22 の再 probe で Surge の行を直した。初版は「draft ID のみ」と書いていたが、
 **Surge は安定 ID でも opt-in している**。正確には「使えるが使っていない」。
@@ -44,3 +45,10 @@ CLAP には preset の一覧・選択 API が対で存在する（`clap_preset_d
 Dexed / Vaporizer2 が preset-discovery を実装したら、cartridge / program や `.vvp` を
 そのまま location + `load_key` へ対応付けられるので、**adapter 内の catalog 実装だけを
 差し替えれば** generic 経路へ移行できる。
+
+## Sforzando も generic preset API の例外にしない（2026-08-23 訂正）
+
+Sforzando の factory preset は PLUGIN location + factory key で preset-load できるが、任意 `.sfz` の
+FILE location は stable / draft とも `false` だった。任意 SFZ は registry / bank manifest で検証した
+ARIA program 座標から vendor state を構築し、同期的な `clap.state.load` を使う。詳細は
+[0015](0015-sforzando-sfz-preset-load.md)。
