@@ -9,6 +9,7 @@ use crate::vvp::{read_vvp_header, VAPORIZER2_PLUGIN_ID};
 
 const VAPORIZER2_CLAP_ENV: &str = "CMRT_TEST_VAPORIZER2_CLAP";
 const VAPORIZER2_PRESETS_ENV: &str = "CMRT_TEST_VAPORIZER2_PRESETS";
+const VAPORIZER2_PATCH_ENV: &str = "CMRT_TEST_VAPORIZER2_PATCH";
 /// 設定すると、耳で確かめたいレンダリング結果をこのディレクトリへ WAV で書き出す。
 /// **未設定なら 1 バイトも書かない**（テストが実ユーザーのパスを汚さないため）。
 const WAV_OUT_DIR_ENV: &str = "CMRT_TEST_WAV_OUT_DIR";
@@ -263,6 +264,30 @@ fn set_patch_routes_a_vvp_path_to_the_vaporizer2_loader() {
             "set_patch() で載った音色が '{expected}' ではない: {display}"
         );
     }
+}
+
+/// 指定した `.vvp` 1 本だけを実プラグインへロードし、所要時間と出音を確認する診断入口。
+///
+/// 大きな wavetable 内蔵 preset の調査で、音色置き場全体からサンプルを選ぶ既存テストを
+/// 回さずに済むようにする。対象は `CMRT_TEST_VAPORIZER2_PATCH` で明示する。
+#[test]
+#[ignore = "実プラグインと調査対象の .vvp が要る"]
+fn vaporizer2_loads_one_requested_patch() {
+    let patch = std::env::var(VAPORIZER2_PATCH_ENV).unwrap_or_else(|_| {
+        panic!("{VAPORIZER2_PATCH_ENV} に調査対象の .vvp を設定してから実行すること")
+    });
+    let path = plugin_path(VAPORIZER2_CLAP_ENV);
+    let entry = load_entry(&path).unwrap();
+    let mut renderer =
+        RealtimeRenderer::new(&test_config_with_plugin_id(VAPORIZER2_PLUGIN_ID), &entry).unwrap();
+
+    let started = std::time::Instant::now();
+    renderer.set_patch(Some(&patch)).unwrap();
+    let elapsed_ms = started.elapsed().as_millis();
+    let samples = render_live_note(&mut renderer);
+
+    eprintln!("vaporizer2 requested_patch_load_ms={elapsed_ms} patch={patch:?}");
+    assert!(peak(&samples) > 0.0, "無音になった: {patch}");
 }
 
 // 生の XML をそのまま state として渡すのでは駄目だ、という Stage 3 の前提は

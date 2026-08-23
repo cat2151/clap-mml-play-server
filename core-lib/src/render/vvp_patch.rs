@@ -5,6 +5,8 @@
 //! そこが違う。ファイル形式の変換は [`crate::vvp`] が持ち、ここは
 //! 「載っているプラグインが受け付けられるか」の照合とロードだけを行う。
 
+use std::time::Instant;
+
 use anyhow::{Context, Result};
 use clack_host::prelude::PluginInstance;
 
@@ -37,11 +39,45 @@ pub(super) fn load_vvp_state(
     plugin_instance: &mut PluginInstance<MidiRenderHost>,
     patch_path: &str,
 ) -> Result<()> {
-    let xml = std::fs::read(patch_path)
-        .with_context(|| format!("音色ファイルを読めない '{patch_path}'"))?;
+    let total_started = Instant::now();
+    eprintln!("cmrt-vvp-load: event=start patch={patch_path:?}");
+
+    let read_started = Instant::now();
+    let xml = match std::fs::read(patch_path) {
+        Ok(xml) => xml,
+        Err(error) => {
+            eprintln!(
+                "cmrt-vvp-load: phase=file_read result=error ms={} total_ms={} patch={patch_path:?}",
+                read_started.elapsed().as_millis(),
+                total_started.elapsed().as_millis(),
+            );
+            return Err(error).with_context(|| format!("音色ファイルを読めない '{patch_path}'"));
+        }
+    };
+    eprintln!(
+        "cmrt-vvp-load: phase=file_read result=ok ms={} bytes={} patch={patch_path:?}",
+        read_started.elapsed().as_millis(),
+        xml.len(),
+    );
+
+    let blob_started = Instant::now();
     let blob = vvp_state_blob(&xml);
-    load_plugin_state(plugin_instance, &blob)
-        .with_context(|| format!("音色のロードに失敗 '{patch_path}'"))
+    eprintln!(
+        "cmrt-vvp-load: phase=state_blob result=ok ms={} bytes={} patch={patch_path:?}",
+        blob_started.elapsed().as_millis(),
+        blob.len(),
+    );
+
+    let load_started = Instant::now();
+    let result = load_plugin_state(plugin_instance, &blob)
+        .with_context(|| format!("音色のロードに失敗 '{patch_path}'"));
+    eprintln!(
+        "cmrt-vvp-load: phase=clap_state_load result={} ms={} total_ms={} patch={patch_path:?}",
+        if result.is_ok() { "ok" } else { "error" },
+        load_started.elapsed().as_millis(),
+        total_started.elapsed().as_millis(),
+    );
+    result
 }
 
 /// `.vvp` を受け付けられるプラグインが載っているか。

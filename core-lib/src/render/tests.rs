@@ -8,6 +8,7 @@
 //! CMRT_TEST_SURGE_CLAP=C:\Program Files\Common Files\CLAP\Surge Synth Team\Surge XT.clap
 //! CMRT_TEST_VAPORIZER2_CLAP=C:\Program Files\Common Files\CLAP\VASTvaporizer2.clap
 //! CMRT_TEST_VAPORIZER2_PRESETS=<.vvp を置いてあるディレクトリ>
+//! CMRT_TEST_VAPORIZER2_PATCH=<単独で調べる .vvp>
 //! CMRT_TEST_FLOE_CLAP=C:\Program Files\Common Files\CLAP\Floe.clap
 //! CMRT_TEST_FLOE_PRESETS=<.floe-preset を置いてあるディレクトリ>
 //! CMRT_TEST_SFORZANDO_CLAP=C:\Program Files\Common Files\CLAP\Plogue\sforzando_x64.clap
