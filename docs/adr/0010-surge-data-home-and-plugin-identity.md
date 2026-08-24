@@ -23,12 +23,9 @@ Surge の `clap_entry.init()` が data home を読む可能性があり、読ん
 
 ### なぜファイル名判定を消さないか
 
-既定で生成される config は `active_plugin` を書かないので `plugin_id` は `None` になる。
-ここでファイル名判定を消すと、**既存ユーザーの Surge が最適化を失って起動が 0.9 秒 → 8.8 秒へ戻る。**
-
-`plugin_id` を持たない config は「`active_plugin` が無かった時代のもの（＝ Surge 専用）」と
-「`[plugins.*]` に `plugin_id` を書かなかったもの」のどちらかなので、
-**path で見ないと後者を Surge と誤判定する。**
+production の `ServerConfig` は固定 Surge XT profile の `plugin_id` を解決済みで持つ。
+ただし core の低レベル API と、`plugin_id` を省略した custom profile は `None` を渡せる。
+その経路でも Surge の最適化を失わないため、ファイル名判定を fallback として残す。
 
 TUI 側の `Config::is_surge_xt()` / `is_surge_xt_plugin()` も同じ規則。
 

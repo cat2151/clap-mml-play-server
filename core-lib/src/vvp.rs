@@ -28,7 +28,7 @@ use anyhow::{Context, Result};
 /// 照合する必要がある。照合しないと、Surge XT のインスタンスへ Vaporizer2 の state を
 /// 流し込んで「操作は成功したのに音が変わらない（あるいは壊れる）」ことになる。
 ///
-/// `cmrt_server_config` 側にも同じ定数がある（config の `active_plugin` 解決用）。
+/// `cmrt_server_config` 側にも同じ定数がある（profile の同定用）。
 /// [`crate::dx7::DEXED_PLUGIN_ID`] と同じ理由で二重に持っている。
 pub const VAPORIZER2_PLUGIN_ID: &str = "com.vastdynamics.VAST2";
 

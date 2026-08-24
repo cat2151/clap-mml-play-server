@@ -1,13 +1,8 @@
-//! `active_plugin` + `[plugins.*]` によるプラグイン切り替え。
+//! `[plugins.*]` と組み込み値によるプラグインプロファイル。
 //!
 //! 既知のプラグインは [`builtin_plugin_profiles`] に組み込みで持っている。
-//! 標準の場所へインストールしてあるなら `active_plugin = 'Dexed'` の 1 行だけでよく、
-//! `[plugins.*]` を書く必要はない。
-//!
-//! 解決結果（[`resolve_active_plugin_profile`] の戻り値）は、呼び出し側が自分の
-//! config 構造体のトップレベルフィールドへ焼き込む。こうしておくと
-//! `cfg.plugin_path` / `cfg.patches_dirs` の読み手（app・各サーバー）は
-//! プロファイルの存在を一切知らずに済む。
+//! 標準の場所へインストールしてあるなら `[plugins.*]` を書く必要はなく、標準値との差分だけを
+//! 同名の table で上書きできる。
 //!
 //! 「どこにプラグインがあるか」「そのプラグインの音色置き場はどう組まれているか」は
 //! プラグインをロードする側の知識なので、この解決規則は play server repo が持つ。
@@ -26,15 +21,10 @@ use crate::{
 
 /// `[plugins.<名前>]` 1 つ分のプラグイン設定。
 ///
-/// Surge XT / Dexed / Vaporizer2 を config に残したまま、`active_plugin` 1 行で
-/// 行き来できるようにするためのもの。
-///
 /// 各項目は「書かなければ組み込みプロファイルの値を引き継ぐ」。`patches_dirs` を
 /// 明示的に空にしたいときは `patches_dirs = []` と書く。
-///
-/// [`PatchRoleFilters`] の項目はトップレベルと同じキー名で、`[plugins.*]` の中へ
-/// そのまま書ける。
 #[derive(Deserialize, Debug, Clone, Default, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct PluginProfile {
     #[serde(default)]
     pub plugin_path: String,
@@ -44,72 +34,6 @@ pub struct PluginProfile {
     /// このプラグインの音色置き場。
     #[serde(default)]
     pub patches_dirs: Option<Vec<String>>,
-    /// 用途別の patch 自動選択の絞り込み。トップレベルと同じキー名で書ける。
-    ///
-    /// この crate 自身は読まない（サーバーは patch の用途別自動選択をしない）。
-    /// プラグインごとの正解は組み込みプロファイルが持つ知識なのでここで解決し、
-    /// 使うのは TUI 側。
-    #[serde(flatten)]
-    pub patch_roles: PatchRoleFilters,
-}
-
-/// 用途別 patch 自動選択（grid sequencer の chord / bass / arpeggio / drum 行）の
-/// 絞り込み設定のうち、プラグインごとに正解が違うもの。
-///
-/// TUI 側のトップレベル既定値は Surge のカテゴリ名なので、cartridge を音色置き場にする
-/// Dexed では 1 つも当たらない。プラグインごとの正解をここへ持たせる。
-///
-/// 各項目は `None` が「書かれていない」で、そのとき呼び出し側のトップレベルの値を
-/// そのまま使う。`[]` は「カテゴリで絞らない」という**明示の指定**なので区別が要る。
-#[derive(Deserialize, Debug, Clone, Default, PartialEq, Eq)]
-pub struct PatchRoleFilters {
-    #[serde(default)]
-    pub chord_patch_categories: Option<Vec<String>>,
-    #[serde(default)]
-    pub bass_patch_categories: Option<Vec<String>>,
-    #[serde(default)]
-    pub arpeggio_patch_categories: Option<Vec<String>>,
-    #[serde(default)]
-    pub drum_patch_categories: Option<Vec<String>>,
-    #[serde(default)]
-    pub kick_patch_keywords: Option<Vec<String>>,
-    #[serde(default)]
-    pub snare_patch_keywords: Option<Vec<String>>,
-    #[serde(default)]
-    pub hihat_patch_keywords: Option<Vec<String>>,
-}
-
-impl PatchRoleFilters {
-    /// どの項目でも絞らない設定。カテゴリ階層を持たない音色置き場のプラグイン用。
-    ///
-    /// cartridge のディレクトリ名（`SynprezFM` など）は用途と無関係なので、
-    /// カテゴリで絞る前提そのものが成り立たない。絞らずに全 program を候補にする。
-    pub fn unfiltered() -> Self {
-        Self {
-            chord_patch_categories: Some(Vec::new()),
-            bass_patch_categories: Some(Vec::new()),
-            arpeggio_patch_categories: Some(Vec::new()),
-            drum_patch_categories: Some(Vec::new()),
-            kick_patch_keywords: Some(Vec::new()),
-            snare_patch_keywords: Some(Vec::new()),
-            hihat_patch_keywords: Some(Vec::new()),
-        }
-    }
-
-    /// `self` を土台に `over` の「書かれている項目」だけを上書きする。
-    pub(crate) fn overridden_by(self, over: Self) -> Self {
-        Self {
-            chord_patch_categories: over.chord_patch_categories.or(self.chord_patch_categories),
-            bass_patch_categories: over.bass_patch_categories.or(self.bass_patch_categories),
-            arpeggio_patch_categories: over
-                .arpeggio_patch_categories
-                .or(self.arpeggio_patch_categories),
-            drum_patch_categories: over.drum_patch_categories.or(self.drum_patch_categories),
-            kick_patch_keywords: over.kick_patch_keywords.or(self.kick_patch_keywords),
-            snare_patch_keywords: over.snare_patch_keywords.or(self.snare_patch_keywords),
-            hihat_patch_keywords: over.hihat_patch_keywords.or(self.hihat_patch_keywords),
-        }
-    }
 }
 
 impl PluginProfile {
@@ -123,7 +47,6 @@ impl PluginProfile {
             },
             plugin_id: over.plugin_id.or(self.plugin_id),
             patches_dirs: over.patches_dirs.or(self.patches_dirs),
-            patch_roles: self.patch_roles.overridden_by(over.patch_roles),
         }
     }
 }
@@ -141,8 +64,6 @@ pub fn builtin_plugin_profiles() -> BTreeMap<String, PluginProfile> {
                 plugin_path: default_plugin_path().to_string(),
                 plugin_id: Some(SURGE_XT_PLUGIN_ID.to_string()),
                 patches_dirs: Some(default_patches_dirs()),
-                // カテゴリ設定の TUI 側トップレベル既定値が Surge のものなので、書く必要が無い。
-                patch_roles: PatchRoleFilters::default(),
             },
         ),
         (
@@ -151,7 +72,6 @@ pub fn builtin_plugin_profiles() -> BTreeMap<String, PluginProfile> {
                 plugin_path: default_dexed_plugin_path().to_string(),
                 plugin_id: Some(DEXED_PLUGIN_ID.to_string()),
                 patches_dirs: Some(default_dexed_cartridge_dirs()),
-                patch_roles: PatchRoleFilters::unfiltered(),
             },
         ),
         (
@@ -164,10 +84,6 @@ pub fn builtin_plugin_profiles() -> BTreeMap<String, PluginProfile> {
                 // `patches_dirs` を書けばそれがそのまま効く。書かなければ音色置き場が
                 // 空のままカタログに載らない。
                 patches_dirs: None,
-                // 用途別カテゴリの実データは同じserver-configの
-                // `builtin_patch_role_filters`が持つ。profile解決では呼び出し側の
-                // overrideと区別するため、ここには焼き込まない。
-                patch_roles: PatchRoleFilters::default(),
             },
         ),
         (
@@ -177,7 +93,6 @@ pub fn builtin_plugin_profiles() -> BTreeMap<String, PluginProfile> {
                 plugin_id: Some(FLOE_PLUGIN_ID.to_string()),
                 // preset library は環境依存なので config の `[plugins.Floe]` で指定する。
                 patches_dirs: None,
-                patch_roles: PatchRoleFilters::default(),
             },
         ),
         (
@@ -187,7 +102,6 @@ pub fn builtin_plugin_profiles() -> BTreeMap<String, PluginProfile> {
                 plugin_id: Some(SFORZANDO_PLUGIN_ID.to_string()),
                 // preset-discovery と config の和集合はカタログを組む時点で解決する。
                 patches_dirs: None,
-                patch_roles: PatchRoleFilters::unfiltered(),
             },
         ),
     ])
@@ -255,7 +169,7 @@ pub fn patch_form_of(plugin_id: Option<&str>, plugin_path: &str) -> PatchForm {
 /// 組み込みプロファイルと config の `[plugins.*]` を合わせた一覧。
 ///
 /// 同名なら config 側の「書かれている項目」が組み込みを上書きする
-/// （[`resolve_active_plugin_profile`] と同じ規則）。
+/// 表記ゆれを吸収し、同名なら config 側の差分を優先する。
 pub fn merged_plugin_profiles(
     from_config: &BTreeMap<String, PluginProfile>,
 ) -> BTreeMap<String, PluginProfile> {
@@ -308,76 +222,6 @@ fn lookup(profiles: &BTreeMap<String, PluginProfile>, name: &str) -> Option<Plug
         .iter()
         .find(|(candidate, _)| normalized(candidate) == key)
         .map(|(_, profile)| profile.clone())
-}
-
-fn unknown_active_plugin_error(
-    name: &str,
-    from_config: &BTreeMap<String, PluginProfile>,
-) -> anyhow::Error {
-    let builtin = builtin_plugin_profiles()
-        .keys()
-        .cloned()
-        .collect::<Vec<_>>()
-        .join(", ");
-    let configured = if from_config.is_empty() {
-        "(config に [plugins.*] は書かれていません)".to_string()
-    } else {
-        from_config
-            .keys()
-            .map(String::as_str)
-            .collect::<Vec<_>>()
-            .join(", ")
-    };
-    anyhow::anyhow!(
-        "active_plugin = '{name}' に対応するプロファイルがありません。\
-         組み込みで使える名前: {builtin} / config で定義済みの名前: {configured}"
-    )
-}
-
-/// `active_plugin` が指すプロファイルを解決する。
-///
-/// 呼び出し側は戻り値の `plugin_path` / `plugin_id` / `patches_dirs` を自分の config の
-/// トップレベルフィールドへ焼き込む。これを config のロード時に済ませておくことで、
-/// `cfg.plugin_path` / `cfg.patches_dirs` の読み手はプロファイルの存在を知らずに済む。
-///
-/// - `active_plugin` が未指定なら `Ok(None)`（既存 config の完全な後方互換）。
-/// - 名前は [`builtin_plugin_profiles`] と config の `[plugins.*]` の両方から探す。
-///   同名なら config 側の「書かれている項目」が組み込みを上書きする。
-/// - どちらにも無ければ設定エラー。使える名前を両方とも並べて示す。
-/// - トップレベルの `plugin_path`（`top_level_plugin_path`）と併記されていてもエラーにせず、
-///   プロファイルを優先する。移行の途中で必ず引っかかるような conflict error にはしない。
-pub fn resolve_active_plugin_profile(
-    active_plugin: Option<&str>,
-    from_config: &BTreeMap<String, PluginProfile>,
-    top_level_plugin_path: &str,
-) -> anyhow::Result<Option<PluginProfile>> {
-    let Some(name) = active_plugin.map(str::trim) else {
-        return Ok(None);
-    };
-    if name.is_empty() {
-        anyhow::bail!("active_plugin に空の名前は指定できません");
-    }
-    let configured = lookup(from_config, name);
-    let builtin = lookup(&builtin_plugin_profiles(), name);
-    let profile = match (builtin, configured) {
-        (Some(builtin), Some(configured)) => builtin.overridden_by(configured),
-        (Some(builtin), None) => builtin,
-        (None, Some(configured)) => configured,
-        (None, None) => return Err(unknown_active_plugin_error(name, from_config)),
-    };
-    if profile.plugin_path.trim().is_empty() {
-        anyhow::bail!(
-            "active_plugin = '{name}' の plugin_path が空です。\
-             [plugins.{name}] に plugin_path を書いてください"
-        );
-    }
-    if !top_level_plugin_path.trim().is_empty() {
-        eprintln!(
-            "config.toml: active_plugin = '{name}' のプロファイルを使います\
-             （トップレベルの plugin_path / patches_dirs は無視します）"
-        );
-    }
-    Ok(Some(profile))
 }
 
 #[cfg(test)]

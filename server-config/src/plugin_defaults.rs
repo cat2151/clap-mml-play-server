@@ -27,7 +27,7 @@ pub fn default_plugin_path() -> &'static str {
 }
 
 /// OS ごとのデフォルト Dexed パスを返す。
-/// `active_plugin = 'Dexed'` の 1 行だけで使えるようにするための組み込み値。
+/// `[plugins.Dexed]` を省略しても混在カタログへ載せられるようにするための組み込み値。
 /// 既知 OS でない場合は空文字を返す（ユーザーに設定を促す）。
 #[cfg(target_os = "windows")]
 pub fn default_dexed_plugin_path() -> &'static str {
@@ -50,7 +50,7 @@ pub fn default_dexed_plugin_path() -> &'static str {
 }
 
 /// OS ごとのデフォルト Vaporizer2 パスを返す。
-/// `active_plugin = 'Vaporizer2'` の 1 行だけで使えるようにするための組み込み値。
+/// `[plugins.Vaporizer2]` で本体パスを省略できるようにするための組み込み値。
 /// 既知 OS でない場合は空文字を返す（ユーザーに設定を促す）。
 ///
 /// **音色置き場の既定値は用意しない。** Vaporizer2 のプリセット置き場は
@@ -81,7 +81,7 @@ pub fn default_vaporizer2_plugin_path() -> &'static str {
 }
 
 /// OS ごとのデフォルト Floe パスを返す。
-/// `active_plugin = 'Floe'` の 1 行だけで本体を選べるようにするための組み込み値。
+/// `[plugins.Floe]` で本体パスを省略できるようにするための組み込み値。
 ///
 /// **音色置き場の既定値は用意しない。** Floe の preset library はユーザーが任意の
 /// drive / directory へ置けるため、`patches_dirs` は config.toml で明示してもらう。

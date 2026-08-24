@@ -12,7 +12,7 @@ plugin_path = "/clap/Dexed.clap"
 plugin_id   = "com.digital-suburban.dexed"
 "#;
 
-#[derive(Deserialize, Default)]
+#[derive(Debug, Deserialize, Default)]
 struct PluginsToml {
     #[serde(default)]
     plugins: BTreeMap<String, PluginProfile>,
@@ -22,28 +22,19 @@ fn profiles(toml_str: &str) -> BTreeMap<String, PluginProfile> {
     toml::from_str::<PluginsToml>(toml_str).unwrap().plugins
 }
 
-/// `[plugins.*]` を書いた config での解決。トップレベル `plugin_path` は無しの想定。
-fn resolve(active: &str, toml_str: &str) -> anyhow::Result<PluginProfile> {
-    resolve_active_plugin_profile(Some(active), &profiles(toml_str), "")
-        .map(|profile| profile.expect("active_plugin を渡したので解決されるはず"))
+/// 組み込み値と `[plugins.*]` の merge 結果から名前で引く。
+fn resolve(name: &str, toml_str: &str) -> anyhow::Result<PluginProfile> {
+    lookup(&merged_plugin_profiles(&profiles(toml_str)), name)
+        .ok_or_else(|| anyhow::anyhow!("plugin profile がありません: {name}"))
 }
 
 /// `[plugins.*]` が 1 つも無い config での解決（組み込みプロファイルだけを使う）。
-fn resolve_builtin(active: &str) -> anyhow::Result<PluginProfile> {
-    resolve(active, "")
+fn resolve_builtin(name: &str) -> anyhow::Result<PluginProfile> {
+    resolve(name, "")
 }
 
 #[test]
-fn a_config_without_active_plugin_resolves_to_nothing() {
-    let resolved =
-        resolve_active_plugin_profile(None, &profiles(SURGE_AND_DEXED_PROFILES), "/clap/x.clap")
-            .unwrap();
-
-    assert_eq!(resolved, None);
-}
-
-#[test]
-fn an_active_profile_is_resolved_from_the_plugins_table() {
+fn a_profile_is_resolved_from_the_plugins_table() {
     let profile = resolve("dexed", SURGE_AND_DEXED_PROFILES).unwrap();
 
     assert_eq!(profile.plugin_path, "/clap/Dexed.clap");
@@ -65,7 +56,7 @@ fn a_profile_without_patches_dirs_falls_back_to_the_builtin_ones() {
 }
 
 #[test]
-fn switching_the_active_profile_switches_the_patch_directories() {
+fn each_profile_keeps_its_own_patch_directories() {
     let profile = resolve("surge_xt", SURGE_AND_DEXED_PROFILES).unwrap();
 
     assert_eq!(profile.plugin_path, "/clap/Surge XT.clap");
@@ -75,55 +66,7 @@ fn switching_the_active_profile_switches_the_patch_directories() {
     );
 }
 
-/// 移行の途中で必ず引っかかるので、トップレベル `plugin_path` との併記は
-/// conflict error にしない（stderr へ「無視します」と出すだけ）。
-#[test]
-fn a_profile_wins_over_a_top_level_plugin_path_without_erroring() {
-    let profile = resolve_active_plugin_profile(
-        Some("dexed"),
-        &profiles(SURGE_AND_DEXED_PROFILES),
-        "/clap/Surge XT.clap",
-    )
-    .unwrap()
-    .unwrap();
-
-    assert_eq!(profile.plugin_path, "/clap/Dexed.clap");
-}
-
-#[test]
-fn an_active_plugin_without_a_matching_profile_lists_the_available_names() {
-    let error = resolve("dxd", SURGE_AND_DEXED_PROFILES).unwrap_err();
-
-    let message = error.to_string();
-    assert!(message.contains("dxd"));
-    // 組み込みの名前も config の名前も、両方を示す。
-    assert!(message.contains("Dexed"));
-    assert!(message.contains("Surge XT"));
-    assert!(message.contains("surge_xt"));
-}
-
-#[test]
-fn an_active_profile_with_an_empty_plugin_path_is_an_error() {
-    let error = resolve(
-        "broken",
-        r#"
-[plugins.broken]
-plugin_path = "   "
-"#,
-    )
-    .unwrap_err();
-
-    assert!(error.to_string().contains("plugin_path"));
-}
-
-#[test]
-fn an_empty_active_plugin_name_is_an_error() {
-    let error = resolve_active_plugin_profile(Some("   "), &BTreeMap::new(), "").unwrap_err();
-
-    assert!(error.to_string().contains("active_plugin"));
-}
-
-/// ユーザーが最初に書く形。`[plugins.*]` が 1 つも無くても動くことがこの機能の要。
+/// `[plugins.*]` が 1 つも無くても組み込みプロファイルを取得できる。
 #[test]
 fn a_builtin_name_alone_needs_no_plugins_table() {
     let profile = resolve_builtin("Dexed").unwrap();
@@ -233,25 +176,6 @@ plugin_id = "custom.dexed"
     assert_eq!(profile.plugin_id.as_deref(), Some("custom.dexed"));
 }
 
-/// Dexed の cartridge には Surge のようなカテゴリ階層が無いので、組み込みプロファイルは
-/// 用途別の絞り込みを全て外す。ここが効かないと TUI の chord / bass / drum 行の候補が
-/// 0 件になる（焼き込みは TUI 側 `cmrt_runtime` の担当）。
-#[test]
-fn the_builtin_dexed_profile_does_not_narrow_the_patch_roles() {
-    let profile = resolve_builtin("Dexed").unwrap();
-
-    assert_eq!(profile.patch_roles, PatchRoleFilters::unfiltered());
-}
-
-/// Surge のプロファイルは絞り込みを 1 つも書かない（＝ TUI のトップレベル設定が残る）。
-/// 既存 config を持つ Surge ユーザーの挙動が変わらないことの担保。
-#[test]
-fn the_builtin_surge_profile_writes_no_patch_role_filters() {
-    let profile = resolve_builtin("Surge XT").unwrap();
-
-    assert_eq!(profile.patch_roles, PatchRoleFilters::default());
-}
-
 /// Vaporizer2 も名前 1 行で使える。**ただし音色置き場は組み込みでは埋まらない。**
 /// プリセット置き場はユーザーが決めるものなので、config に書いてもらう
 /// （書かなければ音色置き場が空のままカタログに載らない、という安全側の倒れ方をする）。
@@ -263,15 +187,6 @@ fn the_builtin_vaporizer2_profile_brings_no_patch_directories() {
     assert_eq!(profile.plugin_id.as_deref(), Some("com.vastdynamics.VAST2"));
     assert_eq!(profile.patches_dirs, None);
     assert!(configured_patch_dirs(profile.patches_dirs.as_deref()).is_empty());
-}
-
-/// Surge と同じく絞り込みを 1 つも書かない。用途別カテゴリの実データは TUI 側の担当で、
-/// ここへ書くと play server → TUI の逆向き依存が復活する。
-#[test]
-fn the_builtin_vaporizer2_profile_writes_no_patch_role_filters() {
-    let profile = resolve_builtin("Vaporizer2").unwrap();
-
-    assert_eq!(profile.patch_roles, PatchRoleFilters::default());
 }
 
 /// 標準の場所へ入れているユーザーが書くのは `patches_dirs` の 1 行だけで済む。
@@ -301,17 +216,15 @@ fn the_builtin_floe_profile_has_identity_but_no_patch_directories() {
     assert_eq!(profile.plugin_path, default_floe_plugin_path());
     assert_eq!(profile.plugin_id.as_deref(), Some(FLOE_PLUGIN_ID));
     assert_eq!(profile.patches_dirs, None);
-    assert_eq!(profile.patch_roles, PatchRoleFilters::default());
 }
 
 #[test]
-fn the_builtin_sforzando_profile_has_identity_and_unfiltered_roles() {
+fn the_builtin_sforzando_profile_has_identity() {
     let profile = resolve_builtin("Sforzando").unwrap();
 
     assert_eq!(profile.plugin_path, default_sforzando_plugin_path());
     assert_eq!(profile.plugin_id.as_deref(), Some(SFORZANDO_PLUGIN_ID));
     assert_eq!(profile.patches_dirs, None);
-    assert_eq!(profile.patch_roles, PatchRoleFilters::unfiltered());
 }
 
 #[test]
@@ -333,52 +246,18 @@ patches_dirs = ["/presets/Floe"]
     );
 }
 
-/// 3 つ目の組み込み名が、名前を間違えたときの案内にも出ること。
+/// 旧Role設定は移行期間なしで廃止し、未知キーとして明示的に拒否する。
 #[test]
-fn the_available_names_list_all_builtins() {
-    let error = resolve("vaporiser2", "").unwrap_err();
-
-    let message = error.to_string();
-    assert!(message.contains("Surge XT"), "{message}");
-    assert!(message.contains("Dexed"), "{message}");
-    assert!(message.contains("Vaporizer2"), "{message}");
-    assert!(message.contains("Floe"), "{message}");
-    assert!(message.contains("Sforzando"), "{message}");
-}
-
-#[test]
-fn the_vaporizer2_builtin_name_ignores_case_and_spaces() {
-    for name in ["vaporizer2", "VAPORIZER2", "Vaporizer 2", "vaporizer_2"] {
-        let profile = resolve_builtin(name).unwrap();
-        assert_eq!(
-            profile.plugin_id.as_deref(),
-            Some("com.vastdynamics.VAST2"),
-            "{name}"
-        );
-    }
-}
-
-/// プロファイル側にカテゴリを書けば、そのプラグインだけ絞り込める。
-/// 書かなかった項目は組み込みの「絞らない」が残る。
-#[test]
-fn a_profile_can_narrow_the_patch_roles_by_itself() {
-    let profile = resolve(
-        "Dexed",
+fn retired_patch_role_keys_are_rejected() {
+    let error = toml::from_str::<PluginsToml>(
         r#"
 [plugins.Dexed]
 chord_patch_categories = ["SynprezFM"]
 "#,
     )
-    .unwrap();
+    .unwrap_err();
 
-    assert_eq!(
-        profile.patch_roles.chord_patch_categories,
-        Some(vec!["SynprezFM".to_string()])
-    );
-    assert_eq!(
-        profile.patch_roles.bass_patch_categories,
-        Some(Vec::<String>::new())
-    );
+    assert!(format!("{error:#}").contains("chord_patch_categories"));
 }
 
 /// `plugin_id` が書いてあるなら、それだけで形が決まること。

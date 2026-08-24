@@ -49,6 +49,29 @@ fn concrete_layout_is_returned_as_neutral_sort_metadata() {
 }
 
 #[test]
+fn known_plugins_describe_selector_categories_without_client_branching() {
+    let surge = plugin("Surge XT", SURGE_XT_PLUGIN_ID)
+        .describe_patch("patches_factory/Basses/Attacky.fxp", None);
+    assert_eq!(surge.selector_category.as_deref(), Some("Basses"));
+
+    let vaporizer =
+        plugin("Vaporizer2", VAPORIZER2_PLUGIN_ID).describe_patch("PD Wide Pad.vvp", None);
+    assert_eq!(vaporizer.selector_category.as_deref(), Some("Pad"));
+
+    let dexed = plugin("Dexed", DEXED_PLUGIN_ID).describe_patch("Factory.syx/00 Init", None);
+    assert_eq!(dexed.selector_category, None);
+}
+
+#[test]
+fn an_unknown_vaporizer_code_has_no_selector_category() {
+    let patch =
+        plugin("Vaporizer2", VAPORIZER2_PLUGIN_ID).describe_patch("ZZ Future Category.vvp", None);
+
+    assert_eq!(patch.selector_category, None);
+    assert_eq!(patch.sort.category, "ZZ");
+}
+
+#[test]
 fn voicing_strategy_is_plugin_neutral_to_callers() {
     assert_eq!(
         plugin_voicing_source(Some(SURGE_XT_PLUGIN_ID), "ignored"),

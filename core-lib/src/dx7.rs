@@ -24,9 +24,9 @@ mod voice;
 /// 黙って無視されて「操作は成功したのに音が変わらない」状態になる
 /// （`docs/adr/0007-patch-string-decides-the-plugin.md`）。その照合に使う。
 ///
-/// `cmrt_server_config` にも同じ定数がある（config の `active_plugin` 解決用）。
+/// `cmrt_server_config` にも同じ定数がある（profile の同定用）。
 /// core-lib は server-config へ依存しているので技術的には寄せられるが、
-/// 用途が別（こちらは「載っているプラグインの照合」、あちらは「config の解決」）なので
+/// 用途が別（こちらは「載っているプラグインの照合」、あちらは「profile の同定」）なので
 /// 二重に持っている。寄せるなら両方の用途を 1 つの定数で説明できるか先に確かめること。
 pub const DEXED_PLUGIN_ID: &str = "com.digital-suburban.dexed";
 

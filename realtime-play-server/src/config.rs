@@ -202,7 +202,6 @@ patch_path = "   "
     /// 構造体リテラルではなく TOML から作って項目追加への追従を不要にする。
     fn server_config(extra: &str) -> ServerConfig {
         let base = r#"
-plugin_path = "plugin.clap"
 output_midi = "output.mid"
 output_wav = "output.wav"
 sample_rate = 48000
@@ -216,8 +215,10 @@ buffer_size = 512
     #[test]
     fn core_config_from_server_config_carries_plugin_id() {
         let cfg = server_config(
-            "plugin_id = \"com.digital-suburban.dexed\"
-",
+            r#"
+[plugins."Surge XT"]
+plugin_id = "org.example.custom-surge"
+"#,
         );
         let realtime_cfg = RealtimeServerConfig::from_toml_str("").unwrap();
 
@@ -225,18 +226,21 @@ buffer_size = 512
 
         assert_eq!(
             core_cfg.plugin_id.as_deref(),
-            Some("com.digital-suburban.dexed")
+            Some("org.example.custom-surge")
         );
     }
 
     #[test]
-    fn core_config_from_server_config_leaves_plugin_id_unset_when_config_omits_it() {
+    fn core_config_from_server_config_uses_the_builtin_surge_id_when_profile_omits_it() {
         let cfg = server_config("");
         let realtime_cfg = RealtimeServerConfig::from_toml_str("").unwrap();
 
         let core_cfg = core_config_from_server_config(&cfg, &realtime_cfg);
 
-        assert_eq!(core_cfg.plugin_id, None);
+        assert_eq!(
+            core_cfg.plugin_id.as_deref(),
+            Some(cmrt_server_config::SURGE_XT_PLUGIN_ID)
+        );
     }
 
     /// 共有メモリプロトコルが表現できない数を設定で許してしまうと、

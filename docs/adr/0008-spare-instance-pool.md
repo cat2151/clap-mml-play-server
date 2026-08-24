@@ -103,7 +103,8 @@ N 個ぶんの合計待ち時間は変わらない。抽選の瞬間に次サイ
 | `server-config/src/plugin_profile.rs` | `PatchForm` / `patch_form_of` / `merged_plugin_profiles` / `installed_plugin_profiles` |
 | `realtime-play-server/src/player/live.rs` | `resolve_live_patch` が形ごとの基点を使う |
 
-`active_plugin` は「既定プラグイン（＝音色無指定の行が鳴るプラグイン）」の意味で残している。
+既定プラグイン（＝音色無指定の行が鳴るもの）は [0017](0017-fixed-surge-primary-plugin.md) で
+Surge XT 固定になった。予備プールの「先頭 kind が既定」という内部契約は変えない。
 worker は entry を保持しない（保持するのは背景生成スレッドだけ。CLAP インスタンスが
 entry の clone を持つので足元は崩れない）。
 

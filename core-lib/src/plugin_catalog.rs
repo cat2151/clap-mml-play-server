@@ -14,7 +14,7 @@
 use std::path::Path;
 
 use crate::{audio_plugin::patch_form_of_path, CoreConfig, PluginKey};
-use cmrt_server_config::{patch_form_of, PatchForm, ServerConfig};
+use cmrt_server_config::{patch_form_of, PatchForm, ServerConfig, PRIMARY_PLUGIN_PROFILE_NAME};
 
 /// 1 プロセスへ載せうるプラグイン 1 種別。
 #[derive(Clone, Debug)]
@@ -32,8 +32,8 @@ pub struct PluginKind {
 
 /// 使えるプラグインの種別一覧。先頭が既定プラグイン（音色無指定の行が鳴るもの）。
 ///
-/// 既定は `active_plugin` の解決結果、つまり `cfg` のトップレベルへ焼き込まれた値を
-/// そのまま使う。残りは同じ config から引ける他のプロファイルのうち、**本体が実在する**もの。
+/// 既定は固定の Surge XT、つまり `cfg` の runtime field へ焼き込まれた値をそのまま使う。
+/// 残りは同じ config から引ける他のプロファイルのうち、**本体が実在する**もの。
 /// 実在しないものを候補に残すと、差し替えのたびにロード失敗で初めて気付くことになる。
 pub fn plugin_kinds(cfg: &ServerConfig, core_cfg: &CoreConfig) -> Vec<PluginKind> {
     let default_form = patch_form_of(cfg.plugin_id.as_deref(), &cfg.plugin_path);
@@ -42,15 +42,12 @@ pub fn plugin_kinds(cfg: &ServerConfig, core_cfg: &CoreConfig) -> Vec<PluginKind
         default_core_cfg.patches_dir = sforzando_patch_root(
             &cfg.plugin_path,
             cfg.patches_dirs.as_deref(),
-            cfg.active_plugin.as_deref().unwrap_or("Sforzando"),
+            PRIMARY_PLUGIN_PROFILE_NAME,
         );
     }
     let default_kind = PluginKind {
         key: PluginKey::from_identity(cfg.plugin_id.as_deref(), &cfg.plugin_path),
-        name: cfg
-            .active_plugin
-            .clone()
-            .unwrap_or_else(|| cmrt_server_config::plugin_file_stem(&cfg.plugin_path)),
+        name: PRIMARY_PLUGIN_PROFILE_NAME.to_string(),
         plugin_path: cfg.plugin_path.clone(),
         patch_form: default_form,
         core_cfg: default_core_cfg,

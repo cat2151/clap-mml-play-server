@@ -286,8 +286,7 @@ fn a_configured_plugin_id_decides_without_looking_at_the_path() {
     ));
 }
 
-/// plugin_id を持たない config（active_plugin を書いていない既定の config）では、
-/// ファイル名からの推測へ落ちる。
+/// plugin_id を持たない低レベルの構成では、ファイル名からの推測へ落ちる。
 #[test]
 fn surge_plugin_paths_are_recognized_regardless_of_case() {
     assert!(plugin_is_surge(

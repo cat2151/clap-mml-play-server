@@ -173,9 +173,8 @@ grep -o "phase=instance index=[0-9]* ms=[0-9]*" err.log
   TUI から render server バックエンドを試すときは、その config の
   `offline_render_server_command` へ `clap-mml-render-server --config <同じ config>` と書く。
   **先頭を引用符にしないこと**（`cmd /C` が最初と最後の引用符を落として起動に失敗する）
-- realtime-play-server の `active_plugin` を替えるほうは、まだ config.toml を書き換えるしかない
-  （`config_app_dir()` に env の差し替え口が無い）。
-  **必ずバックアップを取り、終わったら差分ゼロまで戻すこと**
+- `active_plugin` による既定切り替えは [0017](0017-fixed-surge-primary-plugin.md) で廃止した。
+  上に残る `active_plugin = "Dexed"` の結果は、廃止前に採った履歴上の baseline である。
 
 予備プールの検証:
 

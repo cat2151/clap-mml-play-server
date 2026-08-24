@@ -1,7 +1,6 @@
 use super::*;
 
 const MINIMAL_CONFIG: &str = r#"
-plugin_path = "/usr/lib/clap/Surge XT.clap"
 output_midi = "output.mid"
 output_wav  = "output.wav"
 sample_rate = 48000
@@ -55,12 +54,12 @@ input_midi = "input.mid"
 loop_dirs = ["/tmp/loops"]
 loop_categories = ["guitar"]
 autoplay_on_startup = false
-chord_patch_categories = ["Pads"]
 daw_tracks = 4
+
 "#,
     );
 
-    assert_eq!(cfg.plugin_path, "/usr/lib/clap/Surge XT.clap");
+    assert_eq!(cfg.plugin_path, default_plugin_path());
 }
 
 #[test]
@@ -88,81 +87,30 @@ fn out_of_range_workers_are_rejected() {
     }
 }
 
-/// `active_plugin` の解決はサーバー側でも走る。ここが効かないと
-/// `active_plugin = 'Dexed'` だけを書いた config でサーバーが Surge を読みに行く。
 #[test]
-fn an_active_plugin_is_baked_into_the_top_level_fields() {
-    let cfg = load("active_plugin = 'Dexed'\n");
+fn surge_xt_is_baked_into_the_runtime_fields() {
+    let cfg = load("");
 
-    assert_eq!(cfg.plugin_path, default_dexed_plugin_path());
-    assert_eq!(cfg.plugin_id.as_deref(), Some(DEXED_PLUGIN_ID));
+    assert_eq!(cfg.plugin_path, default_plugin_path());
+    assert_eq!(cfg.plugin_id.as_deref(), Some(SURGE_XT_PLUGIN_ID));
     assert_eq!(
         cfg.patches_dirs.as_deref().map(<[String]>::to_vec),
-        Some(default_dexed_cartridge_dirs())
+        Some(default_patches_dirs())
     );
 }
 
-/// Vaporizer2 の組み込みプロファイルは `patches_dirs` を持たない。焼き込みは
-/// **無条件の代入**なので、`active_plugin = 'Vaporizer2'` にすると
-/// トップレベルに書いてあった Surge の音色置き場は `None` で消える。
-///
-/// これが消えないと、`C:\ProgramData\Surge XT\...` の `.fxp` が Vaporizer2 の音色として
-/// 一覧に出て、Vaporizer2 のインスタンスへ送られる（ADR 0001 の穴の実害そのもの）。
-/// **「音色 0 件」で倒れるのが正しい。**
 #[test]
-fn making_vaporizer2_the_active_plugin_does_not_inherit_the_surge_patch_dirs() {
+fn a_surge_xt_profile_overrides_the_runtime_fields() {
     let cfg = load(
-        "patches_dirs = ['/surge/patches_factory']
-active_plugin = 'Vaporizer2'
-",
+        r#"
+[plugins."Surge XT"]
+plugin_path = "/opt/clap/Surge XT.clap"
+patches_dirs = ["/surge/patches_factory"]
+"#,
     );
 
-    assert_eq!(cfg.plugin_path, default_vaporizer2_plugin_path());
-    assert_eq!(cfg.plugin_id.as_deref(), Some(VAPORIZER2_PLUGIN_ID));
-    assert_eq!(cfg.patches_dirs, None);
-    assert_eq!(cfg.patch_root_dir(), None);
-}
-
-/// 音色置き場だけを `[plugins.Vaporizer2]` に書けば、それが焼き込まれる。
-#[test]
-fn a_vaporizer2_profile_supplies_the_patch_dirs_the_builtin_lacks() {
-    let cfg = load(
-        "active_plugin = 'Vaporizer2'
-[plugins.Vaporizer2]
-patches_dirs = ['/presets/Vaporizer2']
-",
-    );
-
-    assert_eq!(cfg.plugin_path, default_vaporizer2_plugin_path());
-    assert_eq!(
-        cfg.patches_dirs.as_deref().map(<[String]>::to_vec),
-        Some(vec!["/presets/Vaporizer2".to_string()])
-    );
-}
-
-#[test]
-fn a_floe_profile_supplies_the_patch_dirs_the_builtin_lacks() {
-    let cfg = load(
-        "active_plugin = 'Floe'
-[plugins.Floe]
-patches_dirs = ['/presets/Floe']
-",
-    );
-
-    assert_eq!(cfg.plugin_path, default_floe_plugin_path());
-    assert_eq!(cfg.plugin_id.as_deref(), Some(FLOE_PLUGIN_ID));
-    assert_eq!(
-        cfg.patches_dirs.as_deref().map(<[String]>::to_vec),
-        Some(vec!["/presets/Floe".to_string()])
-    );
-}
-
-#[test]
-fn a_config_without_active_plugin_keeps_its_top_level_settings() {
-    let cfg = load("patches_dirs = ['/surge/patches_factory']\n");
-
-    assert_eq!(cfg.plugin_path, "/usr/lib/clap/Surge XT.clap");
-    assert_eq!(cfg.plugin_id, None);
+    assert_eq!(cfg.plugin_path, "/opt/clap/Surge XT.clap");
+    assert_eq!(cfg.plugin_id.as_deref(), Some(SURGE_XT_PLUGIN_ID));
     assert_eq!(
         cfg.patches_dirs.as_deref().map(<[String]>::to_vec),
         Some(vec!["/surge/patches_factory".to_string()])
@@ -170,23 +118,47 @@ fn a_config_without_active_plugin_keeps_its_top_level_settings() {
 }
 
 #[test]
+fn retired_top_level_plugin_settings_are_rejected() {
+    for line in [
+        "active_plugin = 'Surge XT'",
+        "plugin_path = '/clap/Surge XT.clap'",
+        "plugin_id = 'org.surge-synth-team.surge-xt'",
+        "patches_dirs = ['/surge/patches_factory']",
+        "chord_patch_categories = ['Pads']",
+    ] {
+        let error = ServerConfig::from_toml_str(&format!("{MINIMAL_CONFIG}{line}\n"))
+            .expect_err("廃止したトップレベル設定は拒否する");
+        let message = format!("{error:#}");
+        assert!(
+            message.contains(line.split_once(' ').unwrap().0),
+            "{message}"
+        );
+    }
+}
+
+#[test]
 fn patch_root_dir_folds_the_configured_dirs() {
-    let cfg = load("patches_dirs = ['/surge/patches_factory', '/surge/patches_3rdparty']\n");
+    let cfg = load(
+        r#"
+[plugins."Surge XT"]
+patches_dirs = ["/surge/patches_factory", "/surge/patches_3rdparty"]
+"#,
+    );
 
     assert_eq!(cfg.patch_root_dir().as_deref(), Some("/surge"));
 }
 
-/// `[plugins.*]` に TUI 専用のカテゴリ設定が書かれていてもサーバーは読み飛ばす。
+/// 旧Role設定はprofile内でも黙って無視せず拒否する。
 #[test]
-fn patch_role_filters_inside_a_profile_do_not_break_the_server() {
-    let cfg = load(
+fn patch_role_filters_inside_a_profile_are_rejected() {
+    let error = ServerConfig::from_toml_str(&format!(
+        "{MINIMAL_CONFIG}{}",
         r#"
-active_plugin = 'Dexed'
-
 [plugins.Dexed]
 chord_patch_categories = ["SynprezFM"]
 "#,
-    );
+    ))
+    .unwrap_err();
 
-    assert_eq!(cfg.plugin_id.as_deref(), Some(DEXED_PLUGIN_ID));
+    assert!(format!("{error:#}").contains("chord_patch_categories"));
 }

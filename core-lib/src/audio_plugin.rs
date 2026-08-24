@@ -82,6 +82,11 @@ pub struct PatchSortMetadata {
 pub struct AudioPatch {
     pub reference: PatchRef,
     pub normalized_display: String,
+    /// Patch selector で表示・検索できる、adapter が解釈済みのカテゴリ。
+    ///
+    /// plugin 固有の命名規則は server 側に閉じ、client はこの値の由来を判定しない。
+    #[serde(default)]
+    pub selector_category: Option<String>,
     pub sort: PatchSortMetadata,
     pub voicing: PatchVoicingHint,
 }
@@ -124,6 +129,12 @@ impl AudioPluginInfo {
             .as_deref()
             .map(|root| Path::new(root).join(display));
         describe_patch(self, display, absolute_path.or(inferred_path.as_deref()))
+    }
+
+    /// 既存catalogのpatchへ、plugin固有I/Oなしでselector用カテゴリを補完する。
+    pub fn selector_category(&self, display: &str) -> Option<String> {
+        let sort = patch_sort_metadata(display);
+        selector_category(self, display, &sort)
     }
 }
 
@@ -265,15 +276,38 @@ fn describe_patch(
             voicing: PatchVoicing::Poly,
         },
     };
+    let sort = patch_sort_metadata(display);
     AudioPatch {
         reference: PatchRef {
             plugin: plugin.key.clone(),
             display: display.to_string(),
         },
         normalized_display: display.to_lowercase(),
-        sort: patch_sort_metadata(display),
+        selector_category: selector_category(plugin, display, &sort),
+        sort,
         voicing,
     }
+}
+
+fn selector_category(
+    plugin: &AudioPluginInfo,
+    display: &str,
+    sort: &PatchSortMetadata,
+) -> Option<String> {
+    if plugin.patch_form == PatchForm::Vvp {
+        let code = vvp_category_code(display);
+        return cmrt_server_config::VAPORIZER2_CATEGORY_CODES
+            .iter()
+            .find(|(known, _)| code.eq_ignore_ascii_case(known))
+            .map(|(_, category)| (*category).to_string());
+    }
+    if is_surge(plugin.plugin_id.as_deref(), &plugin.plugin_path)
+        && has_surge_prefix(display)
+        && !sort.category_rest.is_empty()
+    {
+        return Some(sort.category.clone());
+    }
+    None
 }
 
 pub(crate) fn patch_form_of_path(patch: &str) -> PatchForm {
@@ -351,16 +385,7 @@ fn rest_path(path: &str, prefix: &str) -> String {
 }
 
 fn vvp_sort_metadata(path: &str) -> PatchSortMetadata {
-    let file_name = path.rsplit(['/', '\\']).next().unwrap_or(path);
-    let stem = file_name
-        .rfind('.')
-        .filter(|dot| *dot > 0)
-        .map_or(file_name, |dot| &file_name[..dot]);
-    let end = stem
-        .char_indices()
-        .nth(2)
-        .map_or(stem.len(), |(end, _)| end);
-    let code = &stem[..end];
+    let code = vvp_category_code(path);
     let category = cmrt_server_config::VAPORIZER2_CATEGORY_CODES
         .iter()
         .find(|(known, _)| code.eq_ignore_ascii_case(known))
@@ -372,6 +397,19 @@ fn vvp_sort_metadata(path: &str) -> PatchSortMetadata {
         category_rest: path.to_string(),
         path_rest: path.to_string(),
     }
+}
+
+fn vvp_category_code(path: &str) -> &str {
+    let file_name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+    let stem = file_name
+        .rfind('.')
+        .filter(|dot| *dot > 0)
+        .map_or(file_name, |dot| &file_name[..dot]);
+    let end = stem
+        .char_indices()
+        .nth(2)
+        .map_or(stem.len(), |(end, _)| end);
+    &stem[..end]
 }
 
 #[cfg(test)]

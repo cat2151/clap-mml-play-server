@@ -16,8 +16,7 @@ pub const SFORZANDO_PLUGIN_ID: &str = "com.Plogue Art et Technologie, Inc.sforza
 
 /// `plugin_path` のファイル名から拡張子を落としたもの（`Surge XT.clap` → `Surge XT`）。
 ///
-/// `plugin_id` は `active_plugin` / `[plugins.*]` を書いた config にしか無いのに対し、
-/// `plugin_path` はどの書き方でも必ず埋まる。plugin_id が無い config の同定に使う。
+/// runtime の低レベル構成では `plugin_id` が無い場合もあるため、ファイル名での同定に使う。
 pub fn plugin_file_stem(plugin_path: &str) -> String {
     PathBuf::from(plugin_path.trim())
         .file_stem()

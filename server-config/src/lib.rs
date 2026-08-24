@@ -6,26 +6,22 @@
 //!
 //! この crate が play server repo 側にあることで、サーバーは TUI repo へ一切依存せず、
 //! repo 間の依存が「TUI → play server」の一方向になる。プラグインの標準インストール先や
-//! `active_plugin` の解決規則も、プラグインをロードするこちら側の知識としてここが持つ。
+//! 固定の既定プラグイン Surge XT の解決規則も、プラグインをロードするこちら側の知識として
+//! ここが持つ。
 
 mod patch_catalog;
 mod patch_dirs;
-mod patch_role_defaults;
 mod paths;
 mod plugin_defaults;
 mod plugin_identity;
 mod plugin_profile;
 mod preset_discovery;
+mod primary_plugin;
 mod sforzando_programs;
+mod vaporizer2_categories;
 
 pub use patch_catalog::{resolve_patch_catalog, PatchCatalogResolution};
 pub use patch_dirs::{configured_patch_dirs, patch_root_dir, shared_patch_root_dir};
-pub use patch_role_defaults::{
-    builtin_patch_role_filters, HIHAT_KEYWORDS, KICK_KEYWORDS, SNARE_KEYWORDS,
-    SURGE_ARPEGGIO_CATEGORIES, SURGE_BASS_CATEGORIES, SURGE_CHORD_CATEGORIES,
-    SURGE_DRUM_CATEGORIES, VAPORIZER2_ARPEGGIO_CATEGORIES, VAPORIZER2_BASS_CATEGORIES,
-    VAPORIZER2_CATEGORY_CODES, VAPORIZER2_CHORD_CATEGORIES, VAPORIZER2_DRUM_CATEGORIES,
-};
 pub use paths::{config_app_dir, config_file_path};
 pub use plugin_defaults::{
     default_dexed_cartridge_dirs, default_dexed_plugin_path, default_floe_plugin_path,
@@ -38,10 +34,15 @@ pub use plugin_identity::{
 };
 pub use plugin_profile::{
     builtin_plugin_profiles, installed_plugin_profiles, merged_plugin_profiles, patch_form_of,
-    resolve_active_plugin_profile, PatchForm, PatchRoleFilters, PluginProfile,
+    PatchForm, PluginProfile,
 };
 pub use preset_discovery::{resolve_sforzando_patch_dirs, PatchDirResolution};
+pub use primary_plugin::{
+    reject_retired_top_level_plugin_keys, resolve_primary_plugin_profile,
+    PRIMARY_PLUGIN_PROFILE_NAME,
+};
 pub use sforzando_programs::{resolve_sforzando_program, SforzandoProgramRef};
+pub use vaporizer2_categories::VAPORIZER2_CATEGORY_CODES;
 
 use std::collections::BTreeMap;
 
@@ -61,24 +62,20 @@ const MAX_OFFLINE_RENDER_WORKERS: usize = 16;
 /// 項目を増やすときは TUI 側のキー名と必ず合わせること。
 #[derive(Deserialize, Debug, Clone)]
 pub struct ServerConfig {
-    /// 使用するプラグインのパス。`active_plugin` を使う config では書かないので、
-    /// 省略を許して空文字にする（空のまま使われた場合は読み手が「空です」と弾く）。
+    /// 固定の既定プラグイン Surge XT のパス。load 時に profile から解決する。
     #[serde(default)]
     pub plugin_path: String,
-    /// 使用中プラグインの CLAP plugin ID。プロファイル解決後の値が入る。
+    /// Surge XT の CLAP plugin ID。profile 解決後の値が入る。
     #[serde(default)]
     pub plugin_id: Option<String>,
-    /// 使う `[plugins.*]` の名前。未指定ならトップレベルの指定をそのまま使う（後方互換）。
-    #[serde(default)]
-    pub active_plugin: Option<String>,
-    /// プラグインごとの設定。`active_plugin` が指すものだけが使われる。
+    /// プラグインごとの設定。Surge XT は既定プラグインの override、他は混在用。
     #[serde(default)]
     pub plugins: BTreeMap<String, PluginProfile>,
     pub output_midi: String,
     pub output_wav: String,
     pub sample_rate: f64,
     pub buffer_size: usize,
-    /// パッチ検索対象ディレクトリ一覧
+    /// Surge XT のパッチ検索対象ディレクトリ一覧。load 時に profile から解決する。
     pub patches_dirs: Option<Vec<String>>,
     /// render-server backend のオフラインレンダリング同時実行数
     #[serde(default = "default_offline_render_server_workers")]
@@ -92,7 +89,7 @@ pub struct ServerConfig {
 }
 
 impl ServerConfig {
-    /// config.toml を読んで `active_plugin` を解決する。
+    /// config.toml を読んで固定の既定プラグイン Surge XT を解決する。
     ///
     /// TUI と違い、無い場合にひな形を書き出すことはしない。ひな形は TUI 固有の項目まで
     /// 含むので、TUI 側 (`cmrt_runtime::Config::load`) だけが持つ責務にしてある。
@@ -115,8 +112,8 @@ impl ServerConfig {
 
     /// 既定の置き場ではなく、指定した config.toml を読む。
     ///
-    /// **診断用。** 実ユーザーの config.toml を書き換えずに `active_plugin` や
-    /// `[plugins.*]` を差し替えて試すための入口で、TUI 側の
+    /// **診断用。** 実ユーザーの config.toml を書き換えずに `[plugins.*]` を
+    /// 差し替えて試すための入口で、TUI 側の
     /// `cmrt_runtime::Config::load_from_path` と対になる。既定の置き場を探しに
     /// 行かないので、実ユーザーの設定には 1 バイトも触らない。
     pub fn load_from_path(path: &std::path::Path) -> Result<Self> {
@@ -129,24 +126,19 @@ impl ServerConfig {
     /// `load` の中身のうち、ファイルに触らない部分。
     pub fn from_toml_str(text: &str) -> Result<Self> {
         let mut cfg: Self = toml::from_str(text).context("config.toml のパースに失敗")?;
-        cfg.apply_active_plugin_profile()
+        reject_retired_top_level_plugin_keys(text).context("config.toml のプラグイン設定が不正")?;
+        cfg.apply_primary_plugin_profile()
             .context("config.toml のプラグイン設定が不正")?;
         cfg.validate().context("config.toml の検証に失敗")?;
         Ok(cfg)
     }
 
-    /// `active_plugin` が指すプロファイルの値をトップレベルフィールドへ焼き込む。
-    fn apply_active_plugin_profile(&mut self) -> Result<()> {
-        let resolved = resolve_active_plugin_profile(
-            self.active_plugin.as_deref(),
-            &self.plugins,
-            &self.plugin_path,
-        )?;
-        if let Some(profile) = resolved {
-            self.plugin_path = profile.plugin_path;
-            self.plugin_id = profile.plugin_id;
-            self.patches_dirs = profile.patches_dirs;
-        }
+    /// 固定の Surge XT profile を既存 runtime view へ焼き込む。
+    fn apply_primary_plugin_profile(&mut self) -> Result<()> {
+        let profile = resolve_primary_plugin_profile(&self.plugins)?;
+        self.plugin_path = profile.plugin_path;
+        self.plugin_id = profile.plugin_id;
+        self.patches_dirs = profile.patches_dirs;
         Ok(())
     }
 
@@ -171,7 +163,7 @@ impl ServerConfig {
 
     /// このマシンで実際に使えるプラグインのプロファイル（`plugin_path` が実在するものだけ）。
     ///
-    /// `active_plugin` が指す 1 つではなく、**同じプロセスに同時に載せられる候補**を返す。
+    /// Surge XT 1 つではなく、**同じプロセスに同時に載せられる候補**を返す。
     /// 再生サーバーの予備インスタンスプールが、行ごとに違うプラグインを載せるために使う。
     pub fn installed_plugin_profiles(&self) -> BTreeMap<String, PluginProfile> {
         installed_plugin_profiles(&self.plugins)

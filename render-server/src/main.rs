@@ -262,7 +262,6 @@ mod tests {
     fn test_config() -> ServerConfig {
         ServerConfig::from_toml_str(
             r#"
-plugin_path = "plugin.clap"
 output_midi = "output.mid"
 output_wav = "output.wav"
 sample_rate = 48000
@@ -364,10 +363,13 @@ buffer_size = 512
     }
 
     #[test]
-    fn core_config_from_server_config_leaves_plugin_id_unset_when_config_omits_it() {
+    fn core_config_from_server_config_uses_the_builtin_surge_id_when_profile_omits_it() {
         let core_cfg = core_config_from_server_config(&test_config());
 
-        assert_eq!(core_cfg.plugin_id, None);
+        assert_eq!(
+            core_cfg.plugin_id.as_deref(),
+            Some(cmrt_server_config::SURGE_XT_PLUGIN_ID)
+        );
     }
 
     #[test]
@@ -380,7 +382,6 @@ buffer_size = 512
         let presets = root.join("presets").to_string_lossy().replace('\\', "/");
         let cfg = ServerConfig::from_toml_str(&format!(
             r#"
-plugin_path = "default.clap"
 output_midi = "output.mid"
 output_wav = "output.wav"
 sample_rate = 48000

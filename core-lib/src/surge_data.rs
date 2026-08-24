@@ -60,9 +60,8 @@ pub const SURGE_XT_PLUGIN_ID: &str = "org.surge-synth-team.surge-xt";
 /// （Dexed 等）で起動したときに Surge のデータディレクトリを探して警告を出さないよう、
 /// 呼ぶ前にこれで振り分ける。
 ///
-/// `plugin_id` は config の値（`plugins.*.plugin_id`）。あればそれだけで確実に決まる。
-/// 無いのは `active_plugin` を書いていない既定の config で、そのときだけ
-/// [`plugin_path_looks_like_surge`] のファイル名推測へ落とす。
+/// `plugin_id` は解決済み profile の値。あればそれだけで確実に決まる。
+/// 無い低レベルの構成だけ [`plugin_path_looks_like_surge`] のファイル名推測へ落とす。
 ///
 /// `std::env::set_var` はスレッド生成前に呼ぶ必要があるため、CLAP をロードして
 /// descriptor を読んだ後の「本物の ID」はここでは使えない。材料は config だけ。
