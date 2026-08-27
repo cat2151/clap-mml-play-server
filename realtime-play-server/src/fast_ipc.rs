@@ -92,8 +92,33 @@ fn log_received(command: &FastMidiCommand) {
         FastMidiCommand::TimelineMidi { events } => {
             eprintln!("cmrt-ipc-recv: kind=timeline-midi count={}", events.len())
         }
+        FastMidiCommand::PrepareStandbyPatch {
+            instance_id, patch, ..
+        } => {
+            eprintln!(
+                "cmrt-ipc-recv: kind=prepare-standby-patch instance={instance_id} patch={patch:?}"
+            )
+        }
         _ => {}
     }
+}
+
+/// 同期応答を返して、その結果を dispatch の戻り値へ畳む。
+///
+/// 応答を返し損ねるとクライアントは 30 秒の timeout まで待たされる。patch 系の
+/// コマンドが増えるたびにこの手順を写経しないよう、1 か所にまとめてある。
+fn respond(server: &FastMidiServer, request_id: u32, response: Result<Vec<u8>>) -> Result<()> {
+    let completion = match &response {
+        Ok(payload) => server.complete_request(request_id, Ok(payload)),
+        Err(error) => {
+            let message = format!("{error:#}");
+            server.complete_request(request_id, Err(&message))
+        }
+    };
+    if let Err(error) = completion {
+        eprintln!("shared-memory response failed: {error}");
+    }
+    response.map(|_| ())
 }
 
 fn dispatch(command: FastMidiCommand, player: &dyn PlayerHandle, server: &FastMidiServer) {
@@ -118,17 +143,17 @@ fn dispatch(command: FastMidiCommand, player: &dyn PlayerHandle, server: &FastMi
                     .prepare_live_patch(instance_id, patch)
                     .map(|()| Vec::new())
             };
-            let completion = match &response {
-                Ok(payload) => server.complete_request(request_id, Ok(payload)),
-                Err(error) => {
-                    let message = format!("{error:#}");
-                    server.complete_request(request_id, Err(&message))
-                }
-            };
-            if let Err(error) = completion {
-                eprintln!("shared-memory response failed: {error}");
-            }
-            response.map(|_| ())
+            respond(server, request_id, response)
+        }
+        FastMidiCommand::PrepareStandbyPatch {
+            request_id,
+            instance_id,
+            patch,
+        } => {
+            let response = player
+                .prepare_standby_live_patch(instance_id, patch)
+                .map(|()| Vec::new());
+            respond(server, request_id, response)
         }
         FastMidiCommand::SetBufferMultiplier { multiplier } => {
             player.set_live_buffer_multiplier(multiplier)

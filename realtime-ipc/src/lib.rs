@@ -120,6 +120,18 @@ pub enum FastMidiCommand {
         patch: Option<String>,
         probe: bool,
     },
+    /// 非演奏 bank への先読みロード。
+    ///
+    /// [`FastMidiCommand::PreparePatch`] と違い、クライアントが
+    /// 「この instance は今まさに鳴らしている bank には属さない」と宣言している。
+    /// サーバーはこれを根拠に、その bank のレンダーを止めてロードしてよい。
+    /// 現在 bank の行音色変更・MML overlay・起動時 prepare は宣言できないので
+    /// 従来どおり [`FastMidiCommand::PreparePatch`] を使う。
+    PrepareStandbyPatch {
+        request_id: u32,
+        instance_id: InstanceId,
+        patch: Option<String>,
+    },
     SetBufferMultiplier {
         multiplier: u16,
     },
@@ -250,6 +262,14 @@ mod unsupported {
         }
 
         pub fn prepare_patch(
+            &mut self,
+            _instance_id: InstanceId,
+            _patch: Option<&str>,
+        ) -> Result<(), FastIpcError> {
+            Err(FastIpcError::UnsupportedPlatform)
+        }
+
+        pub fn prepare_standby_patch(
             &mut self,
             _instance_id: InstanceId,
             _patch: Option<&str>,

@@ -47,6 +47,14 @@ impl PlayerHandle for FakePlayer {
         Ok(())
     }
 
+    fn prepare_standby_live_patch(
+        &self,
+        _instance_id: InstanceId,
+        _patch: Option<String>,
+    ) -> Result<()> {
+        Ok(())
+    }
+
     fn prepare_live_patch_with_voicing(
         &self,
         _instance_id: InstanceId,

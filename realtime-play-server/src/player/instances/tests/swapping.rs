@@ -15,7 +15,7 @@ fn swapping_plugins_under_a_running_render_loop_survives_many_cycles() {
     let cartridge = first_cartridge_patch();
     let kinds = real_kinds();
     let mut renderers = create_live_renderers(&kinds[0], SLOTS).unwrap();
-    let mut instances = LiveInstances::new(kinds, SLOTS);
+    let mut instances = live_instances(kinds, SLOTS);
 
     let started = Instant::now();
     for cycle in 0..CYCLES {
@@ -51,7 +51,7 @@ fn a_note_left_sounding_does_not_survive_the_trip_through_the_pool() {
     let cartridge = first_cartridge_patch();
     let kinds = real_kinds();
     let mut renderers = create_live_renderers(&kinds[0], 1).unwrap();
-    let mut instances = LiveInstances::new(kinds, 1);
+    let mut instances = live_instances(kinds, 1);
 
     // Surge の音を鳴らしっぱなしにしたまま Dexed へ差し替える。
     prepare(&mut instances, &mut renderers, 0, None);
@@ -86,7 +86,7 @@ fn swapping_across_three_plugins_under_a_running_render_loop_survives_many_cycle
     let vvp = first_vvp_patch();
     let kinds = real_kinds_with_vaporizer2();
     let mut renderers = create_live_renderers(&kinds[0], SLOTS).unwrap();
-    let mut instances = LiveInstances::new(kinds, SLOTS);
+    let mut instances = live_instances(kinds, SLOTS);
 
     let started = Instant::now();
     for cycle in 0..CYCLES {

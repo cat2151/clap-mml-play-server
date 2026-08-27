@@ -3,8 +3,9 @@ use std::{ptr, sync::atomic::Ordering};
 use super::{
     protocol::{
         CommandSlot, SharedRing, KIND_BEGIN_LIVE_TIMELINE, KIND_MIDI, KIND_PREPARE_PATCH,
-        KIND_PROBE_PATCH, KIND_SET_AUTO_GAIN, KIND_SET_BUFFER_MULTIPLIER, KIND_SET_INSTANCE_GAIN,
-        KIND_SET_LIVE_TEMPO, KIND_STOP, KIND_STOP_ALL, KIND_TIMELINE_MIDI, SLOT_COUNT,
+        KIND_PREPARE_STANDBY_PATCH, KIND_PROBE_PATCH, KIND_SET_AUTO_GAIN,
+        KIND_SET_BUFFER_MULTIPLIER, KIND_SET_INSTANCE_GAIN, KIND_SET_LIVE_TEMPO, KIND_STOP,
+        KIND_STOP_ALL, KIND_TIMELINE_MIDI, SLOT_COUNT,
     },
     validate_instance_id, validate_ring, FastIpcError, FastMidiCommand, FastMidiEvent, InstanceId,
     LiveTempoChange, LiveTimelineConfig, TimelineMidiEvent, MAX_MIDI_MESSAGES, MAX_PATCH_BYTES,
@@ -68,6 +69,11 @@ fn decode_slot(slot: CommandSlot) -> Result<FastMidiCommand, FastIpcError> {
             instance_id: decode_instance(slot.instance_id)?,
             patch: decode_patch(&slot)?,
             probe: slot.kind == KIND_PROBE_PATCH,
+        }),
+        KIND_PREPARE_STANDBY_PATCH => Ok(FastMidiCommand::PrepareStandbyPatch {
+            request_id: slot.request_id,
+            instance_id: decode_instance(slot.instance_id)?,
+            patch: decode_patch(&slot)?,
         }),
         KIND_BEGIN_LIVE_TIMELINE => {
             let config = LiveTimelineConfig {

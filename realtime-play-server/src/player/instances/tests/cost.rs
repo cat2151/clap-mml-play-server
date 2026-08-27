@@ -15,7 +15,7 @@ fn worst_case_thirty_two_slots_across_both_plugins() {
     let startup_started = Instant::now();
     let mut renderers = create_live_renderers(&kinds[0], SLOTS).unwrap();
     let startup_ms = startup_started.elapsed().as_millis();
-    let mut instances = LiveInstances::new(kinds, SLOTS);
+    let mut instances = live_instances(kinds, SLOTS);
 
     // 全スロットを Dexed へ。予備は 1 つしか無いので、ほとんどが背景生成待ちになる。
     let to_dexed = Instant::now();
@@ -51,7 +51,7 @@ fn a_swap_waits_for_the_background_build_when_the_pool_runs_dry() {
     let cartridge = first_cartridge_patch();
     let kinds = real_kinds();
     let mut renderers = create_live_renderers(&kinds[0], SLOTS).unwrap();
-    let mut instances = LiveInstances::new(kinds, SLOTS);
+    let mut instances = live_instances(kinds, SLOTS);
 
     let mut waits = Vec::new();
     for slot in 0..SLOTS {
@@ -79,7 +79,7 @@ fn seven_rows_moving_to_the_expensive_plugin_at_once() {
     const WARMUP_LIMIT: Duration = Duration::from_secs(10);
     let kinds = real_kinds_dexed_default();
     let mut renderers = create_live_renderers(&kinds[0], ROWS).unwrap();
-    let mut instances = LiveInstances::new(kinds, ROWS);
+    let mut instances = live_instances(kinds, ROWS);
     let surge = 1;
 
     // 演奏しながら袋が溜まるのを待つ。本番でも小節をまたぐ間ずっと演奏は続いている。
@@ -144,7 +144,7 @@ fn prepaying_spares_for_three_plugins_costs_this_much_time_and_memory() {
     let mut renderers = create_live_renderers(&kinds[0], SLOTS).unwrap();
     let startup_ms = startup_started.elapsed().as_millis();
     let slots_only_working_set = working_set_mb();
-    let mut instances = LiveInstances::new(kinds, SLOTS);
+    let mut instances = live_instances(kinds, SLOTS);
     let target = instances.spare_target;
 
     // 演奏しながら袋が埋まるのを待つ。本番でも前払いはアイドル中に消化される。

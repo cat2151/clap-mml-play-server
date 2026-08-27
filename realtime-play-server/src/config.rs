@@ -5,6 +5,12 @@ use serde::Deserialize;
 
 pub(crate) const DEFAULT_LIVE_INSTANCE_COUNT: usize = 16;
 pub(crate) const LIVE_INSTANCE_COUNT_ENV: &str = "CMRT_LIVE_INSTANCE_COUNT";
+/// config.toml を書き換えずに待ち受けポートを差し替える環境変数。
+///
+/// 起動中のサーバーを止めずに、もう 1 本を別ポートで立てられるようにするためのもの。
+/// grid の先読みまわりは「実サーバーへ実際に繋いで確かめる」以外に検証手段がないので、
+/// 実ユーザーの config.toml を触らずにそれができる入口が要る。
+pub(crate) const REALTIME_PLAY_SERVER_PORT_ENV: &str = "CMRT_REALTIME_PLAY_SERVER_PORT";
 /// grid sequencer の chord mode は N トラックを 2 bank（= 2N instance）へ割り当てるため、
 /// トラック数の 2 倍まで許す。上限は `cmrt_realtime_ipc::MAX_INSTANCE_COUNT`。
 ///
@@ -45,6 +51,7 @@ impl RealtimeServerConfig {
             )
         })?;
         config.live_instance_count = live_instance_count_from_env()?;
+        config.realtime_play_server_port = port_from_env(config.realtime_play_server_port)?;
         config.validate()?;
         Ok(config)
     }
@@ -69,6 +76,28 @@ impl RealtimeServerConfig {
         }
         Ok(())
     }
+}
+
+fn port_from_env(configured: u16) -> Result<u16> {
+    match std::env::var(REALTIME_PLAY_SERVER_PORT_ENV) {
+        Ok(value) => parse_port(&value),
+        Err(std::env::VarError::NotPresent) => Ok(configured),
+        Err(std::env::VarError::NotUnicode(_)) => {
+            anyhow::bail!("{REALTIME_PLAY_SERVER_PORT_ENV} がUTF-8ではありません")
+        }
+    }
+}
+
+fn parse_port(value: &str) -> Result<u16> {
+    let port = value.trim().parse::<u16>().with_context(|| {
+        format!(
+            "{REALTIME_PLAY_SERVER_PORT_ENV} は 1〜65535 で指定してください（現在値: {value:?}）"
+        )
+    })?;
+    if port == 0 {
+        anyhow::bail!("{REALTIME_PLAY_SERVER_PORT_ENV} は 1〜65535 で指定してください");
+    }
+    Ok(port)
 }
 
 fn live_instance_count_from_env() -> Result<usize> {
@@ -179,6 +208,16 @@ patch_path = "   "
         .unwrap();
 
         assert_eq!(config.patch_path, None);
+    }
+
+    /// ポートは config.toml より環境変数が強い。実ユーザーの config を触らずに
+    /// 2 本目のサーバーを立てられないと、実機での確認が「TUI を閉じてから」になる。
+    #[test]
+    fn the_port_environment_variable_wins_over_the_config_file() {
+        assert_eq!(parse_port("45123").unwrap(), 45123);
+        for value in ["0", "-1", "65536", "not-a-number", ""] {
+            assert!(parse_port(value).is_err(), "{value}");
+        }
     }
 
     #[test]

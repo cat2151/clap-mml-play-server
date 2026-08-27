@@ -1,11 +1,9 @@
 use super::*;
 
-const PATCH_SETTLE_BLOCKS: usize = 4;
-
 pub(super) struct CommandContext<'a> {
-    pub(super) renderers: &'a mut [RealtimeRenderer],
-    /// 論理スロット → 物理インスタンスの対応表と予備プール。
-    pub(super) instances: &'a mut LiveInstances,
+    /// bank ごとの worker。CLAP インスタンスも予備プールもこの向こう側にあり、
+    /// ここからは触れない。
+    pub(super) banks: &'a BankWorkers,
     pub(super) limiter: &'a mut MasterLimiter,
     pub(super) limiter_meter: &'a LimiterMeterState,
     pub(super) auto_gain: &'a AutoGainControl,
@@ -13,12 +11,14 @@ pub(super) struct CommandContext<'a> {
     pub(super) timing_metrics: &'a TimingMetricsState,
     pub(super) audio_output: &'a AudioOutputControl,
     pub(super) playback_mode: &'a mut Option<PlaybackMode>,
+    /// 進行中の先読みロード。**コマンド処理はここを空にしないまま帰ってよい。**
+    /// 返事を引き取るのはレンダーループ（`standby::poll`）の仕事。
+    pub(super) standby: &'a mut Option<StandbyLoad>,
 }
 
 pub(super) fn apply_command(context: CommandContext<'_>, command: PlayerCommand) {
     let CommandContext {
-        renderers,
-        instances,
+        banks,
         limiter,
         limiter_meter,
         auto_gain,
@@ -26,21 +26,36 @@ pub(super) fn apply_command(context: CommandContext<'_>, command: PlayerCommand)
         timing_metrics,
         audio_output,
         playback_mode,
+        standby,
     } = context;
+    if needs_idle_banks(&command) {
+        // これから bank へ**同期の**仕事を出す。返事は 1 bank につき 1 本の channel に
+        // 相乗りしているので、飛ばしたままの先読みを先に引き取らないと
+        // 「どの要求の返事か」が入れ替わる。
+        standby::settle(
+            &mut standby_context(
+                banks,
+                limiter,
+                limiter_meter,
+                auto_gain,
+                audio_output,
+                playback_mode,
+            ),
+            standby,
+        );
+    }
     match command {
         PlayerCommand::Play {
             generation,
             schedule,
             patch,
         } => {
-            reset_all(renderers);
+            banks.reset_all();
             limiter.reset();
             limiter_meter.reset();
             auto_gain.clear_gains();
-            if let Err(error) = instances.prepare_slot_for_patch(renderers, 0, patch.as_deref()) {
-                eprintln!("realtime play patch plugin swap failed: {error}");
-            } else if let Err(error) = renderers[0].set_patch(patch.as_deref()) {
-                eprintln!("realtime play patch load failed: {error:#}");
+            if let Err(error) = banks.prepare_scheduled_patch(patch.as_deref()) {
+                eprintln!("realtime play patch load failed: {error}");
             }
             *playback_mode = Some(PlaybackMode::Scheduled {
                 generation,
@@ -50,7 +65,7 @@ pub(super) fn apply_command(context: CommandContext<'_>, command: PlayerCommand)
         PlayerCommand::StopAll { generation } => {
             let _ = generation;
             eprintln!("cmrt-live: event=apply-stop-all");
-            reset_all(renderers);
+            banks.reset_all();
             limiter.reset();
             limiter_meter.reset();
             auto_gain.clear_gains();
@@ -60,9 +75,9 @@ pub(super) fn apply_command(context: CommandContext<'_>, command: PlayerCommand)
             generation,
             instance_id,
         } => {
-            ensure_live_mode(playback_mode, generation, renderers.len());
+            ensure_live_mode(playback_mode, generation, banks.instance_count());
             let instance_index = usize::from(instance_id);
-            renderers[instance_index].reset();
+            banks.reset_instance(instance_index);
             if let Some(PlaybackMode::Live {
                 generation: live_generation,
                 instances,
@@ -88,11 +103,11 @@ pub(super) fn apply_command(context: CommandContext<'_>, command: PlayerCommand)
             enter_live,
         } => {
             if enter_live || !matches!(playback_mode, Some(PlaybackMode::Live { .. })) {
-                reset_all(renderers);
+                banks.reset_all();
                 limiter.reset();
                 limiter_meter.reset();
                 auto_gain.clear_gains();
-                *playback_mode = Some(new_live_mode(generation, renderers.len()));
+                *playback_mode = Some(new_live_mode(generation, banks.instance_count()));
             }
             if let Some(PlaybackMode::Live {
                 generation: live_generation,
@@ -120,7 +135,7 @@ pub(super) fn apply_command(context: CommandContext<'_>, command: PlayerCommand)
             }
         }
         PlayerCommand::BeginLiveTimeline { generation, config } => {
-            reset_all(renderers);
+            banks.reset_all();
             limiter.reset();
             limiter_meter.reset();
             auto_gain.clear_gains();
@@ -128,7 +143,7 @@ pub(super) fn apply_command(context: CommandContext<'_>, command: PlayerCommand)
             timing_metrics.update(cmrt_realtime_ipc::TimingMetrics::default());
             match LiveTimelineState::new(config) {
                 Ok(timeline) => {
-                    let mut mode = new_live_mode(generation, renderers.len());
+                    let mut mode = new_live_mode(generation, banks.instance_count());
                     if let PlaybackMode::Live { timeline: slot, .. } = &mut mode {
                         *slot = Some(timeline);
                     }
@@ -178,17 +193,10 @@ pub(super) fn apply_command(context: CommandContext<'_>, command: PlayerCommand)
             patch,
             completion,
         } => {
-            ensure_live_mode(playback_mode, generation, renderers.len());
+            ensure_live_mode(playback_mode, generation, banks.instance_count());
             let index = usize::from(instance_id);
-            let result = instances
-                .prepare_slot_for_patch(renderers, index, patch.as_deref())
-                .and_then(|()| {
-                    renderers[index].reset();
-                    renderers[index]
-                        .set_patch(patch.as_deref())
-                        .and_then(|()| settle_patch(&mut renderers[index]))
-                        .map_err(|error| format!("{error:#}"))
-                });
+            // 差し替えと settle は instance を所有している bank worker 上で走る。
+            let result = banks.prepare_patch(index, patch.as_deref(), true);
             if let Some(PlaybackMode::Live {
                 generation: live_generation,
                 instances,
@@ -211,23 +219,42 @@ pub(super) fn apply_command(context: CommandContext<'_>, command: PlayerCommand)
             }
             let _ = completion.send(result);
         }
+        PlayerCommand::PrepareStandbyLivePatch {
+            generation,
+            instance_id,
+            patch,
+            completion,
+        } => {
+            // **ここで待たない。** 送るだけで戻り、演奏 bank の render を続ける。
+            // 完了を待ってクライアントへ返すのはレンダーループ（`standby::poll`）で、
+            // それまで対象 bank は render 対象から外れる。
+            standby::begin(
+                &mut standby_context(
+                    banks,
+                    limiter,
+                    limiter_meter,
+                    auto_gain,
+                    audio_output,
+                    playback_mode,
+                ),
+                standby,
+                standby::StandbyRequest {
+                    generation,
+                    instance_id,
+                    patch,
+                    completion,
+                },
+            );
+        }
         PlayerCommand::ProbeLivePatch {
             generation,
             instance_id,
             patch,
             completion,
         } => {
-            ensure_live_mode(playback_mode, generation, renderers.len());
+            ensure_live_mode(playback_mode, generation, banks.instance_count());
             let index = usize::from(instance_id);
-            let result = instances
-                .prepare_slot_for_patch(renderers, index, patch.as_deref())
-                .and_then(|()| {
-                    renderers[index].reset();
-                    renderers[index]
-                        .set_patch(patch.as_deref())
-                        .and_then(|()| renderers[index].probe_voicing())
-                        .map_err(|error| format!("{error:#}"))
-                });
+            let result = banks.probe_patch(index, patch.as_deref());
             if let Some(PlaybackMode::Live {
                 generation: live_generation,
                 instances,
@@ -280,25 +307,26 @@ pub(super) fn apply_live_tempo(
     }
 }
 
-fn settle_patch(renderer: &mut RealtimeRenderer) -> anyhow::Result<()> {
-    for _ in 0..PATCH_SETTLE_BLOCKS {
-        renderer.render_live_chunk_with_offsets(&[])?;
-    }
-    Ok(())
+/// bank へ同期の仕事を出すコマンドか。
+///
+/// この 3 つは `banks` へ送って**その場で返事を待つ**。先読みが飛んだままだと
+/// 返事の対応がずれるので、処理前に先読みを畳む。live MIDI や停止はここに含めない
+/// （含めると、鳴っている最中に先読みの完了待ちで演奏が止まる）。
+fn needs_idle_banks(command: &PlayerCommand) -> bool {
+    matches!(
+        command,
+        PlayerCommand::Play { .. }
+            | PlayerCommand::PrepareLivePatch { .. }
+            | PlayerCommand::ProbeLivePatch { .. }
+    )
 }
 
-fn ensure_live_mode(
+pub(super) fn ensure_live_mode(
     playback_mode: &mut Option<PlaybackMode>,
     generation: u64,
     instance_count: usize,
 ) {
     if !matches!(playback_mode, Some(PlaybackMode::Live { .. })) {
         *playback_mode = Some(new_live_mode(generation, instance_count));
-    }
-}
-
-pub(super) fn reset_all(renderers: &mut [RealtimeRenderer]) {
-    for renderer in renderers {
-        renderer.reset();
     }
 }

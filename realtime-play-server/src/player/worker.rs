@@ -3,9 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use cmrt_clack_timeline::process_block_timing;
-use cmrt_core::{CoreConfig, LiveMidiEvent, RealtimeRenderer};
-use cmrt_timeline::{BlockSpan, FreeRunningTimeline, LateEventPolicy, SamplePosition, SampleRate};
+use cmrt_core::{CoreConfig, LiveMidiEvent};
 use cpal::traits::StreamTrait;
 
 use crate::timing;
@@ -13,13 +11,13 @@ use crate::timing;
 use super::{
     audio_output::{AudioOutputConsumer, AudioOutputControl, AudioOutputProducer},
     auto_gain::target_rms_db,
-    instances::{LiveInstances, PluginKind},
+    instances::PluginKind,
     limiter::MasterLimiter,
     mixer::add_samples_ramped,
     output_stream::build_output_stream,
     runtime::{
         new_live_instances, AutoGainControl, LiveGains, LiveInstanceState, LiveTimelineState,
-        PlaybackMode, TimingMetricsState,
+        PlaybackMode, TimelinePayload, TimingMetricsState,
     },
     startup::create_live_renderers,
     timing_diagnostics::LiveTimingWindow,
@@ -28,11 +26,17 @@ use super::{
 
 const OUTPUT_WAIT_TIMEOUT: Duration = Duration::from_millis(10);
 const MAX_LIVE_QUEUE_EVENTS: usize = 8192;
+mod bank;
 mod command;
+mod live_mix;
+mod standby;
 
+use self::bank::BankWorkers;
+use self::live_mix::{render_live_mix, LiveMixControls};
+use self::standby::{StandbyContext, StandbyLoad};
 #[cfg(test)]
 use command::apply_live_tempo;
-use command::{apply_command, reset_all, CommandContext};
+use command::{apply_command, CommandContext};
 
 pub(super) struct WorkerOutput {
     pub(super) control: Arc<AudioOutputControl>,
@@ -61,16 +65,18 @@ pub(super) fn run_player_worker(
         producer: output_producer,
         consumer: output_consumer,
     } = output;
-    let mut renderers = match create_live_renderers(&kinds[0], live_instance_count) {
+    let renderers = match create_live_renderers(&kinds[0], live_instance_count) {
         Ok(renderers) => renderers,
         Err(error) => {
             let _ = init_tx.send(Err(format!("{error:#}")));
             return;
         }
     };
+    // ここから先、CLAP インスタンスも予備プールも bank worker が所有する。この
+    // coordinator は `process()` も `set_patch()` も直接呼ばない。
     // 予備プールはここから背景でインスタンスを作り始める。起動時のインスタンス生成が
     // 終わってから起こすことで、起動時間を取り合わない。
-    let mut instances = LiveInstances::new(kinds, live_instance_count);
+    let mut banks = BankWorkers::start(renderers, kinds);
 
     let audio_stream_started = Instant::now();
     let output_stream = match build_output_stream(output_consumer, core_cfg.sample_rate) {
@@ -92,9 +98,21 @@ pub(super) fn run_player_worker(
     let auto_gain_target_db = target_rms_db(live_instance_count);
     let mut playback_mode: Option<PlaybackMode> = None;
     let mut timing_window = LiveTimingWindow::new(core_cfg.sample_rate);
+    // 進行中の先読みロード。**持ったまま演奏 bank を回し続ける**のが Stage 3 の要点。
+    let mut standby: Option<StandbyLoad> = None;
     loop {
-        // 背景で出来上がった予備インスタンスを取り込む。ブロックしない。
-        instances.collect_ready();
+        // 先読みの返事を拾う。来ていなければ何もしないので、演奏は止まらない。
+        standby::poll(
+            &mut standby_context(
+                &banks,
+                &mut limiter,
+                &limiter_meter,
+                &auto_gain,
+                &audio_output,
+                &mut playback_mode,
+            ),
+            &mut standby,
+        );
         let waiting_for_timeline_events = matches!(
             playback_mode,
             Some(PlaybackMode::Live {
@@ -103,13 +121,25 @@ pub(super) fn run_player_worker(
             }) if !timeline.started
         );
         if playback_mode.is_none() || waiting_for_timeline_events {
+            // これから `wait_for_command()` で眠る。眠ると先読みの返事を誰も拾えなくなり、
+            // クライアントが timeout まで返らない。render するものが無いこの経路でだけ待つ。
+            standby::settle(
+                &mut standby_context(
+                    &banks,
+                    &mut limiter,
+                    &limiter_meter,
+                    &auto_gain,
+                    &audio_output,
+                    &mut playback_mode,
+                ),
+                &mut standby,
+            );
             let Some(command) = inner.wait_for_command() else {
                 break;
             };
             apply_command(
                 CommandContext {
-                    renderers: &mut renderers,
-                    instances: &mut instances,
+                    banks: &banks,
                     limiter: &mut limiter,
                     limiter_meter: &limiter_meter,
                     auto_gain: &auto_gain,
@@ -117,6 +147,7 @@ pub(super) fn run_player_worker(
                     timing_metrics: &timing_metrics,
                     audio_output: &audio_output,
                     playback_mode: &mut playback_mode,
+                    standby: &mut standby,
                 },
                 command,
             );
@@ -125,8 +156,7 @@ pub(super) fn run_player_worker(
         if let Some(command) = inner.pop_pending_command() {
             apply_command(
                 CommandContext {
-                    renderers: &mut renderers,
-                    instances: &mut instances,
+                    banks: &banks,
                     limiter: &mut limiter,
                     limiter_meter: &limiter_meter,
                     auto_gain: &auto_gain,
@@ -134,6 +164,7 @@ pub(super) fn run_player_worker(
                     timing_metrics: &timing_metrics,
                     audio_output: &audio_output,
                     playback_mode: &mut playback_mode,
+                    standby: &mut standby,
                 },
                 command,
             );
@@ -149,8 +180,8 @@ pub(super) fn run_player_worker(
             Some(PlaybackMode::Scheduled {
                 generation,
                 playback,
-            }) => renderers[0]
-                .render_next_chunk(playback)
+            }) => banks
+                .render_scheduled(playback)
                 .map(|chunk| chunk.map(|samples| (*generation, samples))),
             Some(PlaybackMode::Live {
                 generation,
@@ -158,7 +189,7 @@ pub(super) fn run_player_worker(
                 instances,
                 timeline,
             }) => render_live_mix(
-                &mut renderers,
+                &banks,
                 instances,
                 clock_samples,
                 LiveMixControls {
@@ -182,9 +213,8 @@ pub(super) fn run_player_worker(
                 if !output_producer.push_chunk(generation, samples) {
                     playback_mode = None;
                 } else if live_block {
-                    let block_duration = Duration::from_secs_f64(
-                        renderers[0].buf_size() as f64 / core_cfg.sample_rate,
-                    );
+                    let block_duration =
+                        Duration::from_secs_f64(banks.buf_size() as f64 / core_cfg.sample_rate);
                     timing_window.observe_block(
                         render_elapsed,
                         block_duration,
@@ -202,7 +232,7 @@ pub(super) fn run_player_worker(
             }
             Err(error) => {
                 eprintln!("realtime play process failed: {error:#}");
-                reset_all(&mut renderers);
+                banks.reset_all();
                 limiter.reset();
                 limiter_meter.reset();
                 auto_gain.clear_gains();
@@ -211,88 +241,41 @@ pub(super) fn run_player_worker(
             }
         }
     }
-}
-
-struct LiveMixControls<'a> {
-    gains: &'a LiveGains,
-    auto_gain: &'a AutoGainControl,
-    sample_rate: f64,
-    auto_gain_target_db: f32,
-}
-
-fn render_live_mix(
-    renderers: &mut [RealtimeRenderer],
-    instances: &mut [LiveInstanceState],
-    clock_samples: &mut u64,
-    controls: LiveMixControls<'_>,
-    timeline: Option<&mut LiveTimelineState>,
-    timing_window: &mut LiveTimingWindow,
-) -> anyhow::Result<Vec<f32>> {
-    let auto_gain_enabled = controls.auto_gain.enabled();
-    let buf_size = renderers[0].buf_size() as u64;
-    let chunk_start = *clock_samples;
-    let timeline_sample_rate = SampleRate::new(controls.sample_rate)?;
-    let block = BlockSpan::new(SamplePosition(chunk_start), buf_size as u32)?;
-    let (scheduled, block_timing) = match timeline {
-        Some(timeline) => {
-            let scheduled = timeline
-                .scheduler
-                .take_block(block, LateEventPolicy::ClampToBlockStart);
-            timing_window.observe_events(&scheduled);
-            let timing = process_block_timing(block, timeline_sample_rate, &timeline.transport);
-            (scheduled.events, timing)
-        }
-        None => (
-            Vec::new(),
-            process_block_timing(block, timeline_sample_rate, &FreeRunningTimeline),
+    // 待っているクライアントを必ず解放してから畳む。ここで拾わないと、先読みの
+    // 完了待ちが timeout まで返らない。
+    standby::settle(
+        &mut standby_context(
+            &banks,
+            &mut limiter,
+            &limiter_meter,
+            &auto_gain,
+            &audio_output,
+            &mut playback_mode,
         ),
-    };
-    let mut mixed = vec![0.0f32; buf_size as usize * 2];
-    for (index, (renderer, instance)) in renderers.iter_mut().zip(instances.iter_mut()).enumerate()
-    {
-        if !instance.active {
-            continue;
-        }
-        let mut events = take_chunk_events(&mut instance.queue, chunk_start, buf_size);
-        events.extend(
-            scheduled
-                .iter()
-                .filter(|event| usize::from(event.payload.instance_id) == index)
-                .map(|event| LiveMidiEvent {
-                    offset_frames: event.offset_frames,
-                    message: event.payload.message,
-                }),
-        );
-        events.sort_by_key(|event| event.offset_frames);
-        match renderer.render_live_chunk_with_timing(&events, block_timing) {
-            Ok(samples) => {
-                let auto_gain = instance.auto_gain.process_block(
-                    &samples,
-                    controls.sample_rate,
-                    controls.auto_gain_target_db,
-                    auto_gain_enabled,
-                );
-                controls
-                    .auto_gain
-                    .set_gain_db(index, instance.auto_gain.gain_db());
-                add_samples_ramped(
-                    &mut mixed,
-                    &samples,
-                    auto_gain.scaled(controls.gains.get(index)),
-                );
-            }
-            Err(error) => {
-                eprintln!("realtime live instance {index} failed: {error:#}");
-                renderer.reset();
-                instance.active = false;
-                instance.queue.clear();
-                instance.auto_gain.reset();
-                controls.auto_gain.set_gain_db(index, 0.0);
-            }
-        }
+        &mut standby,
+    );
+    // 両 bank へ Shutdown を送って join する。ここを通らずに落ちても
+    // `BankWorkers` の Drop が同じことをする。
+    banks.shutdown();
+}
+
+/// 先読みの進行に要る持ち物をまとめ直す。レンダーループの局所変数から作る。
+fn standby_context<'a>(
+    banks: &'a BankWorkers,
+    limiter: &'a mut MasterLimiter,
+    limiter_meter: &'a LimiterMeterState,
+    auto_gain: &'a AutoGainControl,
+    audio_output: &'a AudioOutputControl,
+    playback_mode: &'a mut Option<PlaybackMode>,
+) -> StandbyContext<'a> {
+    StandbyContext {
+        banks,
+        limiter,
+        limiter_meter,
+        auto_gain,
+        audio_output,
+        playback_mode,
     }
-    *clock_samples = chunk_start + buf_size;
-    Ok(mixed)
 }
 
 fn new_live_mode(generation: u64, instance_count: usize) -> PlaybackMode {

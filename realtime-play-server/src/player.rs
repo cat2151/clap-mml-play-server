@@ -1,5 +1,6 @@
 mod audio_output;
 mod auto_gain;
+mod bank;
 mod commands;
 mod instances;
 mod limiter;
@@ -14,6 +15,7 @@ mod worker;
 use std::{sync::Arc, sync::Mutex, thread::JoinHandle};
 
 use self::audio_output::{new_audio_output, AudioOutputControl};
+use self::bank::BankLayout;
 use self::commands::PlayerInner;
 use self::instances::PatchBases;
 use self::live::{resolve_live_patch, validate_live_instance_id};
@@ -43,6 +45,16 @@ pub(crate) trait PlayerHandle: Send + Sync + 'static {
     fn set_live_tempo(&self, change: LiveTempoChange) -> Result<()>;
     fn send_timeline_midi(&self, events: Vec<TimelineMidiEvent>) -> Result<()>;
     fn prepare_live_patch(&self, instance_id: InstanceId, patch: Option<String>) -> Result<()>;
+    /// 非演奏 bank への先読みロード。
+    ///
+    /// [`PlayerHandle::prepare_live_patch`] と違い、クライアントが「この instance は
+    /// 鳴っている bank に属さない」と宣言している。サーバーはこれを根拠に、その bank の
+    /// レンダーを止めてロードしてよい（render-disable の実装は後続 Stage）。
+    fn prepare_standby_live_patch(
+        &self,
+        instance_id: InstanceId,
+        patch: Option<String>,
+    ) -> Result<()>;
     fn prepare_live_patch_with_voicing(
         &self,
         instance_id: InstanceId,
@@ -229,6 +241,36 @@ impl PlayerHandle for RealtimePlayer {
             .map_err(anyhow::Error::msg)
     }
 
+    /// 非演奏 bank への先読み。
+    ///
+    /// ロードそのものは、対象 instance を所有する bank worker の上で走る
+    /// （`player/worker/bank.rs`）。coordinator は専用コマンド
+    /// [`PlayerCommand::PrepareStandbyLivePatch`] を受けた時点でその bank を
+    /// render-disabled にし、**ロードの完了を待たずに**演奏 bank を回し続ける。
+    /// ここ（IPC 受信スレッド）だけが完了まで待つ。
+    ///
+    /// **ここが出す `thread=` は IPC 受信スレッドで、ロードした thread ではない。**
+    /// どのスレッドがロードしたかは bank worker が出す `cmrt-bank-patch:` を見ること。
+    /// この行は「どの bank の要求として受けたか」を確かめるためのもの。
+    fn prepare_standby_live_patch(
+        &self,
+        instance_id: InstanceId,
+        patch: Option<String>,
+    ) -> Result<()> {
+        let slot = self.bank_layout()?.slot_of(instance_id)?;
+        let started = std::time::Instant::now();
+        let result = self.submit_standby_live_patch(instance_id, patch);
+        eprintln!(
+            "cmrt-standby-patch: bank={} local={} instance={instance_id}              thread={:?} elapsed_ms={} result={}",
+            slot.bank,
+            slot.local_index,
+            std::thread::current().id(),
+            started.elapsed().as_millis(),
+            if result.is_ok() { "ok" } else { "error" },
+        );
+        result
+    }
+
     fn prepare_live_patch_with_voicing(
         &self,
         instance_id: InstanceId,
@@ -294,6 +336,37 @@ impl PlayerHandle for RealtimePlayer {
 impl RealtimePlayer {
     fn validate_live_instance_id(&self, instance_id: InstanceId) -> Result<()> {
         validate_live_instance_id(instance_id, self.live_instance_count)
+    }
+
+    /// 先読みコマンドを積んで、bank worker のロード完了を待つ。
+    ///
+    /// 待つのはこの IPC 受信スレッドだけで、coordinator は待たない。
+    fn submit_standby_live_patch(
+        &self,
+        instance_id: InstanceId,
+        patch: Option<String>,
+    ) -> Result<()> {
+        let patch = resolve_live_patch(patch, &self.patch_bases);
+        let (completion_tx, completion_rx) = std::sync::mpsc::sync_channel(0);
+        self.inner.submit_prepare_standby_live_patch(
+            instance_id,
+            patch,
+            completion_tx,
+            Arc::clone(&self.audio_output),
+        )?;
+        completion_rx
+            .recv()
+            .context("realtime play worker exited while preloading a standby patch")?
+            .map_err(anyhow::Error::msg)
+    }
+
+    /// 設定された live instance 数を 2 bank へ割る規則。
+    ///
+    /// 割り切れない設定（`CMRT_LIVE_INSTANCE_COUNT=1`）では先読みが成り立たないので、
+    /// [`PlayerHandle::prepare_standby_live_patch`] だけがここで失敗する。通常の
+    /// patch load はこの制約と無関係に動き続ける。
+    fn bank_layout(&self) -> Result<BankLayout> {
+        BankLayout::new(self.live_instance_count)
     }
 }
 

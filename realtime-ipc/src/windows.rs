@@ -234,6 +234,19 @@ impl FastMidiClient {
             .map(|_| ())
     }
 
+    /// 非演奏 bank へ音色を先読みする。応答待ちは [`Self::prepare_patch`] と同じ。
+    ///
+    /// 「対象 instance が演奏していない bank にある」という宣言を伴うので、
+    /// 現在 bank の行音色変更や MML overlay には使わないこと。
+    pub fn prepare_standby_patch(
+        &mut self,
+        instance_id: InstanceId,
+        patch: Option<&str>,
+    ) -> Result<(), FastIpcError> {
+        self.patch_request(KIND_PREPARE_STANDBY_PATCH, instance_id, patch)
+            .map(|_| ())
+    }
+
     pub fn probe_patch(
         &mut self,
         instance_id: InstanceId,

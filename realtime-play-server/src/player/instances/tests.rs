@@ -213,6 +213,16 @@ fn render_idle(renderer: &mut cmrt_core::RealtimeRenderer, blocks: usize) -> f32
     loudest
 }
 
+/// テスト用に「1 bank ぶん」の予備プールを作る。
+///
+/// 本番は [`plan_bank_instances`] が 2 bank へ割るが、ここで測りたいのは袋の在庫方針
+/// そのものなので、スロットも予備の目標数も全部 bank 0 へ寄せた構成にする
+/// （分離前と同じ数字で読める）。
+fn live_instances(kinds: Vec<PluginKind>, slot_count: usize) -> LiveInstances {
+    let [bank0, _bank1] = plan_bank_instances(kinds, [slot_count, 0]);
+    LiveInstances::new(bank0)
+}
+
 /// スロットへ patch を用意して、実際にロードするところまで。本番の
 /// `PrepareLivePatch` と同じ手順にしてある。
 fn prepare(

@@ -68,6 +68,18 @@ pub(super) enum PlayerCommand {
         patch: Option<String>,
         completion: std::sync::mpsc::SyncSender<std::result::Result<(), String>>,
     },
+    /// 非演奏 bank への先読みロード。
+    ///
+    /// [`PlayerCommand::PrepareLivePatch`] と載せるものは同じだが、クライアントが
+    /// 「この instance は鳴っている bank に属さない」と宣言している点が違う。
+    /// coordinator はこれを根拠に対象 bank を render-disabled にし、**完了を待たずに**
+    /// 演奏 bank を回し続ける。
+    PrepareStandbyLivePatch {
+        generation: u64,
+        instance_id: InstanceId,
+        patch: Option<String>,
+        completion: std::sync::mpsc::SyncSender<std::result::Result<(), String>>,
+    },
     ProbeLivePatch {
         generation: u64,
         instance_id: InstanceId,
@@ -243,6 +255,35 @@ impl PlayerInner {
             patch,
             completion,
         });
+        self.command_available.notify_one();
+        Ok(())
+    }
+
+    /// 先読みロードを積む。generation を上げない理由は
+    /// [`Self::submit_prepare_live_patch`] と同じ（鳴っている bank の音を飛ばさない）。
+    pub(super) fn submit_prepare_standby_live_patch(
+        &self,
+        instance_id: InstanceId,
+        patch: Option<String>,
+        completion: std::sync::mpsc::SyncSender<std::result::Result<(), String>>,
+        audio_output: Arc<AudioOutputControl>,
+    ) -> Result<()> {
+        let mut state = self.state.lock().unwrap();
+        let generation = if state.live_requested {
+            ensure_running(&state)?;
+            state.generation
+        } else {
+            begin_new_generation(&mut state, &audio_output)?
+        };
+        state.live_requested = true;
+        state
+            .pending
+            .push_back(PlayerCommand::PrepareStandbyLivePatch {
+                generation,
+                instance_id,
+                patch,
+                completion,
+            });
         self.command_available.notify_one();
         Ok(())
     }
