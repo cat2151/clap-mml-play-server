@@ -375,3 +375,34 @@ fn timing_metrics_are_published_as_one_snapshot() {
     server.publish_timing_metrics(expected);
     assert_eq!(client.timing_metrics(), expected);
 }
+
+/// 完了通知は汎用 request/response とは別経路であることを、実際の共有メモリ越しに固定する。
+///
+/// v9 では standby のロード完了が汎用応答で返っていた。v10 ではここが分かれたので、
+/// 受付応答を返さずに完了だけを publish しても、クライアントはそれを読める。
+#[test]
+fn standby_completion_travels_on_its_own_snapshot() {
+    // offset は他のテストと重複させないこと。同じ port だと mapping 名が衝突し、
+    // 並列実行のときだけ落ちる flaky test になる。
+    let port = test_port(13);
+    let server = FastMidiServer::create(port).unwrap();
+    let client = FastMidiClient::connect(port).unwrap();
+
+    let watermark = client.standby_watermark();
+    assert!(client.poll_standby_completion(31, watermark).is_none());
+
+    server.publish_standby_completion(31, Ok(())).unwrap();
+    assert_eq!(client.poll_standby_completion(31, watermark), Some(Ok(())));
+    // 別 request の完了として拾わない。
+    assert!(client.poll_standby_completion(32, watermark).is_none());
+
+    server
+        .publish_standby_completion(32, Err("standby load failed"))
+        .unwrap();
+    assert_eq!(
+        client.poll_standby_completion(32, watermark),
+        Some(Err(FastIpcError::RequestFailed(
+            "standby load failed".into()
+        )))
+    );
+}

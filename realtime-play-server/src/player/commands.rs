@@ -74,11 +74,16 @@ pub(super) enum PlayerCommand {
     /// 「この instance は鳴っている bank に属さない」と宣言している点が違う。
     /// coordinator はこれを根拠に対象 bank を render-disabled にし、**完了を待たずに**
     /// 演奏 bank を回し続ける。
+    ///
+    /// `completion` は **容量 1** で作ること（[`super::standby_completion_channel`]）。
+    /// 0（rendezvous）にすると、完了を返す `send` が受け取り手を待って
+    /// レンダーループごと止まる。受け取り手（IPC 受信スレッド）は poll するだけで、
+    /// そこで待たないのが v10 の設計。
     PrepareStandbyLivePatch {
         generation: u64,
         instance_id: InstanceId,
         patch: Option<String>,
-        completion: std::sync::mpsc::SyncSender<std::result::Result<(), String>>,
+        completion: std::sync::mpsc::SyncSender<super::StandbyLoadResult>,
     },
     ProbeLivePatch {
         generation: u64,
@@ -265,7 +270,7 @@ impl PlayerInner {
         &self,
         instance_id: InstanceId,
         patch: Option<String>,
-        completion: std::sync::mpsc::SyncSender<std::result::Result<(), String>>,
+        completion: std::sync::mpsc::SyncSender<super::StandbyLoadResult>,
         audio_output: Arc<AudioOutputControl>,
     ) -> Result<()> {
         let mut state = self.state.lock().unwrap();

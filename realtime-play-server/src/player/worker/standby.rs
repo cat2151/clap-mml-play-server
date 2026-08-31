@@ -26,6 +26,10 @@ use super::command::ensure_live_mode;
 use super::{AudioOutputControl, AutoGainControl, LimiterMeterState, MasterLimiter, PlaybackMode};
 
 /// 先読みの要求そのもの。
+///
+/// `completion` は容量 1 の同期チャネル（`player::standby_completion_channel`）。
+/// 受け取り手（IPC 受信スレッド）は非 blocking に poll するだけなので、送る側で
+/// 待たないことが必須。
 pub(super) struct StandbyRequest {
     pub(super) generation: u64,
     pub(super) instance_id: InstanceId,
@@ -136,7 +140,10 @@ pub(super) fn settle(ctx: &mut StandbyContext<'_>, standby: &mut Option<StandbyL
     complete(ctx, load, result);
 }
 
-/// 先読みの完了を台帳と live 状態へ反映し、待っているクライアントへ返す。
+/// 先読みの完了を台帳と live 状態へ反映し、受付票へ結果を落とす。
+///
+/// `completion` は容量 1 なので、この `send` は受け取り手の有無に関わらず
+/// 即座に戻る。**ここが block するとレンダーループごと止まる。**
 fn complete(ctx: &mut StandbyContext<'_>, load: StandbyLoad, result: Result<(), String>) {
     let blocks_elsewhere = ctx
         .banks
@@ -155,7 +162,7 @@ fn complete(ctx: &mut StandbyContext<'_>, load: StandbyLoad, result: Result<(), 
     // その間に underrun が増えたかを 1 行で出す。
     eprintln!(
         "cmrt-standby-load: bank={} event=finish instance={} elapsed_ms={} \
-         blocks_elsewhere={blocks_elsewhere} underrun_frames={underrun_frames}          skipped={skipped} result={}",
+         blocks_elsewhere={blocks_elsewhere} underrun_frames={underrun_frames} skipped={skipped} result={}",
         load.bank,
         load.instance_index,
         load.started.elapsed().as_millis(),

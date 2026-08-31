@@ -1,14 +1,9 @@
-use std::{
-    mem::size_of,
-    ptr,
-    sync::atomic::Ordering,
-    time::{Duration, Instant},
-};
+use std::{ptr, sync::atomic::Ordering, time::Instant};
 
 use windows_sys::Win32::{
-    Foundation::{INVALID_HANDLE_VALUE, WAIT_OBJECT_0, WAIT_TIMEOUT},
+    Foundation::{WAIT_OBJECT_0, WAIT_TIMEOUT},
     System::{
-        Memory::{CreateFileMappingW, OpenFileMappingW, FILE_MAP_ALL_ACCESS, PAGE_READWRITE},
+        Memory::{OpenFileMappingW, FILE_MAP_ALL_ACCESS},
         SystemInformation::GetTickCount64,
         Threading::{GetCurrentProcessId, SetEvent, WaitForSingleObject, EVENT_MODIFY_STATE},
     },
@@ -17,151 +12,21 @@ use windows_sys::Win32::{
 use super::{
     validate_instance_id, FastIpcError, FastMidiCommand, FastMidiEvent, InstanceId, LimiterMeter,
     LiveTempoChange, LiveTimelineConfig, TimelineMidiEvent, TimingMetrics, MAX_INSTANCE_COUNT,
-    MAX_MIDI_MESSAGES, MAX_PATCH_BYTES, MAX_RESPONSE_BYTES,
+    MAX_MIDI_MESSAGES, MAX_PATCH_BYTES, MAX_RESPONSE_BYTES, MAX_STANDBY_ERROR_BYTES,
 };
 
 mod command;
 mod handles;
 mod meters;
 mod protocol;
+mod server;
+mod standby;
 mod timeline;
 
-use command::{pop_command, validate_midi_message, validate_tempo_change, zeroed_slot};
+use command::{validate_midi_message, validate_tempo_change, zeroed_slot};
 use handles::*;
 use protocol::*;
-
-pub struct FastMidiServer {
-    mapping: Mapping,
-    command_event: OwnedHandle,
-    response_event: OwnedHandle,
-}
-
-impl FastMidiServer {
-    pub fn create(port: u16) -> Result<Self, FastIpcError> {
-        let mapping_name = wide_name(port, "map");
-        let command_event_name = wide_name(port, "command-event");
-        let response_event_name = wide_name(port, "response-event");
-        let mapping_handle = unsafe {
-            CreateFileMappingW(
-                INVALID_HANDLE_VALUE,
-                ptr::null(),
-                PAGE_READWRITE,
-                0,
-                size_of::<SharedRing>() as u32,
-                mapping_name.as_ptr(),
-            )
-        };
-        if mapping_handle.is_null() {
-            return Err(last_os_error("CreateFileMappingW"));
-        }
-        let mapping = map_handle(mapping_handle)?;
-        let command_event = create_event(&command_event_name)?;
-        let response_event = create_event(&response_event_name)?;
-
-        unsafe {
-            ptr::write_bytes(
-                mapping.view.as_ptr().cast::<u8>(),
-                0,
-                size_of::<SharedRing>(),
-            );
-            let ring = mapping.view.as_ptr();
-            (*ring)
-                .server_pid
-                .store(GetCurrentProcessId(), Ordering::Relaxed);
-            (*ring)
-                .heartbeat_ms
-                .store(GetTickCount64(), Ordering::Relaxed);
-            (*ring).version = VERSION;
-            (*ring).magic = MAGIC;
-        }
-
-        Ok(Self {
-            mapping,
-            command_event,
-            response_event,
-        })
-    }
-
-    pub fn recv_timeout(
-        &mut self,
-        timeout: Duration,
-    ) -> Result<Option<FastMidiCommand>, FastIpcError> {
-        let deadline = Instant::now() + timeout;
-        self.touch_heartbeat();
-        loop {
-            if let Some(command) = pop_command(self.mapping.ring())? {
-                return Ok(Some(command));
-            }
-            let now = Instant::now();
-            if now >= deadline {
-                return Ok(None);
-            }
-            let wait_ms = (deadline - now).as_millis().min(u32::MAX as u128) as u32;
-            let wait = unsafe { WaitForSingleObject(self.command_event.0, wait_ms) };
-            self.touch_heartbeat();
-            match wait {
-                // A command can be popped before its auto-reset event is consumed. In that
-                // case the next wait observes a stale signal, so loop and check the ring again.
-                WAIT_OBJECT_0 => {}
-                WAIT_TIMEOUT => return Ok(None),
-                _ => return Err(last_os_error("WaitForSingleObject")),
-            }
-        }
-    }
-
-    pub fn complete_request(
-        &self,
-        request_id: u32,
-        result: Result<&[u8], &str>,
-    ) -> Result<(), FastIpcError> {
-        let (status, payload) = match result {
-            Ok(payload) => (RESPONSE_OK, payload),
-            Err(message) => (RESPONSE_ERROR, message.as_bytes()),
-        };
-        if payload.len() > MAX_RESPONSE_BYTES {
-            return Err(FastIpcError::ResponseTooLong {
-                bytes: payload.len(),
-                max: MAX_RESPONSE_BYTES,
-            });
-        }
-        let ring = self.mapping.ring();
-        unsafe {
-            let response = &mut *ring.response.get();
-            response.request_id = request_id;
-            response.status = status;
-            response.payload_len = payload.len() as u32;
-            response.payload[..payload.len()].copy_from_slice(payload);
-        }
-        ring.response_sequence.fetch_add(1, Ordering::Release);
-        if unsafe { SetEvent(self.response_event.0) } == 0 {
-            return Err(last_os_error("SetEvent"));
-        }
-        Ok(())
-    }
-
-    pub fn publish_limiter_meter(&self, meter: LimiterMeter) {
-        meters::publish_limiter_meter(self.mapping.ring(), meter);
-    }
-
-    pub fn publish_underrun_frames(&self, frames: u64) {
-        meters::publish_underrun_frames(self.mapping.ring(), frames);
-    }
-
-    pub fn publish_auto_gain_db(&self, gains_db: &[f32]) {
-        meters::publish_auto_gain_db(self.mapping.ring(), gains_db);
-    }
-
-    pub fn publish_timing_metrics(&self, metrics: TimingMetrics) {
-        meters::publish_timing_metrics(self.mapping.ring(), metrics);
-    }
-
-    fn touch_heartbeat(&self) {
-        self.mapping
-            .ring()
-            .heartbeat_ms
-            .store(unsafe { GetTickCount64() }, Ordering::Release);
-    }
-}
+pub use server::FastMidiServer;
 
 pub struct FastMidiClient {
     mapping: Mapping,
@@ -234,7 +99,12 @@ impl FastMidiClient {
             .map(|_| ())
     }
 
-    /// 非演奏 bank へ音色を先読みする。応答待ちは [`Self::prepare_patch`] と同じ。
+    /// 非演奏 bank へ音色を先読みする。
+    ///
+    /// **protocol v10 以降、ここで待つのは「サーバーが要求を受け付けた」までで、
+    /// ロードの完了ではない。** ロード結果は [`Self::poll_standby_completion`] で
+    /// 別 slot から拾う。完了まで待ちたい呼び出し元は
+    /// [`Self::begin_standby_patch`] で request ID を取ってからポーリングすること。
     ///
     /// 「対象 instance が演奏していない bank にある」という宣言を伴うので、
     /// 現在 bank の行音色変更や MML overlay には使わないこと。
@@ -243,8 +113,20 @@ impl FastMidiClient {
         instance_id: InstanceId,
         patch: Option<&str>,
     ) -> Result<(), FastIpcError> {
-        self.patch_request(KIND_PREPARE_STANDBY_PATCH, instance_id, patch)
-            .map(|_| ())
+        self.begin_standby_patch(instance_id, patch).map(|_| ())
+    }
+
+    /// 先読みを要求し、受付応答まで待って request ID を返す。
+    ///
+    /// 完了は返らない。呼び出し元は **要求の前に** [`Self::standby_watermark`] を
+    /// 読み、返った request ID と組で [`Self::poll_standby_completion`] を回す。
+    pub fn begin_standby_patch(
+        &mut self,
+        instance_id: InstanceId,
+        patch: Option<&str>,
+    ) -> Result<u32, FastIpcError> {
+        self.patch_request_with_id(KIND_PREPARE_STANDBY_PATCH, instance_id, patch)
+            .map(|(request_id, _)| request_id)
     }
 
     pub fn probe_patch(
@@ -305,12 +187,43 @@ impl FastMidiClient {
         meters::timing_metrics(self.mapping.ring())
     }
 
+    /// これから出す standby request の基準 sequence。request 送信の **前** に読む。
+    ///
+    /// 完了通知はこの値より後に publish されたものだけを自分のものとして扱う。
+    /// request ID が wrap しても古い完了を成功と取り違えないための番人。
+    pub fn standby_watermark(&self) -> u64 {
+        standby::standby_watermark(self.mapping.ring())
+    }
+
+    /// standby 完了通知を非 blocking に読む。`None` はまだ完了していない。
+    pub fn poll_standby_completion(
+        &self,
+        request_id: u32,
+        since_sequence: u64,
+    ) -> Option<Result<(), FastIpcError>> {
+        standby::read_standby_completion(self.mapping.ring(), request_id, since_sequence)
+    }
+
     fn patch_request(
         &mut self,
         kind: u32,
         instance_id: InstanceId,
         patch: Option<&str>,
     ) -> Result<Vec<u8>, FastIpcError> {
+        self.patch_request_with_id(kind, instance_id, patch)
+            .map(|(_, payload)| payload)
+    }
+
+    /// patch 系要求を 1 件出して、汎用応答（= 受付応答）まで待つ。
+    ///
+    /// request ID も返すのは、standby のように「受付」と「完了」が別 slot へ
+    /// 分かれた要求で、完了通知の突き合わせに ID が要るため。
+    fn patch_request_with_id(
+        &mut self,
+        kind: u32,
+        instance_id: InstanceId,
+        patch: Option<&str>,
+    ) -> Result<(u32, Vec<u8>), FastIpcError> {
         validate_instance_id(instance_id)?;
         let patch_bytes = patch.map(str::as_bytes).unwrap_or_default();
         if patch_bytes.len() > MAX_PATCH_BYTES {
@@ -331,7 +244,8 @@ impl FastMidiClient {
             slot.patch[..patch_bytes.len()].copy_from_slice(patch_bytes);
         }
         self.push(slot)?;
-        self.wait_for_response(request_id)
+        let payload = self.wait_for_response(request_id)?;
+        Ok((request_id, payload))
     }
 
     fn wait_for_response(&self, request_id: u32) -> Result<Vec<u8>, FastIpcError> {

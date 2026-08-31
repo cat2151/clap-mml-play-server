@@ -1,17 +1,29 @@
 use std::{
     cell::UnsafeCell,
-    mem::size_of,
+    mem::{offset_of, size_of},
     sync::atomic::{AtomicU32, AtomicU64},
     time::Duration,
 };
 
-use super::{MAX_INSTANCE_COUNT, MAX_MIDI_MESSAGES, MAX_PATCH_BYTES, MAX_RESPONSE_BYTES};
+use super::{
+    MAX_INSTANCE_COUNT, MAX_MIDI_MESSAGES, MAX_PATCH_BYTES, MAX_RESPONSE_BYTES,
+    MAX_STANDBY_ERROR_BYTES,
+};
 
 pub(super) const MAGIC: [u8; 8] = *b"CMRTMIDI";
-/// v9 adds standby-bank patch preload ([`KIND_PREPARE_STANDBY_PATCH`]).
+/// v10 splits [`KIND_PREPARE_STANDBY_PATCH`] into "accept" and "complete".
+///
+/// The generic [`ResponseSlot`] now carries only the **acceptance** of a standby
+/// request; the patch load result is published later into the dedicated
+/// [`StandbyCompletionSlot`]. Layout aside, the *meaning* of the generic response
+/// changed, so an old client talking to a new server would treat "accepted" as
+/// "loaded" and start playing a bank whose patch is still loading. That silent
+/// failure mode is why the version is bumped instead of reusing v9.
+///
+/// v9 added standby-bank patch preload ([`KIND_PREPARE_STANDBY_PATCH`]).
 ///
 /// v8 was live tempo-map changes ([`KIND_SET_LIVE_TEMPO`]).
-pub(super) const VERSION: u32 = 9;
+pub(super) const VERSION: u32 = 10;
 pub(super) const SLOT_COUNT: usize = 64;
 pub(super) const KIND_MIDI: u32 = 1;
 pub(super) const KIND_STOP: u32 = 2;
@@ -34,16 +46,31 @@ pub(super) const KIND_TIMELINE_MIDI: u32 = 10;
 /// **このコマンドを知らないサーバーは黙って無視する**（テンポだけ古いまま鳴り続ける）。
 /// 音量と違ってテンポは正しさの問題なので、VERSION を上げて繋がらないようにしてある。
 pub(super) const KIND_SET_LIVE_TEMPO: u32 = 11;
-/// 非演奏 bank への先読みロード。slot の使い方は [`KIND_PREPARE_PATCH`] と同じで、
-/// 応答も同じ request/response slot を同期で返す。違うのは「対象 instance が
-/// 演奏していない bank にある」というクライアントの宣言だけ。
+/// 非演奏 bank への先読みロード。command slot の使い方は [`KIND_PREPARE_PATCH`] と
+/// 同じで、違うのは「対象 instance が演奏していない bank にある」というクライアントの
+/// 宣言だけ。
+///
+/// **応答の意味だけは [`KIND_PREPARE_PATCH`] と違う。** v10 以降、request/response slot に
+/// 同期で返るのは **受付 ACK** であって、ロード完了ではない。ロード結果は
+/// [`StandbyCompletionSlot`] を非 blocking に poll して受け取る。この 2 段階にしたのは、
+/// 受信スレッドをロード完了まで塞ぐと、その間 timeline MIDI が一切 dispatch されず
+/// 演奏中の音が伸びてしまうため。
 ///
 /// **この KIND を知らない古いサーバーは "unknown command kind" を返す**ので、
 /// 先読みが黙って効かないままになる。先読みできるかは演奏の連続性に直結するため、
 /// VERSION を上げて繋がらないようにしてある。
 pub(super) const KIND_PREPARE_STANDBY_PATCH: u32 = 12;
+/// 汎用応答の status。
+///
+/// [`KIND_PREPARE_STANDBY_PATCH`] に限り、この `OK` は **受付完了** であって
+/// ロード完了ではない。ロード結果は [`StandbyCompletionSlot`] 側で通知される。
+/// 他の KIND では従来どおり処理完了を意味する。
 pub(super) const RESPONSE_OK: u32 = 1;
 pub(super) const RESPONSE_ERROR: u32 = 2;
+/// standby 完了通知の status。0 は「まだ一度も publish されていない」であって
+/// 完了値ではない。wire 上に `pending` という完了値は存在しない。
+pub(super) const STANDBY_STATUS_SUCCESS: u32 = 1;
+pub(super) const STANDBY_STATUS_ERROR: u32 = 2;
 pub(super) const SERVER_STALE_MS: u64 = 1_000;
 pub(super) const RESPONSE_TIMEOUT: Duration = Duration::from_secs(30);
 pub(super) const SYNCHRONIZE_ACCESS: u32 = 0x0010_0000;
@@ -77,6 +104,21 @@ pub(super) struct ResponseSlot {
     pub(super) payload: [u8; MAX_RESPONSE_BYTES],
 }
 
+/// standby patch load の完了通知。
+///
+/// 汎用 [`ResponseSlot`] と違い、これはサーバーが一方的に書きクライアントが
+/// ポーリングで読むだけの片方向 slot で、request/response の往復を伴わない。
+/// 同時に in-flight にできる standby request は 1 件だけという契約なので slot も 1 件。
+#[repr(C)]
+pub(super) struct StandbyCompletionSlot {
+    pub(super) request_id: u32,
+    /// [`STANDBY_STATUS_SUCCESS`] / [`STANDBY_STATUS_ERROR`]。0 は未 publish。
+    pub(super) status: u32,
+    pub(super) payload_len: u32,
+    /// エラーメッセージ。成功時は長さ 0。
+    pub(super) payload: [u8; MAX_STANDBY_ERROR_BYTES],
+}
+
 #[repr(C, align(64))]
 pub(super) struct SharedRing {
     pub(super) magic: [u8; 8],
@@ -108,6 +150,18 @@ pub(super) struct SharedRing {
     /// 自前では知りようがない。リミッターメーターと同じく、サーバーが一方的に
     /// 書き、クライアントはポーリングで読むだけ。
     pub(super) auto_gain_db_bits: [AtomicU32; MAX_INSTANCE_COUNT],
+    /// [`SharedRing::standby`] の seqlock。安定時は偶数、書き換え中だけ奇数。
+    ///
+    /// publish 側は odd -> body -> even の順に進め、read 側は before / body / after
+    /// の before == after かつ偶数のときだけ body を採用する。body は
+    /// [`UnsafeCell`] なので atomic ordering を持たない。この publish/read 契約
+    /// だけが唯一の同期であり、両 repository で同じ順序を守ること。
+    ///
+    /// 0 は「まだ一度も publish していない」。単調増加なので、クライアントは
+    /// request 開始時の値を控えておけば、request ID が wrap しても
+    /// 「開始前に publish された古い完了」を取り違えずに捨てられる。
+    pub(super) standby_sequence: AtomicU64,
+    pub(super) standby: UnsafeCell<StandbyCompletionSlot>,
     pub(super) response: UnsafeCell<ResponseSlot>,
     pub(super) slots: [UnsafeCell<CommandSlot>; SLOT_COUNT],
 }
@@ -115,5 +169,13 @@ pub(super) struct SharedRing {
 unsafe impl Sync for SharedRing {}
 
 const _: () = assert!(size_of::<CommandSlot>() == 6208);
+const _: () = assert!(size_of::<StandbyCompletionSlot>() == 1036);
 const _: () = assert!(size_of::<ResponseSlot>() == 16_396);
-const _: () = assert!(size_of::<SharedRing>() == 414_016);
+const _: () = assert!(size_of::<SharedRing>() == 415_040);
+// standby 用フィールドは auto gain と汎用応答の間へ挿し込んである。ここがずれても
+// magic と version は一致してしまうので、接続時には気づけない。両 repository で
+// 同じオフセットになることを const で固定する。
+const _: () = assert!(offset_of!(SharedRing, standby_sequence) == 264);
+const _: () = assert!(offset_of!(SharedRing, standby) == 272);
+const _: () = assert!(offset_of!(SharedRing, response) == 1308);
+const _: () = assert!(offset_of!(SharedRing, slots) == 17_704);

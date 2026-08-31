@@ -1,4 +1,5 @@
 use super::*;
+use crate::player::{standby_completion_channel, StandbyLoadTicket};
 use cmrt_core::VoicingReport;
 use cmrt_realtime_ipc::{
     FastMidiEvent, InstanceId, LimiterMeter, LiveTempoChange, LiveTimelineConfig,
@@ -47,12 +48,16 @@ impl PlayerHandle for FakePlayer {
         Ok(())
     }
 
-    fn prepare_standby_live_patch(
+    /// 受付票を返してすぐ完了させる。HTTP 側は先読みを使わないので、
+    /// ここは「完了済みの受付票」を渡すだけでよい。
+    fn begin_standby_live_patch(
         &self,
         _instance_id: InstanceId,
         _patch: Option<String>,
-    ) -> Result<()> {
-        Ok(())
+    ) -> Result<StandbyLoadTicket> {
+        let (completion, ticket) = standby_completion_channel();
+        completion.send(Ok(())).unwrap();
+        Ok(ticket)
     }
 
     fn prepare_live_patch_with_voicing(

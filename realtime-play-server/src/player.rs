@@ -12,7 +12,12 @@ mod startup;
 mod timing_diagnostics;
 mod worker;
 
-use std::{sync::Arc, sync::Mutex, thread::JoinHandle};
+use std::{
+    sync::mpsc::{Receiver, SyncSender, TryRecvError},
+    sync::Arc,
+    sync::Mutex,
+    thread::JoinHandle,
+};
 
 use self::audio_output::{new_audio_output, AudioOutputControl};
 use self::bank::BankLayout;
@@ -35,6 +40,47 @@ use self::commands::PlayerCommand;
 
 pub(crate) use self::instances::{plugin_kinds, PluginKind};
 
+/// 先読みロードの結果。ワーカー間は `String` で運ぶ（`anyhow::Error` は Send 境界を
+/// 跨がせたくないため、既存の patch load 系と同じ形に揃えてある）。
+pub(crate) type StandbyLoadResult = std::result::Result<(), String>;
+
+/// 先読みロードの受付票。
+///
+/// [`PlayerHandle::begin_standby_live_patch`] が返す。ロードは対象 bank の worker
+/// 上で走り続けていて、この受付票を持っているスレッド（fast IPC 受信スレッド）は
+/// **待たずに他のコマンドを捌く**。
+///
+/// 完了送信路は容量 1 なので、受け取り手が poll していなくても coordinator 側の
+/// `send` が block しない。受付票を drop してもロードは止まらない。
+pub(crate) struct StandbyLoadTicket {
+    completion: Receiver<StandbyLoadResult>,
+}
+
+/// 受付票と、その完了を送る側の組を作る。
+///
+/// 容量 1 の同期チャネルであることがこの設計の要。0（rendezvous）にすると
+/// coordinator の `send` が受け取り手を待って止まり、レンダーループごと固まる。
+pub(crate) fn standby_completion_channel() -> (SyncSender<StandbyLoadResult>, StandbyLoadTicket) {
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    (tx, StandbyLoadTicket { completion: rx })
+}
+
+impl StandbyLoadTicket {
+    /// 完了していれば結果を返す。**まだなら `None`。決して block しない。**
+    ///
+    /// 送信側が結果を送らずに消えた場合（ワーカー停止）も `Some(Err(_))` を返す。
+    /// ここで `None` を返し続けると、クライアントが永久に「ロード中」のまま残る。
+    pub(crate) fn poll(&self) -> Option<Result<()>> {
+        match self.completion.try_recv() {
+            Ok(result) => Some(result.map_err(anyhow::Error::msg)),
+            Err(TryRecvError::Empty) => None,
+            Err(TryRecvError::Disconnected) => Some(Err(anyhow::anyhow!(
+                "realtime play worker exited while preloading a standby patch"
+            ))),
+        }
+    }
+}
+
 pub(crate) trait PlayerHandle: Send + Sync + 'static {
     fn play_smf(&self, smf: Vec<u8>) -> Result<()>;
     fn play_mml(&self, mml: String) -> Result<()>;
@@ -45,16 +91,22 @@ pub(crate) trait PlayerHandle: Send + Sync + 'static {
     fn set_live_tempo(&self, change: LiveTempoChange) -> Result<()>;
     fn send_timeline_midi(&self, events: Vec<TimelineMidiEvent>) -> Result<()>;
     fn prepare_live_patch(&self, instance_id: InstanceId, patch: Option<String>) -> Result<()>;
-    /// 非演奏 bank への先読みロード。
+    /// 非演奏 bank への先読みロードを **受け付けるだけ**。
     ///
     /// [`PlayerHandle::prepare_live_patch`] と違い、クライアントが「この instance は
     /// 鳴っている bank に属さない」と宣言している。サーバーはこれを根拠に、その bank の
-    /// レンダーを止めてロードしてよい（render-disable の実装は後続 Stage）。
-    fn prepare_standby_live_patch(
+    /// レンダーを止めてロードしてよい。
+    ///
+    /// **戻り値はロードの完了ではなく受付票**（[`StandbyLoadTicket`]）である。
+    /// 重い音色は数秒かかるので、ここで待つと IPC 受信スレッドが塞がり、演奏中の
+    /// bank 宛 timeline MIDI がロード終了まで一切届かなくなる（16 分音符が
+    /// 伸び切って聞こえた実障害の原因）。完了は受付票を非 blocking に
+    /// [`StandbyLoadTicket::poll`] して拾うこと。
+    fn begin_standby_live_patch(
         &self,
         instance_id: InstanceId,
         patch: Option<String>,
-    ) -> Result<()>;
+    ) -> Result<StandbyLoadTicket>;
     fn prepare_live_patch_with_voicing(
         &self,
         instance_id: InstanceId,
@@ -241,32 +293,37 @@ impl PlayerHandle for RealtimePlayer {
             .map_err(anyhow::Error::msg)
     }
 
-    /// 非演奏 bank への先読み。
+    /// 非演奏 bank への先読みを受け付ける。**完了は待たない。**
     ///
     /// ロードそのものは、対象 instance を所有する bank worker の上で走る
     /// （`player/worker/bank.rs`）。coordinator は専用コマンド
     /// [`PlayerCommand::PrepareStandbyLivePatch`] を受けた時点でその bank を
-    /// render-disabled にし、**ロードの完了を待たずに**演奏 bank を回し続ける。
-    /// ここ（IPC 受信スレッド）だけが完了まで待つ。
+    /// render-disabled にし、ロードの完了を待たずに演奏 bank を回し続ける。
+    /// **ここ（IPC 受信スレッド）も待たない。** 待つのをやめたのが v10 の要点で、
+    /// 待っていた頃はロード中の timeline MIDI が一切 dispatch されなかった。
     ///
     /// **ここが出す `thread=` は IPC 受信スレッドで、ロードした thread ではない。**
     /// どのスレッドがロードしたかは bank worker が出す `cmrt-bank-patch:` を見ること。
     /// この行は「どの bank の要求として受けたか」を確かめるためのもの。
-    fn prepare_standby_live_patch(
+    /// wire の request ID と `accepted` / `completed` の対応は `fast_ipc.rs` が出す
+    /// 同じ `cmrt-standby-patch:` 行（`request=` 付き）を見ること。
+    fn begin_standby_live_patch(
         &self,
         instance_id: InstanceId,
         patch: Option<String>,
-    ) -> Result<()> {
+    ) -> Result<StandbyLoadTicket> {
         let slot = self.bank_layout()?.slot_of(instance_id)?;
-        let started = std::time::Instant::now();
         let result = self.submit_standby_live_patch(instance_id, patch);
+        let event = if result.is_ok() {
+            "accepted"
+        } else {
+            "rejected"
+        };
         eprintln!(
-            "cmrt-standby-patch: bank={} local={} instance={instance_id}              thread={:?} elapsed_ms={} result={}",
+            "cmrt-standby-patch: bank={} local={} instance={instance_id} thread={:?} event={event}",
             slot.bank,
             slot.local_index,
             std::thread::current().id(),
-            started.elapsed().as_millis(),
-            if result.is_ok() { "ok" } else { "error" },
         );
         result
     }
@@ -338,26 +395,24 @@ impl RealtimePlayer {
         validate_live_instance_id(instance_id, self.live_instance_count)
     }
 
-    /// 先読みコマンドを積んで、bank worker のロード完了を待つ。
+    /// 先読みコマンドを積んで、受付票だけを返す。**誰も待たない。**
     ///
-    /// 待つのはこの IPC 受信スレッドだけで、coordinator は待たない。
+    /// coordinator も IPC 受信スレッドもロード完了を待たず、完了は容量 1 の
+    /// チャネル越しに受付票へ落ちる。
     fn submit_standby_live_patch(
         &self,
         instance_id: InstanceId,
         patch: Option<String>,
-    ) -> Result<()> {
+    ) -> Result<StandbyLoadTicket> {
         let patch = resolve_live_patch(patch, &self.patch_bases);
-        let (completion_tx, completion_rx) = std::sync::mpsc::sync_channel(0);
+        let (completion_tx, ticket) = standby_completion_channel();
         self.inner.submit_prepare_standby_live_patch(
             instance_id,
             patch,
             completion_tx,
             Arc::clone(&self.audio_output),
         )?;
-        completion_rx
-            .recv()
-            .context("realtime play worker exited while preloading a standby patch")?
-            .map_err(anyhow::Error::msg)
+        Ok(ticket)
     }
 
     /// 設定された live instance 数を 2 bank へ割る規則。
