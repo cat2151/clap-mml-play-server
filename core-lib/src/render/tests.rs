@@ -88,6 +88,7 @@ fn render_live_note(renderer: &mut RealtimeRenderer) -> Vec<f32> {
     samples
 }
 
+mod cache_player;
 mod cartridge;
 mod dexed;
 mod floe;

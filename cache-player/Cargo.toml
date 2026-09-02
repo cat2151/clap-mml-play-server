@@ -1,0 +1,13 @@
+[package]
+name = "cmrt-cache-player"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clack-plugin = { git = "https://github.com/prokopyl/clack.git", package = "clack-plugin" }
+clack-extensions = { git = "https://github.com/prokopyl/clack.git", package = "clack-extensions", features = ["audio-ports", "note-ports", "state", "clack-plugin"] }
+hound = "3.5"
+
+[dev-dependencies]
+clack-host = { git = "https://github.com/prokopyl/clack.git", package = "clack-host", features = ["clack-plugin"] }
+clack-extensions = { git = "https://github.com/prokopyl/clack.git", package = "clack-extensions", features = ["audio-ports", "note-ports", "state", "clack-plugin", "clack-host"] }

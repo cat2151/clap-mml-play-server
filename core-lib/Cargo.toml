@@ -9,9 +9,11 @@ path = "src/lib.rs"
 
 [dependencies]
 # CLAP host bindings (crates.io 未公開のため git 指定が必要)
-clack-host = { git = "https://github.com/prokopyl/clack.git", package = "clack-host" }
+clack-host = { git = "https://github.com/prokopyl/clack.git", package = "clack-host", features = ["clack-plugin"] }
+clack-plugin = { git = "https://github.com/prokopyl/clack.git", package = "clack-plugin" }
 clack-extensions = { git = "https://github.com/prokopyl/clack.git", package = "clack-extensions", features = ["audio-ports", "note-ports", "params", "preset-discovery", "state", "voice-info", "clack-host"] }
 clap-sys = "0.5"
+cmrt-cache-player = { path = "../cache-player" }
 cmrt-clack-timeline = { path = "../clack-timeline" }
 cmrt-server-config = { path = "../server-config" }
 cmrt-timeline = { path = "../timeline" }

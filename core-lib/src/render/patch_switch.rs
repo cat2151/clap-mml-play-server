@@ -9,6 +9,7 @@ use clack_host::prelude::PluginInstance;
 
 use super::patch_state::{load_patch, load_plugin_state};
 use super::RealtimeRenderer;
+use crate::cache_wav::{cache_wav_state, is_cache_wav_patch_path};
 use crate::dx7::{is_cartridge_patch_path, parse_cartridge_patch_path, CartridgePatchPath};
 use crate::floe::is_floe_preset_path;
 use crate::host::MidiRenderHost;
@@ -41,6 +42,12 @@ impl RealtimeRenderer {
             PatchTarget::Sfz(path) => {
                 self.forget_cartridge_program();
                 self.load_sfz_state(&path)?;
+            }
+            PatchTarget::CacheWav(path) => {
+                self.forget_cartridge_program();
+                let state = cache_wav_state(&path)?;
+                load_plugin_state(self.plugin_instance_mut(), &state)
+                    .map_err(|e| anyhow::anyhow!("キャッシュ WAV のロードに失敗 ({path}): {e}"))?;
             }
             PatchTarget::StateFile(path) => {
                 self.forget_cartridge_program();
@@ -80,6 +87,8 @@ impl RealtimeRenderer {
             Ok(PatchTarget::FloePreset(path.to_string()))
         } else if is_vvp_patch_path(path) {
             Ok(PatchTarget::Vvp(path.to_string()))
+        } else if is_cache_wav_patch_path(path) {
+            Ok(PatchTarget::CacheWav(path.to_string()))
         } else {
             Ok(PatchTarget::StateFile(path.to_string()))
         }
@@ -102,6 +111,11 @@ enum PatchTarget {
     FloePreset(String),
     /// sforzando: 解決済み ARIA program を vendor state としてロード。
     Sfz(String),
+    /// 組み込み cache-player: `.wav` の**パス**を CLAP state としてロード。
+    ///
+    /// ここだけ「ファイルの中身」ではなく「ファイルの場所」を state にする
+    /// （理由は [`crate::cache_wav`]）。
+    CacheWav(String),
     /// Surge XT: `.fxp` を CLAP state としてロード。
     StateFile(String),
     /// 生成直後にスナップショットした state へ戻す。

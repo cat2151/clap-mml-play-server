@@ -243,3 +243,42 @@ fn legacy_patch_bases_constructor_leaves_floe_unconfigured() {
 
     assert_eq!(bases.base_for("Harp/Realistic.floe-preset"), None);
 }
+
+/// gate（かつての `CMRT_CACHE_PLAYER=1`）を撤去したことの回帰テスト。
+///
+/// 環境変数を一切触らずに cache-player が種別一覧へ載ること。ここが崩れると
+/// 「サーバー起動時のフラグを忘れたせいで、DAW の操作はすべて成功したまま無音」
+/// という、エラーも警告も出ない失敗が復活する。
+#[test]
+fn the_cache_player_is_always_in_the_kind_list_without_any_env_var() {
+    let cfg = ServerConfig::from_toml_str(
+        r#"
+output_midi = "output.mid"
+output_wav = "output.wav"
+sample_rate = 48000
+buffer_size = 512
+"#,
+    )
+    .unwrap();
+
+    let kinds = plugin_kinds(&cfg, &CoreConfig::default());
+
+    let cache_player = kinds
+        .iter()
+        .find(|kind| kind.patch_form == PatchForm::CacheWav)
+        .expect("cache-player が種別一覧に無い");
+    assert_eq!(cache_player.name, CACHE_PLAYER_PROFILE_NAME);
+    assert_eq!(
+        cache_player.core_cfg.plugin_id.as_deref(),
+        Some(CACHE_PLAYER_PLUGIN_ID)
+    );
+    // 組み込みなので `.clap` ファイルではなく擬似パスで指す。
+    assert_eq!(
+        cache_player.plugin_path,
+        crate::builtin_plugin_path(CACHE_PLAYER_PLUGIN_ID)
+    );
+    // 音源は DAW が絶対パスで指すので基点を持たない。
+    assert!(cache_player.core_cfg.patches_dir.is_none());
+    // 起動時の音色は既定プラグイン向けの指定なので持ち込まない。
+    assert!(cache_player.core_cfg.patch_path.is_none());
+}

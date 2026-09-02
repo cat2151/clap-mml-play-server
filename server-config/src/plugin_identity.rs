@@ -13,6 +13,13 @@ pub const DEXED_PLUGIN_ID: &str = "com.digital-suburban.dexed";
 pub const VAPORIZER2_PLUGIN_ID: &str = "com.vastdynamics.VAST2";
 pub const FLOE_PLUGIN_ID: &str = "com.floe-audio.floe";
 pub const SFORZANDO_PLUGIN_ID: &str = "com.Plogue Art et Technologie, Inc.sforzando";
+/// DAW の cell キャッシュ WAV を鳴らす組み込みプラグイン（`cache-player` crate）の CLAP ID。
+///
+/// **`.clap` ファイルとしてディスクに存在しない。** play server のバイナリへ静的リンクして
+/// `PluginEntry::load_from_clack` で読むので、`installed_plugin_profiles()` の
+/// 「実ファイルがあるか」フィルタには載らない。実体は `cmrt_cache_player` 側の
+/// `CACHE_PLAYER_PLUGIN_ID` で、ここはそれを config 層から参照するための写し。
+pub const CACHE_PLAYER_PLUGIN_ID: &str = "org.cat2151.cmrt.cache-player";
 
 /// `plugin_path` のファイル名から拡張子を落としたもの（`Surge XT.clap` → `Surge XT`）。
 ///

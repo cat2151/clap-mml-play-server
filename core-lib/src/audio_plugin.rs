@@ -10,8 +10,8 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    is_cartridge_patch_path, is_floe_preset_path, is_sfz_patch_path, is_vvp_patch_path,
-    read_vvp_header, PatchVoicing,
+    cache_wav::is_cache_wav_patch_path, is_cartridge_patch_path, is_floe_preset_path,
+    is_sfz_patch_path, is_vvp_patch_path, read_vvp_header, PatchVoicing,
 };
 use cmrt_server_config::{patch_form_of, PatchForm, SURGE_XT_PLUGIN_ID};
 
@@ -319,6 +319,8 @@ pub(crate) fn patch_form_of_path(patch: &str) -> PatchForm {
         PatchForm::FloePreset
     } else if is_vvp_patch_path(patch) {
         PatchForm::Vvp
+    } else if is_cache_wav_patch_path(patch) {
+        PatchForm::CacheWav
     } else {
         PatchForm::StateFile
     }

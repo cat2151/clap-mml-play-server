@@ -29,8 +29,8 @@ pub use plugin_defaults::{
     default_vaporizer2_plugin_path,
 };
 pub use plugin_identity::{
-    plugin_file_stem, DEXED_PLUGIN_ID, FLOE_PLUGIN_ID, SFORZANDO_PLUGIN_ID, SURGE_XT_PLUGIN_ID,
-    VAPORIZER2_PLUGIN_ID,
+    plugin_file_stem, CACHE_PLAYER_PLUGIN_ID, DEXED_PLUGIN_ID, FLOE_PLUGIN_ID, SFORZANDO_PLUGIN_ID,
+    SURGE_XT_PLUGIN_ID, VAPORIZER2_PLUGIN_ID,
 };
 pub use plugin_profile::{
     builtin_plugin_profiles, installed_plugin_profiles, merged_plugin_profiles, patch_form_of,

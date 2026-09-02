@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "cache-player",
     "clack-timeline",
     "core-lib",
     "realtime-ipc",

@@ -15,8 +15,8 @@ use serde::Deserialize;
 use crate::{
     default_dexed_cartridge_dirs, default_dexed_plugin_path, default_floe_plugin_path,
     default_patches_dirs, default_plugin_path, default_sforzando_plugin_path,
-    default_vaporizer2_plugin_path, DEXED_PLUGIN_ID, FLOE_PLUGIN_ID, SFORZANDO_PLUGIN_ID,
-    SURGE_XT_PLUGIN_ID, VAPORIZER2_PLUGIN_ID,
+    default_vaporizer2_plugin_path, CACHE_PLAYER_PLUGIN_ID, DEXED_PLUGIN_ID, FLOE_PLUGIN_ID,
+    SFORZANDO_PLUGIN_ID, SURGE_XT_PLUGIN_ID, VAPORIZER2_PLUGIN_ID,
 };
 
 /// `[plugins.<名前>]` 1 つ分のプラグイン設定。
@@ -135,6 +135,13 @@ pub enum PatchForm {
     FloePreset,
     /// ファイル 1 つ = 音色 1 つ。sforzando の `.sfz`（vendor state adapter）。
     Sfz,
+    /// ファイル 1 つ = 音源 1 つ。組み込み cache-player の `.wav`（DAW の cell キャッシュ）。
+    ///
+    /// 他の形と違い、**音色ではなく録音済みの音そのもの**を指す。それでも patch 文字列の
+    /// 形として数えるのは、live 経路の `PreparePatch` / `PrepareStandbyPatch` が
+    /// 「patch 文字列 → プラグイン」の 1 本道でしか物理インスタンスを選べないため
+    /// （`docs/adr/0007-patch-string-decides-the-plugin.md`）。
+    CacheWav,
 }
 
 /// プロファイルが扱う patch 文字列の形。
@@ -153,7 +160,9 @@ pub fn patch_form_of(plugin_id: Option<&str>, plugin_path: &str) -> PatchForm {
             .to_lowercase()
             .contains(stem_keyword),
     };
-    if matches(DEXED_PLUGIN_ID, "dexed") {
+    if matches(CACHE_PLAYER_PLUGIN_ID, "cache-player") {
+        PatchForm::CacheWav
+    } else if matches(DEXED_PLUGIN_ID, "dexed") {
         PatchForm::Cartridge
     } else if matches(SFORZANDO_PLUGIN_ID, "sforzando") {
         PatchForm::Sfz

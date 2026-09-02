@@ -14,7 +14,9 @@
 use std::path::Path;
 
 use crate::{audio_plugin::patch_form_of_path, CoreConfig, PluginKey};
-use cmrt_server_config::{patch_form_of, PatchForm, ServerConfig, PRIMARY_PLUGIN_PROFILE_NAME};
+use cmrt_server_config::{
+    patch_form_of, PatchForm, ServerConfig, CACHE_PLAYER_PLUGIN_ID, PRIMARY_PLUGIN_PROFILE_NAME,
+};
 
 /// 1 プロセスへ載せうるプラグイン 1 種別。
 #[derive(Clone, Debug)]
@@ -78,8 +80,47 @@ pub fn plugin_kinds(cfg: &ServerConfig, core_cfg: &CoreConfig) -> Vec<PluginKind
             },
         });
     }
+    push_builtin_kinds(&mut kinds, core_cfg);
     kinds
 }
+
+/// 組み込みプラグイン（`.clap` ファイルを持たないもの）を種別一覧へ足す。
+///
+/// `installed_plugin_profiles()` は `plugin_path` が実ファイルとして存在するかで
+/// 絞るので、静的リンクの組み込みプラグインはそこを通れない。「コンパイル済み＝常に
+/// インストール済み」なので、判定を通さずここで足す。
+///
+/// **常に足す。** 以前は環境変数 `CMRT_CACHE_PLAYER=1` のときだけ足していた。
+/// 種別が 2 つ以上になると予備インスタンスプールが起きて起動直後に前払いの背景生成が
+/// 走る（realtime play server の `instances::plan_bank_instances`）ので、cache-player を
+/// 使わない起動でその代償を払わせない、という節約が理由だった。
+///
+/// **その代償は実測 0ms だったので gate を外した**（サーバーログ
+/// `phase=spare_built plugin=Cache Player ms=0`。比較用に Surge XT の `phase=instance` は
+/// 200〜360ms）。組み込みプラグインは `.clap` の dlopen もディスク I/O も無いため、
+/// 前払いが増えても起動時間には出ない。一方で gate を残すと「サーバー起動時のフラグを
+/// 忘れると、DAW の操作はすべて成功したまま無音になる」という静かな失敗経路が残る。
+/// 0ms の節約と引き換えにするには割が合わない。
+fn push_builtin_kinds(kinds: &mut Vec<PluginKind>, core_cfg: &CoreConfig) {
+    let plugin_path = crate::builtin_plugin_path(CACHE_PLAYER_PLUGIN_ID);
+    kinds.push(PluginKind {
+        key: PluginKey::from_identity(Some(CACHE_PLAYER_PLUGIN_ID), &plugin_path),
+        name: CACHE_PLAYER_PROFILE_NAME.to_string(),
+        plugin_path: plugin_path.clone(),
+        patch_form: PatchForm::CacheWav,
+        core_cfg: CoreConfig {
+            plugin_id: Some(CACHE_PLAYER_PLUGIN_ID.to_string()),
+            // 起動時の音色は既定プラグイン向けの指定なので持ち込まない。
+            patch_path: None,
+            // 音源は DAW が絶対パスで指すので基点を持たない。
+            patches_dir: None,
+            ..core_cfg.clone()
+        },
+    });
+}
+
+/// cache-player のプロファイル名。ログとエラー文にしか使わない。
+const CACHE_PLAYER_PROFILE_NAME: &str = "Cache Player";
 
 /// patch 文字列がどのプラグインを要求しているか。`kinds` の添字を返す。
 ///
@@ -140,6 +181,7 @@ pub struct PatchBases {
     vvp: Option<String>,
     floe_preset: Option<String>,
     sfz: Option<String>,
+    cache_wav: Option<String>,
 }
 
 impl PatchBases {
@@ -178,6 +220,8 @@ impl PatchBases {
             vvp: vvp.map(str::to_string),
             floe_preset: floe_preset.map(str::to_string),
             sfz: sfz.map(str::to_string),
+            // 組み込み cache-player は基点を持たない（DAW が絶対パスを渡す）。
+            cache_wav: None,
         }
     }
 
@@ -189,6 +233,7 @@ impl PatchBases {
             PatchForm::Vvp => self.vvp.as_deref(),
             PatchForm::FloePreset => self.floe_preset.as_deref(),
             PatchForm::Sfz => self.sfz.as_deref(),
+            PatchForm::CacheWav => self.cache_wav.as_deref(),
         }
     }
 
@@ -199,6 +244,7 @@ impl PatchBases {
             PatchForm::Vvp => &mut self.vvp,
             PatchForm::FloePreset => &mut self.floe_preset,
             PatchForm::Sfz => &mut self.sfz,
+            PatchForm::CacheWav => &mut self.cache_wav,
         }
     }
 }

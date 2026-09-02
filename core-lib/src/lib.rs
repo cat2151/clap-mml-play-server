@@ -1,5 +1,6 @@
 mod audio_plugin;
 pub mod boot_log;
+pub mod cache_wav;
 pub mod dx7;
 pub mod floe;
 pub mod host;
@@ -48,7 +49,9 @@ pub use dx7::{
     DX7_PROGRAMS_PER_CARTRIDGE,
 };
 pub use floe::{is_floe_preset_path, FLOE_PLUGIN_ID};
-pub use host::{load_entry, PluginEntry};
+pub use host::{
+    builtin_plugin_path, load_builtin_entry, load_entry, PluginEntry, BUILTIN_PLUGIN_PATH_PREFIX,
+};
 pub use logging::{set_log_sink, LogSink};
 pub use patch_list::{collect_patches, to_relative};
 pub use pipeline::{
