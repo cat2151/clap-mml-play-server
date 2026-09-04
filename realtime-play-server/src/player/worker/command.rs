@@ -195,6 +195,18 @@ pub(super) fn apply_command(context: CommandContext<'_>, command: PlayerCommand)
         } => {
             ensure_live_mode(playback_mode, generation, banks.instance_count());
             let index = usize::from(instance_id);
+            // **このスロットを書き換えた瞬間の再生位置。** クライアントが予約した
+            // note on の位置（`at_frames`）と突き合わせるためだけにある。
+            // 予約位置より後ろの clock で書き換えていたら、その note on が鳴る前に
+            // 中身を差し替えてしまったということ＝別の小節が鳴る。
+            let clock = match playback_mode.as_ref() {
+                Some(PlaybackMode::Live { clock_samples, .. }) => *clock_samples,
+                _ => 0,
+            };
+            eprintln!(
+                "cmrt-live-patch: event=apply instance={index} clock={clock} patch={}",
+                patch.as_deref().unwrap_or("-")
+            );
             // 差し替えと settle は instance を所有している bank worker 上で走る。
             let result = banks.prepare_patch(index, patch.as_deref(), true);
             if let Some(PlaybackMode::Live {

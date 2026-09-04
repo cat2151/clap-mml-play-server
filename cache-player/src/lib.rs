@@ -16,6 +16,16 @@
 //! CLAP state（`clap_plugin_state`）に **WAV のパスを UTF-8 で書く**。Surge の `.fxp` や
 //! Vaporizer2 の `.vvp` を state として流しているのと同じ経路に乗るので、
 //! `PreparePatch` / `PrepareStandbyPatch` をそのまま使える。
+//!
+//! # スロット
+//! 音源は 1 本ではなく [`SLOT_COUNT`] 本のスロットで持つ。state の綴りでスロットを選び、
+//! note number でどのスロットを鳴らすかを選ぶ。綴りと対応規則は [`slots`] を参照。
+//! 「小節 N を鳴らしている最中に小節 N+1 を載せておく」先読みのための仕組み。
+//!
+//! # 鳴っている音はスロットの差し替えで切らない
+//! voice は自分が鳴らす音源の `Arc` を握るので、スロットを差し替えても最後まで鳴り切る
+//! （`stop_all()` を呼ばない）。そのぶん `Arc` の解放が RT スレッドで起きうるので、
+//! 要らなくなった `Arc` は [`graveyard`] へ預けて main thread に解放させる。
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -28,8 +38,14 @@ use clack_plugin::prelude::*;
 use clack_plugin::stream::{InputStream, OutputStream};
 
 use crate::buffer::{CacheBuffer, VoiceBank};
+use crate::graveyard::{BufferGraveyard, SharedGraveyard};
+use crate::slots::{parse_state, slot_for_note, CacheSlots, StateRequest};
 
 pub mod buffer;
+pub mod graveyard;
+pub mod slots;
+
+pub use crate::slots::{slot_patch_state, SLOT_COUNT};
 
 #[cfg(test)]
 mod tests;
@@ -84,14 +100,28 @@ impl DefaultPluginFactory for CachePlayerPlugin {
 /// `try_lock` を試し、取れなければ古いバッファのまま鳴らし続ける。
 #[derive(Default)]
 pub struct CachePlayerShared {
-    buffer: Mutex<Option<Arc<CacheBuffer>>>,
+    slots: Mutex<CacheSlots>,
     generation: AtomicU64,
+    /// RT スレッドが手放した `Arc` の置き場。解放は main thread が行う。
+    graveyard: SharedGraveyard,
 }
 
 impl CachePlayerShared {
-    /// 音源を差し替える（main thread から呼ぶ）。
-    fn set_buffer(&self, buffer: Option<Arc<CacheBuffer>>) {
-        *self.buffer.lock().unwrap_or_else(|e| e.into_inner()) = buffer;
+    /// 1 スロットぶんの音源を差し替える（main thread から呼ぶ）。
+    fn set_slot(&self, slot: usize, buffer: Option<Arc<CacheBuffer>>) {
+        self.slots
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .set(slot, buffer);
+        self.generation.fetch_add(1, Ordering::Release);
+    }
+
+    /// 全スロットを空にする（空 state を受けたとき）。
+    fn clear_slots(&self) {
+        self.slots
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear_all();
         self.generation.fetch_add(1, Ordering::Release);
     }
 }
@@ -114,28 +144,35 @@ impl PluginStateImpl for CachePlayerMainThread<'_> {
     fn load(&self, input: &mut InputStream) -> Result<(), PluginError> {
         use std::io::Read;
 
-        let mut path = String::new();
+        // main thread に居るいまのうちに、RT スレッドが手放した音源を解放する。
+        // 先読みは小節ごとに state load を出すので、ここが定期的な引き取り口になる。
+        self.shared.graveyard.reclaim();
+
+        let mut state = String::new();
         input
-            .read_to_string(&mut path)
+            .read_to_string(&mut state)
             .map_err(|_| PluginError::Message("state を読めない"))?;
-        let path = path.trim();
-        if path.is_empty() {
-            self.shared.set_buffer(None);
-            return Ok(());
+        match parse_state(&state).map_err(|_| PluginError::Message("state の綴りが不正"))? {
+            StateRequest::ClearAll => self.shared.clear_slots(),
+            StateRequest::Clear { slot } => self.shared.set_slot(slot, None),
+            StateRequest::Load { slot, path } => {
+                let buffer = CacheBuffer::load_wav(&path)
+                    .map_err(|_| PluginError::Message("キャッシュ WAV を読めない"))?;
+                self.shared.set_slot(slot, Some(Arc::new(buffer)));
+            }
         }
-        let buffer = CacheBuffer::load_wav(path)
-            .map_err(|_| PluginError::Message("キャッシュ WAV を読めない"))?;
-        self.shared.set_buffer(Some(Arc::new(buffer)));
         Ok(())
     }
 }
 
 pub struct CachePlayerAudioProcessor<'a> {
     shared: &'a CachePlayerShared,
-    /// audio thread が持っている音源。`generation` が動いたときだけ拾い直す。
-    buffer: Option<Arc<CacheBuffer>>,
+    /// audio thread が持っているスロット。`generation` が動いたときだけ拾い直す。
+    slots: CacheSlots,
     seen_generation: u64,
     voices: VoiceBank,
+    /// 手放した `Arc` の手元の置き場。`process` の最後に共有側へ move する。
+    returns: BufferGraveyard,
 }
 
 impl<'a> PluginAudioProcessor<'a, CachePlayerShared, CachePlayerMainThread<'a>>
@@ -149,9 +186,10 @@ impl<'a> PluginAudioProcessor<'a, CachePlayerShared, CachePlayerMainThread<'a>>
     ) -> Result<Self, PluginError> {
         Ok(Self {
             shared,
-            buffer: None,
+            slots: CacheSlots::default(),
             seen_generation: 0,
             voices: VoiceBank::new(),
+            returns: BufferGraveyard::new(),
         })
     }
 
@@ -161,7 +199,7 @@ impl<'a> PluginAudioProcessor<'a, CachePlayerShared, CachePlayerMainThread<'a>>
         mut audio: Audio,
         events: Events,
     ) -> Result<ProcessStatus, PluginError> {
-        self.refresh_buffer();
+        self.refresh_slots();
 
         let mut output_port = audio
             .output_port(0)
@@ -180,16 +218,17 @@ impl<'a> PluginAudioProcessor<'a, CachePlayerShared, CachePlayerMainThread<'a>>
 
         for event_batch in events.input.batch() {
             for event in event_batch.events() {
-                if is_note_on(event) {
-                    // 音高は当面見ない（1 instance = 1 キャッシュ）。将来は
-                    // note number を小節 index として使う。
-                    self.voices.note_on();
+                let Some(note) = note_on_number(event) else {
+                    continue;
+                };
+                // note number がスロットを選ぶ（[`slots::slot_for_note`]）。
+                // 空のスロットを鳴らせと言われたら、前の小節の音を出さずに黙る。
+                if let Some(buffer) = self.slots.get(slot_for_note(note)) {
+                    let buffer = Arc::clone(buffer);
+                    self.voices.note_on(buffer, &mut self.returns);
                 }
             }
 
-            let Some(buffer) = self.buffer.as_ref() else {
-                continue;
-            };
             // `sample_bounds()` は Range ではなく `(Bound, Bound)` なので、
             // 長さはスライスしてから取る。
             let bounds = event_batch.sample_bounds();
@@ -198,11 +237,14 @@ impl<'a> PluginAudioProcessor<'a, CachePlayerShared, CachePlayerMainThread<'a>>
                 if let Some(channel) = output_channels.channel_mut(index as u32) {
                     let slice = &mut channel[bounds];
                     frames = slice.len();
-                    self.voices.mix_channel(buffer, index, slice);
+                    self.voices.mix_channel(index, slice);
                 }
             }
-            self.voices.advance(buffer, frames);
+            self.voices.advance(frames, &mut self.returns);
         }
+
+        // 手放した `Arc` を main thread へ渡す。取れなければ手元に残して次の block で再試行。
+        self.shared.graveyard.try_collect(&mut self.returns);
 
         if self.voices.has_active_voices() {
             Ok(ProcessStatus::Continue)
@@ -211,43 +253,58 @@ impl<'a> PluginAudioProcessor<'a, CachePlayerShared, CachePlayerMainThread<'a>>
         }
     }
 
+    /// 演奏そのものの停止。**ここでだけ `stop_all()` を呼んでよい。**
+    ///
+    /// 停止時なので音が切れて構わないが、解放は RT の外へ出す。手元に残ったぶんは
+    /// deactivate（main thread）でこの struct ごと落ちるときに解放される。
     fn stop_processing(&mut self) {
-        self.voices.stop_all();
+        self.voices.stop_all(&mut self.returns);
+        self.shared.graveyard.try_collect(&mut self.returns);
     }
 }
 
-/// note on として扱うイベントか。
+/// note on として扱うイベントなら、その note number を返す。
 ///
 /// **MIDI dialect を必ず見ること。** play server は live も offline も
 /// `clap_event_midi`（生の 3 バイト）でノートを送る（`core-lib` の
 /// `process_chunk_with_timing`）。CLAP note event だけを見ていると、
 /// ホストからは「イベントを送ったのに無音」に見える。
-fn is_note_on(event: &UnknownEvent) -> bool {
+///
+/// CLAP note event が音高を指定していない（`Match::All`）ときは 0 を返す。
+/// [`slots::slot_for_note`] が剰余を取るので、それはスロット 0 になる。
+fn note_on_number(event: &UnknownEvent) -> Option<u8> {
     match event.as_core_event() {
-        Some(CoreEventSpace::NoteOn(_)) => true,
+        Some(CoreEventSpace::NoteOn(note)) => {
+            Some(note.key().into_specific().unwrap_or(0).min(127) as u8)
+        }
         // status の上位ニブルが 0x9、かつ velocity が 0 でないものだけ note on。
         // velocity 0 の 0x9n は note off の別表記なので数えない。
         Some(CoreEventSpace::Midi(midi)) => {
             let data = midi.data();
-            data[0] & 0xF0 == 0x90 && data[2] != 0
+            (data[0] & 0xF0 == 0x90 && data[2] != 0).then_some(data[1])
         }
-        _ => false,
+        _ => None,
     }
 }
 
 impl CachePlayerAudioProcessor<'_> {
-    /// main thread が音源を差し替えていたら拾い直す。**ブロックしない。**
-    fn refresh_buffer(&mut self) {
+    /// main thread がスロットを差し替えていたら拾い直す。**ブロックしない。**
+    ///
+    /// **鳴っている voice には触らない。** voice は自分が握った `Arc` を鳴らし続けるので、
+    /// スロットが差し替わっても余韻が切れない（ここで `stop_all()` を呼んでいたのが
+    /// 小節境界のぶつ切りの正体だった）。手放した古いスロットは graveyard へ預ける。
+    fn refresh_slots(&mut self) {
         let generation = self.shared.generation.load(Ordering::Acquire);
         if generation == self.seen_generation {
             return;
         }
-        let Ok(buffer) = self.shared.buffer.try_lock() else {
+        let Ok(slots) = self.shared.slots.try_lock() else {
             return;
         };
-        self.buffer = buffer.clone();
+        let mut previous = std::mem::replace(&mut self.slots, slots.clone());
+        drop(slots);
+        previous.bury_into(&mut self.returns);
         self.seen_generation = generation;
-        self.voices.stop_all();
     }
 }
 

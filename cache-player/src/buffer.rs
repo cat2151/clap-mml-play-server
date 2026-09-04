@@ -3,6 +3,10 @@
 //! ここは CLAP に依存しない純粋なロジックだけを置く。プラグイン本体
 //! （[`crate`]）はここを呼ぶだけにして、テストを CLAP 抜きで書けるようにする。
 
+use std::sync::Arc;
+
+use crate::graveyard::BufferGraveyard;
+
 /// デインターリーブ済みのキャッシュ音源。
 ///
 /// DAW の cell キャッシュ（`daw_cache/<plugin>/track{t}_meas{m}.wav`）を
@@ -62,11 +66,26 @@ impl CacheBuffer {
     pub fn sample_rate(&self) -> u32 {
         self.sample_rate
     }
+
+    /// テスト用。WAV を書き出さずに中身を組み立てる。
+    #[cfg(test)]
+    pub(crate) fn from_channels(channels: Vec<Vec<f32>>, sample_rate: u32) -> Self {
+        Self {
+            channels,
+            sample_rate,
+        }
+    }
 }
 
-/// 鳴っている 1 つのキャッシュ再生。`position` は先頭からのフレーム数。
-#[derive(Clone, Copy)]
+/// 鳴っている 1 つのキャッシュ再生。
+///
+/// **voice は自分が鳴らす [`CacheBuffer`] を `Arc` で握る。** スロット
+/// （[`crate::slots`]）が差し替わっても、鳴っている音は最後まで鳴り切る。
+/// スロット index を参照する形にすると、差し替えの瞬間に音源が入れ替わるか、
+/// `stop_all()` で切るしかなくなる（それが小節境界の「ぶつ切り」の正体だった）。
 pub struct Voice {
+    buffer: Arc<CacheBuffer>,
+    /// 先頭からのフレーム数。
     position: usize,
 }
 
@@ -77,6 +96,11 @@ pub struct Voice {
 pub const MAX_VOICES: usize = 8;
 
 /// 固定長の voice 置き場。`process` 中に一切確保しない。
+///
+/// **`Arc` の clone は確保ではない**（参照カウントを 1 増やすだけ）ので、
+/// voice が音源を握る形にしても RT の制約は崩れない。崩れうるのは**解放**のほうなので、
+/// voice を手放すメソッドはすべて [`BufferGraveyard`] を受け取り、
+/// 要らなくなった `Arc` をそこへ預ける（drop しない）。
 pub struct VoiceBank {
     voices: [Option<Voice>; MAX_VOICES],
     next_slot: usize,
@@ -91,13 +115,15 @@ impl Default for VoiceBank {
 impl VoiceBank {
     pub fn new() -> Self {
         Self {
-            voices: [None; MAX_VOICES],
+            voices: std::array::from_fn(|_| None),
             next_slot: 0,
         }
     }
 
-    /// 先頭から再生する voice を 1 つ起こす。空きが無ければ最も古いものを潰す。
-    pub fn note_on(&mut self) {
+    /// 渡された音源を先頭から鳴らす voice を 1 つ起こす。空きが無ければ最も古いものを潰す。
+    ///
+    /// 潰した voice が握っていた `Arc` は `graveyard` へ預ける（RT スレッドで解放しない）。
+    pub fn note_on(&mut self, buffer: Arc<CacheBuffer>, graveyard: &mut BufferGraveyard) {
         let slot = self
             .voices
             .iter()
@@ -107,11 +133,22 @@ impl VoiceBank {
                 self.next_slot = (self.next_slot + 1) % MAX_VOICES;
                 slot
             });
-        self.voices[slot] = Some(Voice { position: 0 });
+        let replaced = self.voices[slot].replace(Voice {
+            buffer,
+            position: 0,
+        });
+        bury_voice(replaced, graveyard);
     }
 
-    pub fn stop_all(&mut self) {
-        self.voices = [None; MAX_VOICES];
+    /// 鳴っている voice をすべて止める。
+    ///
+    /// **`process` 中には呼ばない。** スロットの差し替えでこれを呼んでいたのが
+    /// 小節境界の「ぶつ切り」の正体だった。呼んでよいのは演奏そのものの停止時
+    /// （`stop_processing`）だけ。
+    pub fn stop_all(&mut self, graveyard: &mut BufferGraveyard) {
+        for voice in self.voices.iter_mut() {
+            bury_voice(voice.take(), graveyard);
+        }
     }
 
     pub fn has_active_voices(&self) -> bool {
@@ -123,10 +160,12 @@ impl VoiceBank {
     /// CLAP の出力バッファはチャンネルを 1 本ずつしか可変借用できないので、
     /// 「全チャンネルを混ぜてから位置を進める」の 2 段階に分けている。
     /// `out` の中身は呼び出し側でゼロ埋めしておくこと。
-    pub fn mix_channel(&self, buffer: &CacheBuffer, channel_index: usize, out: &mut [f32]) {
-        let source = buffer.channel(channel_index);
+    ///
+    /// voice ごとに音源が違うので、**別スロットの音がここで足し合わされる**。
+    pub fn mix_channel(&self, channel_index: usize, out: &mut [f32]) {
         for active in self.voices.iter().flatten() {
-            let remaining = buffer.frames().saturating_sub(active.position);
+            let source = active.buffer.channel(channel_index);
+            let remaining = active.buffer.frames().saturating_sub(active.position);
             let copy_frames = remaining.min(out.len());
             for frame in 0..copy_frames {
                 out[frame] += source[active.position + frame];
@@ -136,17 +175,27 @@ impl VoiceBank {
 
     /// [`Self::mix_channel`] を全チャンネルぶん呼んだあとに、再生位置を進める。
     ///
-    /// バッファ末尾に達した voice はここで解放される。
-    pub fn advance(&mut self, buffer: &CacheBuffer, frames: usize) {
+    /// バッファ末尾に達した voice はここで終わり、握っていた `Arc` は `graveyard` へ渡る。
+    pub fn advance(&mut self, frames: usize, graveyard: &mut BufferGraveyard) {
         for voice in self.voices.iter_mut() {
             let Some(active) = voice else {
                 continue;
             };
-            let remaining = buffer.frames().saturating_sub(active.position);
+            let remaining = active.buffer.frames().saturating_sub(active.position);
             active.position += remaining.min(frames);
-            if active.position >= buffer.frames() {
-                *voice = None;
+            if active.position >= active.buffer.frames() {
+                bury_voice(voice.take(), graveyard);
             }
         }
     }
 }
+
+/// 役目を終えた voice の `Arc` を graveyard へ預ける。
+fn bury_voice(voice: Option<Voice>, graveyard: &mut BufferGraveyard) {
+    if let Some(voice) = voice {
+        graveyard.bury(voice.buffer);
+    }
+}
+
+#[cfg(test)]
+mod tests;

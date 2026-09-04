@@ -13,6 +13,7 @@ use super::{
     auto_gain::target_rms_db,
     instances::PluginKind,
     limiter::MasterLimiter,
+    live_capture::LiveCapture,
     mixer::add_samples_ramped,
     output_stream::build_output_stream,
     runtime::{
@@ -100,6 +101,9 @@ pub(super) fn run_player_worker(
     let mut timing_window = LiveTimingWindow::new(core_cfg.sample_rate);
     // 進行中の先読みロード。**持ったまま演奏 bank を回し続ける**のが Stage 3 の要点。
     let mut standby: Option<StandbyLoad> = None;
+    // live mix の出力そのものを録る診断用のタップ（`CMRT_LIVE_CAPTURE_WAV`）。
+    // 既定では None なので、通常の演奏では 1 命令も増えない。
+    let mut live_capture = LiveCapture::from_env(core_cfg.sample_rate);
     loop {
         // 先読みの返事を拾う。来ていなければ何もしないので、演奏は止まらない。
         standby::poll(
@@ -151,6 +155,13 @@ pub(super) fn run_player_worker(
                 },
                 command,
             );
+            // 停止で演奏が終わったらここが書き出し点。プロセスを強制終了すると
+            // worker 末尾までは走らないので、**止まった瞬間に書く**必要がある。
+            if playback_mode.is_none() {
+                if let Some(capture) = live_capture.as_mut() {
+                    capture.finish();
+                }
+            }
             continue;
         }
         if let Some(command) = inner.pop_pending_command() {
@@ -168,6 +179,13 @@ pub(super) fn run_player_worker(
                 },
                 command,
             );
+            // 停止で演奏が終わったらここが書き出し点。プロセスを強制終了すると
+            // worker 末尾までは走らないので、**止まった瞬間に書く**必要がある。
+            if playback_mode.is_none() {
+                if let Some(capture) = live_capture.as_mut() {
+                    capture.finish();
+                }
+            }
             continue;
         }
         if !output_producer.wait_for_space_timeout(OUTPUT_WAIT_TIMEOUT) {
@@ -176,6 +194,11 @@ pub(super) fn run_player_worker(
 
         let render_started = Instant::now();
         let live_block = matches!(playback_mode, Some(PlaybackMode::Live { .. }));
+        // render は clock を進めるので、ブロック先頭の位置は**呼ぶ前**に読む。
+        let live_clock = match playback_mode.as_ref() {
+            Some(PlaybackMode::Live { clock_samples, .. }) => *clock_samples,
+            _ => 0,
+        };
         let render_result = match playback_mode.as_mut() {
             Some(PlaybackMode::Scheduled {
                 generation,
@@ -210,6 +233,11 @@ pub(super) fn run_player_worker(
                 let render_elapsed = render_started.elapsed();
                 let reduction = limiter.process(&mut samples);
                 limiter_meter.update(reduction.current_db, reduction.peak_db);
+                if live_block {
+                    if let Some(capture) = live_capture.as_mut() {
+                        capture.push(&samples, live_clock);
+                    }
+                }
                 if !output_producer.push_chunk(generation, samples) {
                     playback_mode = None;
                 } else if live_block {
@@ -224,6 +252,9 @@ pub(super) fn run_player_worker(
                 }
             }
             Ok(None) => {
+                if let Some(capture) = live_capture.as_mut() {
+                    capture.finish();
+                }
                 audio_output.finish();
                 limiter.reset();
                 limiter_meter.reset();
@@ -232,6 +263,9 @@ pub(super) fn run_player_worker(
             }
             Err(error) => {
                 eprintln!("realtime play process failed: {error:#}");
+                if let Some(capture) = live_capture.as_mut() {
+                    capture.finish();
+                }
                 banks.reset_all();
                 limiter.reset();
                 limiter_meter.reset();
@@ -240,6 +274,10 @@ pub(super) fn run_player_worker(
                 playback_mode = None;
             }
         }
+    }
+    // 録っていれば書き出す。停止コマンドで抜けた経路はここが唯一の書き出し点。
+    if let Some(capture) = live_capture.as_mut() {
+        capture.finish();
     }
     // 待っているクライアントを必ず解放してから畳む。ここで拾わないと、先読みの
     // 完了待ちが timeout まで返らない。

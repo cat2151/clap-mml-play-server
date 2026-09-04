@@ -5,6 +5,7 @@ mod commands;
 mod instances;
 mod limiter;
 mod live;
+mod live_capture;
 mod mixer;
 mod output_stream;
 mod runtime;

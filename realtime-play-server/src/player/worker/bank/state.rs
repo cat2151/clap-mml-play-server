@@ -28,6 +28,11 @@ use super::protocol::{
 
 /// `set_patch` のあと空回しするブロック数。プラグインによっては state load の反映に
 /// `process()` が要る（Dexed）。
+///
+/// **空回しは鳴っている音の再生位置を進める。** 鳴っている voice を跨いで差し替える
+/// プラグイン（cache-player）では 1 ブロックも回さない。その判断は
+/// `RealtimeRenderer::switch_patch` の中にあり、ここは「回してよいなら何ブロックか」
+/// だけを決める。
 const PATCH_SETTLE_BLOCKS: usize = 4;
 
 /// render している thread をログへ出す間隔（block 数）。
@@ -184,18 +189,9 @@ impl BankState {
         let outcome = match self.swap_in(&job) {
             Ok(swapped) => {
                 let renderer = &mut self.renderers[job.local_index];
-                if job.reset_before {
-                    renderer.reset();
-                }
+                let settle_blocks = if job.settle { PATCH_SETTLE_BLOCKS } else { 0 };
                 let result = renderer
-                    .set_patch(job.patch.as_deref())
-                    .and_then(|()| {
-                        if job.settle {
-                            settle_patch(renderer)
-                        } else {
-                            Ok(())
-                        }
-                    })
+                    .switch_patch(job.patch.as_deref(), job.reset_before, settle_blocks)
                     .map_err(|error| format!("{error:#}"));
                 PatchOutcome { swapped, result }
             }
@@ -214,11 +210,8 @@ impl BankState {
         let outcome = match self.swap_in(&job) {
             Ok(swapped) => {
                 let renderer = &mut self.renderers[job.local_index];
-                if job.reset_before {
-                    renderer.reset();
-                }
                 let result = renderer
-                    .set_patch(job.patch.as_deref())
+                    .switch_patch(job.patch.as_deref(), job.reset_before, 0)
                     .and_then(|()| renderer.probe_voicing())
                     .map_err(|error| format!("{error:#}"));
                 PatchOutcome { swapped, result }
@@ -293,11 +286,4 @@ impl BankState {
             },
         );
     }
-}
-
-fn settle_patch(renderer: &mut RealtimeRenderer) -> anyhow::Result<()> {
-    for _ in 0..PATCH_SETTLE_BLOCKS {
-        renderer.render_live_chunk_with_offsets(&[])?;
-    }
-    Ok(())
 }

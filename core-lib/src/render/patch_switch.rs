@@ -3,6 +3,11 @@
 //! パッチの「形式」を知っているのは [`super::patch_state`]（`.fxp` と CLAP state）・
 //! [`super::cartridge_patch`]（cartridge の 1 program）・[`super::vvp_patch`]（`.vvp`）で、
 //! ここはそのどれを使うかを決めて、いま何が載っているかを記録するだけ。
+//!
+//! 差し替えの**前後にどんな下準備をしてよいか**（鳴っている音を切る・反映のために
+//! `process()` を空回しする）もここが持つ（[`RealtimeRenderer::switch_patch`]）。
+//! 呼び出し側ごとに手順を組み立てると、**空回しが鳴っている音の再生位置を進める**という
+//! 副作用を 1 か所で止められない。
 
 use anyhow::Result;
 use clack_host::prelude::PluginInstance;
@@ -15,6 +20,7 @@ use crate::floe::is_floe_preset_path;
 use crate::host::MidiRenderHost;
 use crate::sforzando::is_sfz_patch_path;
 use crate::vvp::is_vvp_patch_path;
+use cmrt_cache_player::CACHE_PLAYER_PLUGIN_ID;
 
 impl RealtimeRenderer {
     /// 再生前にパッチを切り替える。同一パッチなら何もしない。
@@ -94,11 +100,68 @@ impl RealtimeRenderer {
         }
     }
 
+    /// 音色を差し替える。差し替えの前後の**下準備までを含んだ**入口。
+    ///
+    /// - `reset_before` … 載せる前に、鳴っている音を切って処理状態を捨てる
+    /// - `settle_blocks` … 載せたあとに空回しする `process()` のブロック数。
+    ///   state load だけでは反映されないプラグイン（Dexed）のために要る
+    ///
+    /// # 空回しは「鳴っている音の再生位置」を進める
+    ///
+    /// `reset()` の all sound off も settle の空回しも `process()` を呼ぶ。呼んだぶんだけ
+    /// プラグインの中の時間は進むので、**鳴っている voice を持ったまま差し替えるプラグイン
+    /// では、その音が空回しぶん先へ飛ぶ。**
+    ///
+    /// 実測（2026-09-03、`docs/adr/0018-patch-load-must-not-spin-the-plugin.md`）。DAW の先読みは
+    /// 小節 N を鳴らしている最中に、**同じ instance の別スロットへ**小節 N+1 を載せる。
+    /// cache-player は「鳴っている音はスロットの差し替えで切らない」契約なので、
+    /// reset の 1 ブロックと settle の 4 ブロック、計 512×5 = 2560 フレーム（53.3ms）ぶん
+    /// 鳴っている小節の再生位置が飛んでいた（小節の頭から 133ms 以内で 53ms 早くなり、
+    /// そのぶん小節の終わりが鳴らずに終わる）。
+    ///
+    /// だから [`Self::keeps_voices_across_patch_load`] が真のプラグインでは
+    /// **1 ブロックも回さない。** cache-player の state load は `load()` がスロットへ
+    /// 差した時点で完了しているので、反映のための空回しも元から要らない。
+    pub fn switch_patch(
+        &mut self,
+        patch: Option<&str>,
+        reset_before: bool,
+        settle_blocks: usize,
+    ) -> Result<()> {
+        let may_spin = !self.keeps_voices_across_patch_load();
+        if reset_before && may_spin {
+            self.reset();
+        }
+        self.set_patch(patch)?;
+        if may_spin {
+            for _ in 0..settle_blocks {
+                self.render_live_chunk_with_offsets(&[])?;
+            }
+        }
+        Ok(())
+    }
+
+    /// このプラグインは、音色を差し替えても**鳴っている音を切らない**契約か。
+    ///
+    /// 真なら、差し替えのついでに `process()` を回してはいけない
+    /// （[`Self::switch_patch`] の「空回しは再生位置を進める」）。
+    pub fn keeps_voices_across_patch_load(&self) -> bool {
+        keeps_voices_across_patch_load(&self.plugin_id)
+    }
+
     pub(super) fn plugin_instance_mut(&mut self) -> &mut PluginInstance<MidiRenderHost> {
         self.plugin_instance
             .as_mut()
             .expect("plugin instance is always present while renderer is alive")
     }
+}
+
+/// その plugin ID は「音色を差し替えても鳴っている音を切らない」プラグインか。
+///
+/// いまのところ組み込みの cache-player だけ。他のプラグインは差し替えのたびに
+/// 鳴っている音を切ってよい（切らないと前の音色の voice が新しい state で鳴り続ける）。
+fn keeps_voices_across_patch_load(plugin_id: &str) -> bool {
+    plugin_id == CACHE_PLAYER_PLUGIN_ID
 }
 
 /// `set_patch()` の要求を、プラグインへの実際の操作へ翻訳したもの。

@@ -24,3 +24,8 @@ TUI 側（データ表現・config・カタログ）は `../clap-mml-render-tui/
 | [0012](0012-measured-baselines.md) | 実測ベースライン（退行検知用） |
 | [0013](0013-serial-instantiation.md) | 並列生成に耐えないプラグインだけ instance 生成を直列化する |
 | [0014](0014-vvp-as-clap-state.md) | `.vvp` は CLAP state として流す（列挙も選択も host 側） |
+| [0015](0015-sforzando-sfz-preset-load.md) | Sforzando の任意 SFZ は vendor state adapter でロードする |
+| [0016](0016-audio-plugin-catalog-api.md) | UI 向け audio plugin catalog API は server 共有 crate で提供する |
+| [0017](0017-fixed-surge-primary-plugin.md) | 共有 config の既定プラグインを Surge XT に固定する |
+| [0018](0018-patch-load-must-not-spin-the-plugin.md) | 音色ロードの下準備で `process()` を空回ししてよいかはプラグインの契約で決める |
+| [0019](0019-cache-player-slot-headroom.md) | cache-player のスロットは 4 本（クロックの先行を吸収する余裕） |

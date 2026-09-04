@@ -50,3 +50,19 @@ fn sfz_paths_are_told_apart_from_all_other_forms() {
     assert!(!is_sfz_patch_path("PD Emily.vvp"));
     assert!(!is_sfz_patch_path("Harp/Realistic.floe-preset"));
 }
+
+/// 「鳴っている音を切らない」のは cache-player だけであること。
+///
+/// ここが広がると、Surge XT の音色差し替えで前の音色の voice が新しい state のまま
+/// 鳴り続ける。逆に狭まると、DAW の先読みで鳴っている小節の再生位置が飛ぶ。
+#[test]
+fn only_the_cache_player_keeps_its_voices_across_a_patch_load() {
+    assert!(keeps_voices_across_patch_load(CACHE_PLAYER_PLUGIN_ID));
+    for plugin_id in [
+        "org.surge-synth-team.surge-xt",
+        "com.digital-suburban.dexed",
+        "com.vast-dynamics.vaporizer2",
+    ] {
+        assert!(!keeps_voices_across_patch_load(plugin_id), "{plugin_id}");
+    }
+}

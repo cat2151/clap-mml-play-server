@@ -63,6 +63,14 @@ pub(super) struct StandbyContext<'a> {
     pub(super) playback_mode: &'a mut Option<PlaybackMode>,
 }
 
+/// いま鳴らしている位置（サンプル）。live で無ければ 0。
+fn live_clock(playback_mode: &Option<PlaybackMode>) -> u64 {
+    match playback_mode {
+        Some(PlaybackMode::Live { clock_samples, .. }) => *clock_samples,
+        _ => 0,
+    }
+}
+
 /// 先読みを始める。**ロードの完了は待たない。**
 pub(super) fn begin(
     ctx: &mut StandbyContext<'_>,
@@ -88,8 +96,12 @@ pub(super) fn begin(
     let render_skips_at_start = ctx.banks.render_skips(bank);
     match ctx.banks.start_patch(index, request.patch.as_deref()) {
         Ok(pending) => {
+            // `clock` は「このスロットを書き換えた瞬間の再生位置」。**note on の
+            // 予約位置（クライアント側の `at_frames`）と突き合わせるためにある。**
+            // 予約位置より後ろの clock で書き換えていたら、鳴る前に上書きしたということ。
+            let clock = live_clock(ctx.playback_mode);
             eprintln!(
-                "cmrt-standby-load: bank={bank} event=start instance={index} \
+                "cmrt-standby-load: bank={bank} event=start instance={index} clock={clock} \
                  blocks_elsewhere={blocks_elsewhere_at_start} underrun_frames={underrun_at_start}"
             );
             *standby = Some(StandbyLoad {
