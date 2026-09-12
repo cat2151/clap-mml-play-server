@@ -1,6 +1,8 @@
 use super::*;
 use std::path::Path;
 
+mod installed;
+
 #[test]
 fn to_relative_strips_base_prefix() {
     let patches_dir = "/patches";
@@ -310,75 +312,4 @@ fn collect_patches_mixes_all_five_patch_forms() {
     assert_eq!(patches.len(), 36);
     assert!(patches.iter().any(|path| path.ends_with("orchestra.sfz")));
     let _ = std::fs::remove_dir_all(&tmp_dir);
-}
-
-/// 実物のプリセット置き場が丸ごと列挙できること。
-/// 資料の実測（460 件・フラット・すべて `.vvp`）と突き合わせる。
-///
-/// ```text
-/// CMRT_TEST_VAPORIZER2_PRESETS=N:\app4HDD\Vaporizer2\Presets
-/// ```
-#[test]
-#[ignore = "実物の Vaporizer2 プリセット置き場が要る"]
-fn installed_vaporizer2_presets_are_all_listed() {
-    let Ok(dir) = std::env::var("CMRT_TEST_VAPORIZER2_PRESETS") else {
-        panic!("CMRT_TEST_VAPORIZER2_PRESETS が未設定");
-    };
-
-    let patches = collect_patches(&dir).unwrap();
-
-    assert!(
-        !patches.is_empty(),
-        "プリセットが 1 件も見つからない: {dir}"
-    );
-    // ディレクトリを走査して数えた「`.vvp` の実ファイル数」と一致すること。
-    let on_disk = std::fs::read_dir(&dir)
-        .unwrap()
-        .filter_map(Result::ok)
-        .filter(|entry| {
-            entry
-                .path()
-                .extension()
-                .and_then(|e| e.to_str())
-                .is_some_and(|e| e.eq_ignore_ascii_case("vvp"))
-        })
-        .count();
-    assert_eq!(patches.len(), on_disk);
-    assert!(
-        patches
-            .iter()
-            .all(|path| crate::vvp::is_vvp_patch_path(&path.to_string_lossy())),
-        "`.vvp` 以外が混ざっている"
-    );
-}
-
-/// 実物の cartridge が 1 件残らず読めること。合成 fixture では仕様の読み違いを検出できない。
-///
-/// ```text
-/// CMRT_TEST_DEXED_CARTRIDGES=C:\Users\...\DigitalSuburban\Dexed\Cartridges
-/// ```
-#[test]
-#[ignore = "実物の cartridge ディレクトリが要る"]
-fn installed_cartridges_all_parse() {
-    let Ok(dir) = std::env::var("CMRT_TEST_DEXED_CARTRIDGES") else {
-        panic!("CMRT_TEST_DEXED_CARTRIDGES が未設定");
-    };
-
-    let patches = collect_patches(&dir).unwrap();
-
-    assert!(
-        !patches.is_empty(),
-        "cartridge が 1 件も見つからない: {dir}"
-    );
-    assert_eq!(
-        patches.len() % 32,
-        0,
-        "読めなかった cartridge がある（stderr を見ること）: {} 件",
-        patches.len()
-    );
-    for patch in &patches {
-        let relative = to_relative(&dir, patch);
-        crate::dx7::parse_cartridge_patch_path(&relative)
-            .unwrap_or_else(|error| panic!("{relative}: {error:#}"));
-    }
 }

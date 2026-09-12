@@ -1,14 +1,14 @@
 //! Vaporizer2（`com.vastdynamics.VAST2`）の実測と、`.vvp` を CLAP state として
 //! 流し込む経路（Stage 2）。
 //!
-//! `.vvp` を読むテストは、音色置き場を `CMRT_TEST_VAPORIZER2_PRESETS` で渡す。
+//! `.vvp` を読むテストは、音色置き場を本番と同じ経路で config.toml の
+//! `[plugins.Vaporizer2] patches_dirs` から読む（[`vaporizer2_presets_dir`]）。
 //! 共通のヘルパと環境変数は親モジュールにある。
 
 use super::*;
 use crate::vvp::{read_vvp_header, VAPORIZER2_PLUGIN_ID};
 
 const VAPORIZER2_CLAP_ENV: &str = "CMRT_TEST_VAPORIZER2_CLAP";
-const VAPORIZER2_PRESETS_ENV: &str = "CMRT_TEST_VAPORIZER2_PRESETS";
 const VAPORIZER2_PATCH_ENV: &str = "CMRT_TEST_VAPORIZER2_PATCH";
 /// 設定すると、耳で確かめたいレンダリング結果をこのディレクトリへ WAV で書き出す。
 /// **未設定なら 1 バイトも書かない**（テストが実ユーザーのパスを汚さないため）。
@@ -53,16 +53,27 @@ fn vaporizer2_opts_into_neither_preset_discovery_nor_preset_load() {
     assert!(report.extensions.contains(&"clap.state".to_string()));
 }
 
+/// config.toml の `[plugins.Vaporizer2] patches_dirs` の先頭。無ければ panic。
+fn vaporizer2_presets_dir() -> String {
+    let cfg = cmrt_server_config::ServerConfig::load()
+        .expect("config.toml が読めること（先に clap-mml-render-tui を一度起動する）");
+    cfg.patch_dirs_of("Vaporizer2")
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| {
+            panic!(
+                "{} の [plugins.Vaporizer2] patches_dirs が未設定。Vaporizer2 の .vvp の置き場を書くこと",
+                cmrt_server_config::config_file_path().unwrap().display()
+            )
+        })
+}
+
 /// 音色置き場の `.vvp` を `PatchVersion` ごとに 1 つずつ拾う。
 ///
 /// ファイル名を直に書かないのは、音色置き場が個人のものだから。実際にどれが選ばれたかは
 /// 失敗時のメッセージに出る。
 fn vaporizer2_patches_by_version() -> std::collections::BTreeMap<String, std::path::PathBuf> {
-    let dir = std::env::var(VAPORIZER2_PRESETS_ENV).unwrap_or_else(|_| {
-        panic!(
-            "{VAPORIZER2_PRESETS_ENV} に .vvp のディレクトリを設定してからこのテストを実行すること"
-        )
-    });
+    let dir = vaporizer2_presets_dir();
     let mut entries: Vec<std::path::PathBuf> = std::fs::read_dir(&dir)
         .unwrap_or_else(|error| panic!("音色置き場を読めない '{dir}': {error}"))
         .map(|entry| entry.unwrap().path())

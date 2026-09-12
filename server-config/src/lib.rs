@@ -161,6 +161,17 @@ impl ServerConfig {
         patch_root_dir(self.patches_dirs.as_deref())
     }
 
+    /// 名前で指したプラグインの `patches_dirs`（空文字の要素は落とす）。
+    ///
+    /// 組み込みプロファイルと `[plugins.*]` を合わせた結果から引くので、config に
+    /// 節が無くても組み込みの既定値があれば返る。どちらにも無ければ空。
+    pub fn patch_dirs_of(&self, plugin_name: &str) -> Vec<String> {
+        merged_plugin_profiles(&self.plugins)
+            .get(plugin_name)
+            .map(|profile| configured_patch_dirs(profile.patches_dirs.as_deref()))
+            .unwrap_or_default()
+    }
+
     /// このマシンで実際に使えるプラグインのプロファイル（`plugin_path` が実在するものだけ）。
     ///
     /// Surge XT 1 つではなく、**同じプロセスに同時に載せられる候補**を返す。

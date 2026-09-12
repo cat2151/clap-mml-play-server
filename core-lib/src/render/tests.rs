@@ -7,7 +7,6 @@
 //! CMRT_TEST_DEXED_CLAP=C:\Program Files\Common Files\CLAP\Dexed.clap
 //! CMRT_TEST_SURGE_CLAP=C:\Program Files\Common Files\CLAP\Surge Synth Team\Surge XT.clap
 //! CMRT_TEST_VAPORIZER2_CLAP=C:\Program Files\Common Files\CLAP\VASTvaporizer2.clap
-//! CMRT_TEST_VAPORIZER2_PRESETS=<.vvp を置いてあるディレクトリ>
 //! CMRT_TEST_VAPORIZER2_PATCH=<単独で調べる .vvp>
 //! CMRT_TEST_FLOE_CLAP=C:\Program Files\Common Files\CLAP\Floe.clap
 //! CMRT_TEST_FLOE_PRESETS=<.floe-preset を置いてあるディレクトリ>
@@ -22,6 +21,9 @@
 //! テストが 2 本同時に走るとプロセスごと落ちる。
 //!
 //! 環境変数が無いテストは、黙って通さず panic させる（未検証を成功と誤認しないため）。
+//!
+//! Vaporizer2 の `.vvp` の置き場だけは環境変数ではなく、本番と同じ経路で config.toml の
+//! `[plugins.Vaporizer2] patches_dirs` を読む（[`vaporizer2`] module）。
 //!
 //! このファイルにはプラグインをまたいで使うヘルパだけを置く。テスト本体は
 //! プラグイン別（[`dexed`] / [`surge`] / [`vaporizer2`]）と、

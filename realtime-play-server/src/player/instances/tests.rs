@@ -9,11 +9,13 @@
 //! CMRT_TEST_DEXED_CLAP=C:\Program Files\Common Files\CLAP\Dexed.clap
 //! CMRT_TEST_DEXED_CARTRIDGES=C:\Users\<user>\AppData\Roaming\DigitalSuburban\Dexed\Cartridges
 //! CMRT_TEST_VAPORIZER2_CLAP=C:\Program Files\Common Files\CLAP\VASTvaporizer2.clap
-//! CMRT_TEST_VAPORIZER2_PRESETS=<.vvp の置き場>
 //! cargo test -p clap-mml-realtime-play-server -- --include-ignored --test-threads=1
 //! ```
 //!
 //! 環境変数が無いテストは、黙って通さず panic させる（未検証を成功と誤認しないため）。
+//!
+//! Vaporizer2 の `.vvp` の置き場だけは環境変数ではなく、本番と同じ経路で config.toml の
+//! `[plugins.Vaporizer2] patches_dirs` を読む（[`vaporizer2_presets_dir`]）。
 
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -28,7 +30,6 @@ const SURGE_CLAP_ENV: &str = "CMRT_TEST_SURGE_CLAP";
 const DEXED_CLAP_ENV: &str = "CMRT_TEST_DEXED_CLAP";
 const DEXED_CARTRIDGES_ENV: &str = "CMRT_TEST_DEXED_CARTRIDGES";
 const VAPORIZER2_CLAP_ENV: &str = "CMRT_TEST_VAPORIZER2_CLAP";
-const VAPORIZER2_PRESETS_ENV: &str = "CMRT_TEST_VAPORIZER2_PRESETS";
 const SURGE_PLUGIN_ID: &str = "org.surge-synth-team.surge-xt";
 const DEXED_PLUGIN_ID: &str = "com.digital-suburban.dexed";
 const VAPORIZER2_PLUGIN_ID: &str = "com.vastdynamics.VAST2";
@@ -37,6 +38,21 @@ const BUFFER_SIZE: usize = 512;
 
 fn env_path(name: &str) -> String {
     std::env::var(name).unwrap_or_else(|_| panic!("{name} を設定してからこのテストを実行すること"))
+}
+
+/// config.toml の `[plugins.Vaporizer2] patches_dirs` の先頭。無ければ panic。
+fn vaporizer2_presets_dir() -> String {
+    let cfg = cmrt_server_config::ServerConfig::load()
+        .expect("config.toml が読めること（先に clap-mml-render-tui を一度起動する）");
+    cfg.patch_dirs_of("Vaporizer2")
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| {
+            panic!(
+                "{} の [plugins.Vaporizer2] patches_dirs が未設定。Vaporizer2 の .vvp の置き場を書くこと",
+                cmrt_server_config::config_file_path().unwrap().display()
+            )
+        })
 }
 
 fn test_core_cfg() -> CoreConfig {
@@ -112,7 +128,7 @@ fn real_kinds_with_vaporizer2() -> Vec<PluginKind> {
         patch_form: PatchForm::Vvp,
         core_cfg: CoreConfig {
             plugin_id: Some(VAPORIZER2_PLUGIN_ID.to_string()),
-            patches_dir: Some(env_path(VAPORIZER2_PRESETS_ENV)),
+            patches_dir: Some(vaporizer2_presets_dir()),
             ..test_core_cfg()
         },
     });
@@ -123,7 +139,7 @@ fn real_kinds_with_vaporizer2() -> Vec<PluginKind> {
 ///
 /// ファイル名を直書きしないのは、個人の音色置き場の中身に依存しないため。
 fn first_vvp_patch() -> String {
-    let dir = env_path(VAPORIZER2_PRESETS_ENV);
+    let dir = vaporizer2_presets_dir();
     let mut presets = std::fs::read_dir(&dir)
         .unwrap_or_else(|error| panic!("{dir} を読めない: {error}"))
         .filter_map(Result::ok)

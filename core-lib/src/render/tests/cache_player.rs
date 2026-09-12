@@ -121,7 +121,7 @@ fn a_missing_wav_is_rejected_with_the_path() {
     let mut renderer = cache_player_renderer();
 
     let error = renderer
-        .set_patch(Some("N:/does/not/exist.wav"))
+        .set_patch(Some("X:/does/not/exist.wav"))
         .unwrap_err();
 
     assert!(error.to_string().contains("exist.wav"), "{error}");

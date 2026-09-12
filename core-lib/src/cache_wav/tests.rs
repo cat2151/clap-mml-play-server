@@ -33,7 +33,7 @@ fn state_is_the_path_itself_not_the_file_contents() {
 
 #[test]
 fn missing_file_reports_the_path() {
-    let error = cache_wav_state("N:/does/not/exist.wav").unwrap_err();
+    let error = cache_wav_state("X:/does/not/exist.wav").unwrap_err();
     assert!(error.to_string().contains("exist.wav"), "{error}");
 }
 
@@ -84,7 +84,7 @@ fn clearing_a_slot_needs_no_file_on_disk() {
 /// スロット指定つきでも、実在しないパスはパス付きで断ること。
 #[test]
 fn a_missing_file_reports_the_path_even_with_a_slot_prefix() {
-    let error = cache_wav_state("slot=1;N:/does/not/exist.wav").unwrap_err();
+    let error = cache_wav_state("slot=1;X:/does/not/exist.wav").unwrap_err();
 
     assert!(error.to_string().contains("exist.wav"), "{error}");
     assert!(!error.to_string().contains("slot="), "{error}");

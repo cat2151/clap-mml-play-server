@@ -162,3 +162,34 @@ chord_patch_categories = ["SynprezFM"]
 
     assert!(format!("{error:#}").contains("chord_patch_categories"));
 }
+
+#[test]
+fn patch_dirs_of_reads_the_profile_and_drops_blank_entries() {
+    let cfg = load(
+        r#"
+[plugins.Vaporizer2]
+patches_dirs = ["/vaporizer2/presets", ""]
+"#,
+    );
+
+    assert_eq!(
+        cfg.patch_dirs_of("Vaporizer2"),
+        vec!["/vaporizer2/presets".to_string()]
+    );
+}
+
+#[test]
+fn patch_dirs_of_is_empty_when_neither_config_nor_builtin_has_one() {
+    let cfg = load("");
+
+    assert_eq!(cfg.patch_dirs_of("Vaporizer2"), Vec::<String>::new());
+    assert_eq!(cfg.patch_dirs_of("no such plugin"), Vec::<String>::new());
+}
+
+/// config に節が無くても、組み込みプロファイルの既定値は返る（Dexed の cartridge 置き場）。
+#[test]
+fn patch_dirs_of_falls_back_to_the_builtin_profile() {
+    let cfg = load("");
+
+    assert_eq!(cfg.patch_dirs_of("Dexed"), default_dexed_cartridge_dirs());
+}
