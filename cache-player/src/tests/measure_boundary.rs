@@ -1,9 +1,8 @@
-//! **小節境界に音の途切れが無いこと**を、出力サンプル列で固定する（Stage 6）。
+//! **小節境界に音の途切れが無いこと**を、出力サンプル列で固定する。
 //!
-//! ユーザーが報告した症状は 2 つあった。「モタる」（＝ジッタ。TUI 側 `tests/jitter.rs` で
-//! 判定する）と、**「小節ごとにぶつ切りに聴こえる」**。後者の正体は
-//! `refresh_buffer()` の `stop_all()` で、小節境界で全 voice が殺され、
-//! 100ms 強の完全な無音が空いていた。
+//! 「小節ごとにぶつ切り」の正体は `refresh_buffer()` の `stop_all()` で、小節境界で
+//! 全 voice が殺され 100ms 強の無音が空いていた。ジッタ（「モタる」）は別物で、
+//! TUI 側 `tests/jitter.rs` が判定する。
 //!
 //! [`super::sustain`] は「スロットを差し替えても voice が生き残る」という**部品**を見る。
 //! ここは **DAW の演奏ループと同じ順番**（先読み → 小節境界で note on → 次の小節を先読み）
@@ -30,7 +29,7 @@ use crate::SLOT_COUNT;
 const MEASURE_BLOCKS: usize = 2;
 /// 1 小節のフレーム数。
 const MEASURE_FRAMES: usize = MEASURE_BLOCKS * BLOCK_FRAMES;
-/// キャッシュ WAV の長さ。実測（資料の「事実3」）と同じく**小節長より長く**して、
+/// キャッシュ WAV の長さ。実際の DAW と同じく**小節長より長く**して、
 /// 余韻が次の小節へはみ出す状況を作る。ここが小節長ちょうどだと、
 /// `stop_all()` を戻しても差が出ない（どのみち鳴り終わっている）。
 const WAV_FRAMES: usize = 4 * MEASURE_FRAMES;
@@ -100,7 +99,7 @@ fn measure_boundaries_leave_no_gap_in_the_output() {
         rendered[1].extend_from_slice(&output[1]);
 
         // DAW のループと同じ並び: 境界では note on を出したあとに次の小節を先読みする。
-        // 先に先読みを出すと、その state load がそのまま小節の頭の遅れになる（Stage 4）。
+        // 先に先読みを出すと、その state load がそのまま小節の頭の遅れになる。
         if at_boundary {
             let next = measure_index + 1;
             let path = match next {

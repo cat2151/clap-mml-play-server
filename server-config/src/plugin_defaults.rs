@@ -59,7 +59,8 @@ pub fn default_dexed_plugin_path() -> &'static str {
 /// （またはレジストリ）で自由に決める。そこを読みに行くと個人のディレクトリ構成に
 /// 依存するので、`patches_dirs` は config.toml に書いてもらう。
 /// 書かれていないプロファイルは音色置き場が空になり、カタログに載らない
-/// （`docs/adr/0005-...` の実在チェックと同じく、安全側に倒れる）。
+/// （`clap-mml-render-tui` の `docs/adr/0005-mixed-catalog-on-by-default.md` の実在チェックと
+/// 同じく、安全側に倒れる）。
 #[cfg(target_os = "windows")]
 pub fn default_vaporizer2_plugin_path() -> &'static str {
     r"C:\Program Files\Common Files\CLAP\VASTvaporizer2.clap"

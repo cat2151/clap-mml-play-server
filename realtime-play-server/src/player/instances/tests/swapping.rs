@@ -69,11 +69,10 @@ fn a_note_left_sounding_does_not_survive_the_trip_through_the_pool() {
     assert!(leaked < 1.0e-4, "前の音が残っている: peak={leaked}");
 }
 
-/// **ADR 0009 の賭けを 3 プラグインで取り直す。** 2 プラグイン（Surge XT / Dexed）でしか
-/// 測っていなかった「演奏中に `RendererHandoff` の unsafe な移送を踏み続けて大丈夫か」を、
-/// Vaporizer2 を混ぜた構成でもう一度殴る。
+/// **ADR 0009 の賭け**（演奏中に `RendererHandoff` の unsafe な移送を踏み続けて大丈夫か）を、
+/// Vaporizer2 を混ぜた 3 プラグイン構成で取る。
 ///
-/// Vaporizer2 は **instance のスレッド並列生成で segfault する**唯一の実例なので、
+/// Vaporizer2 は **instance のスレッド並列生成で segfault する**唯一の既知プラグインなので、
 /// ここが通ることは同時に「背景スレッドでの生成がホスト側の直列化で守られている」
 /// ことの確認でもある（守られていなければ、背景生成と worker の生成が重なった瞬間に
 /// プロセスごと落ちる）。

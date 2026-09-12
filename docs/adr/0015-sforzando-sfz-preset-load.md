@@ -1,6 +1,6 @@
 # ADR 0015: Sforzando の任意 SFZ は vendor state adapter でロードする
 
-- 状態: 採用（2026-08-23。実機で初期・runtime・offline の非無音を確認）
+- 状態: 採用
 - 関連: [0001](0001-measured-plugin-capabilities.md) / [0006](0006-no-generic-clap-preset-api.md) /
   [0007](0007-patch-string-decides-the-plugin.md)
 
@@ -32,26 +32,17 @@ Sforzando 2.1.2.4 / ARIA Engine 1.982 の空 instance が保存する template �
 最小 Slot（id=0, channel=-1, poly=32, tuning/transposition=0, `Main value=1`）だけを EffectSlot 前へ挿入する。
 template が CEGP/AriaSave でなければ固定 state へ fallback せず具体的な error にする。
 
-## preset-discovery / preset-load の実測
+## 採らなかった案: preset-discovery / preset-load
 
 provider は filesystem `.sfz` location ではなく PLUGIN location `factory` を 1 件公開し、TableWarp2 の
 factory preset 36 件を返した。factory key（例 `3103/com.Plogue.Aria/Keys/Space Flute`）は
 `preset-load(PLUGIN, key)` でロードできる。一方、任意 SFZ は stable / draft/2 の FILE location の双方で
 `false` だった。この API は将来 factory preset を catalog に加える場合だけ別機能として使える。
 
-## 実機受け入れ結果
-
-repository の clack + `RealtimeRenderer` 経路で次を確認した。
-
-- user bank の flute を instance 初期化時に state load し `peak > 1e-6`
-- Free Sounds の Glockenspiel へ runtime switch し `peak > 1e-6`
-- manifest 未登録 Xylophone を state call 前に拒否し、その後も Glockenspiel が非無音
-- flute へ戻して非無音
-- 同じ loader を使う offline render も非無音
-
-## 番人
+## 番人テスト
 
 - `server-config/src/sforzando_programs/tests.rs` — user root、manifest、traversal、競合、583 件実機 catalog
 - `core-lib/src/sforzando/tests.rs` — CEGP/zlib/XML/template/escape
 - `core-lib/src/render/sfz_state/tests.rs` — plugin identity
-- `core-lib/src/render/tests/sforzando.rs` — 初期・runtime・error recovery・offline の実機音声（ignored）
+- `core-lib/src/render/tests/sforzando.rs` — 初期ロード・runtime 切替・拒否後の復帰・offline の
+  実機音声が非無音であること（ignored）

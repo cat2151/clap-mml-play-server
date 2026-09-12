@@ -1,10 +1,8 @@
 //! 使用中プラグインの同定。
 //!
-//! 「いま何のプラグインを使っているか」で振る舞いを変えたい場所（TUI 側の voicing 判定
-//! データ源やキャッシュの置き場）があるので、その材料をここに置く。
-//!
-//! サーバー自身の Surge 判定は `cmrt_core::plugin_is_surge`（ファイル名に surge を含むか、
-//! という粗い最後の手段付き）が担当する。用途が違うので寄せていない。
+//! 「いま何のプラグインを使っているか」で振る舞いを変える場所（TUI 側の voicing 判定データ源や
+//! キャッシュの置き場）の材料。サーバー自身の Surge 判定は `cmrt_core::plugin_is_surge`
+//! （ファイル名に surge を含むかという粗い最後の手段付き）が担当し、用途が違うので寄せていない。
 
 use std::path::PathBuf;
 
@@ -15,10 +13,8 @@ pub const FLOE_PLUGIN_ID: &str = "com.floe-audio.floe";
 pub const SFORZANDO_PLUGIN_ID: &str = "com.Plogue Art et Technologie, Inc.sforzando";
 /// DAW の cell キャッシュ WAV を鳴らす組み込みプラグイン（`cache-player` crate）の CLAP ID。
 ///
-/// **`.clap` ファイルとしてディスクに存在しない。** play server のバイナリへ静的リンクして
-/// `PluginEntry::load_from_clack` で読むので、`installed_plugin_profiles()` の
-/// 「実ファイルがあるか」フィルタには載らない。実体は `cmrt_cache_player` 側の
-/// `CACHE_PLAYER_PLUGIN_ID` で、ここはそれを config 層から参照するための写し。
+/// **`.clap` ファイルとしてディスクに存在しない**（バイナリへ静的リンク）ので、`installed_plugin_profiles()`
+/// の「実ファイルがあるか」フィルタには載らない。実体は `cmrt_cache_player::CACHE_PLAYER_PLUGIN_ID` の写し。
 pub const CACHE_PLAYER_PLUGIN_ID: &str = "org.cat2151.cmrt.cache-player";
 
 /// `plugin_path` のファイル名から拡張子を落としたもの（`Surge XT.clap` → `Surge XT`）。

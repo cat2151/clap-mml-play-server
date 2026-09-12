@@ -126,7 +126,7 @@ const CACHE_PLAYER_PROFILE_NAME: &str = "Cache Player";
 ///
 /// 判別の材料は文字列の形だけ（`docs/adr/0007-patch-string-decides-the-plugin.md`）。無指定は
 /// 既定プラグインへ固定する。そうしておくと、無指定の行が鳴るプラグインが常に
-/// 1 つに決まり、MML 文字列を鍵にしている cache が衝突しない（同 §5.3）。
+/// 1 つに決まり、MML 文字列を鍵にしている cache が衝突しない。
 ///
 /// 同じ形を扱う種別が複数あるときは、誤った plugin へ黙って流さず曖昧さを報告する。
 pub fn kind_for_patch(

@@ -77,10 +77,9 @@ impl RealtimeRenderer {
     /// 要求されたパッチを、実際に行う操作へ翻訳する。
     ///
     /// `None` は Dexed でも Surge と同じく「生成直後の state へ戻す」でよい。
-    /// 設計資料 7.3 は Dexed の `None` を初期 program へ正規化する方針だったが、
-    /// これは cartridge + Program Change 方式で state load 直後の guard に当たるのを
-    /// 避けるためのもの。single voice SysEx へ変えて guard と無関係になったので、
-    /// 意味を曲げずに済むこちらを採る（[`cartridge_patch`]）。
+    /// 却下案: Dexed の `None` を初期 program へ正規化する。cartridge + Program Change 方式で
+    /// state load 直後の guard に当たるのを避けるための物だったが、single voice SysEx へ変えて
+    /// guard と無関係になった（[`cartridge_patch`]）。
     fn resolve_patch_target(&self, patch: Option<&str>) -> Result<PatchTarget> {
         let Some(path) = patch else {
             return Ok(PatchTarget::InitState);
@@ -112,12 +111,10 @@ impl RealtimeRenderer {
     /// プラグインの中の時間は進むので、**鳴っている voice を持ったまま差し替えるプラグイン
     /// では、その音が空回しぶん先へ飛ぶ。**
     ///
-    /// 実測（2026-09-03、`docs/adr/0018-patch-load-must-not-spin-the-plugin.md`）。DAW の先読みは
-    /// 小節 N を鳴らしている最中に、**同じ instance の別スロットへ**小節 N+1 を載せる。
-    /// cache-player は「鳴っている音はスロットの差し替えで切らない」契約なので、
-    /// reset の 1 ブロックと settle の 4 ブロック、計 512×5 = 2560 フレーム（53.3ms）ぶん
-    /// 鳴っている小節の再生位置が飛んでいた（小節の頭から 133ms 以内で 53ms 早くなり、
-    /// そのぶん小節の終わりが鳴らずに終わる）。
+    /// DAW の先読みは小節 N を鳴らしている最中に、**同じ instance の別スロットへ**小節 N+1 を
+    /// 載せる。cache-player は「鳴っている音はスロットの差し替えで切らない」契約なので、
+    /// reset と settle の計 2560 フレーム（53.3ms）ぶん鳴っている小節の再生位置が飛び、
+    /// そのぶん小節の終わりが鳴らずに終わっていた（`docs/adr/0018-patch-load-must-not-spin-the-plugin.md`）。
     ///
     /// だから [`Self::keeps_voices_across_patch_load`] が真のプラグインでは
     /// **1 ブロックも回さない。** cache-player の state load は `load()` がスロットへ

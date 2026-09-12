@@ -255,9 +255,8 @@ fn ramp_position(samples: &[f32]) -> usize {
 /// その下準備は `process()` を呼ぶので、cache-player のように鳴っている voice を
 /// 切らないプラグインでは、その voice の再生位置が空回しぶん先へ飛ぶ。
 ///
-/// 実測（2026-09-03、`docs/adr/0018-patch-load-must-not-spin-the-plugin.md`）では reset の 1 ブロックと
-/// settle の 4 ブロックで 512×5 = 2560 フレーム飛び、小節の頭から 133ms 以内で
-/// 音が 53ms 早くなっていた。ここはその回帰テスト。
+/// 直す前は reset と settle の空回しで 2560 フレーム（53ms）飛んでいた
+/// （`docs/adr/0018-patch-load-must-not-spin-the-plugin.md`）。ここはその回帰テスト。
 #[test]
 fn a_prefetch_while_sounding_does_not_advance_the_playing_voice() {
     let playing = write_ramp_wav("prefetch_playing_ramp.wav", SAMPLE_RATE as usize);

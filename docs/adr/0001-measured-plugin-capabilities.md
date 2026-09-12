@@ -1,6 +1,6 @@
 # ADR 0001: プラグインの実測仕様（descriptor と capability）
 
-- 状態: 記録（2026-08-20 実測 / 2026-08-23 に Sforzando を追加）
+- 状態: 記録
 - 関連: [0002](0002-capability-driven-ports-and-dialects.md) /
   [0006](0006-no-generic-clap-preset-api.md) / [0013](0013-serial-instantiation.md)
 
@@ -17,37 +17,25 @@ clap-mml-realtime-play-server probe-capabilities --plugin-path "C:\Program Files
 
 **文字列検索で判定してはならない理由**は [0006](0006-no-generic-clap-preset-api.md) の落とし穴を参照。
 
-## 実測値
+## 実測値（設計判断に効く行だけ）
 
 | | Dexed 1.0.1 | Surge XT 1.3.4 | Vaporizer2 3.5.0 | Sforzando 2.1.2.4 |
 |---|---|---|---|---|
 | plugin ID | `com.digital-suburban.dexed` | `org.surge-synth-team.surge-xt` | `com.vastdynamics.VAST2` | `com.Plogue Art et Technologie, Inc.sforzando` |
-| name / vendor | `Dexed` / `Digital Suburban` | `Surge XT` / `Surge Synth Team` | `Vaporizer2` / `VAST Dynamics` | `sforzando` / `Plogue Art et Technologie, Inc` |
-| features | `instrument`, `FM`, `DX7` | `instrument`, `synthesizer`, `stereo`, `free and open source` | `instrument` | `instrument` |
 | descriptor 数 | 1 | 1 | 1 | 1 |
 | audio input port | **0** | 1 | 1 | **0** |
 | audio output port | 1 | **3** | 1 | 1 |
-| main (port 0) | stereo, `IS_MAIN` | stereo, `IS_MAIN` | stereo, `IS_MAIN` | stereo, `IS_MAIN` |
-| note port | in 1 / out 1 | in 1 / out 0 | in 1 / out 0 | in 1 / out 0 |
-| note dialect | **MIDI のみ**（supported/preferred `0x2`） | CLAP \| MIDI \| MIDI_MPE | **MIDI のみ** | **MIDI のみ** |
-| params | 156 | 775 | 755 | 0 |
+| note dialect | **MIDI のみ** | CLAP \| MIDI \| MIDI_MPE | **MIDI のみ** | **MIDI のみ** |
 | voice-info | **なし** | あり | **なし** | あり |
-| preset-discovery factory | **NULL** | `/2` あり | **NULL** | `/2` あり（factory の PLUGIN location 1 件） |
-| preset-load | **NULL** | `/2` と `.draft/2` の両方あり | **NULL** | `/2` と `.draft/2` の両方あり（実 `.sfz` は `false`） |
-| state / latency / tail / render / gui | あり | あり | あり | state / latency / gui あり、tail / render なし |
-| descriptor 受け入れ条件 | OK | OK | OK | OK |
+| preset-discovery factory | **NULL** | `/2` あり | **NULL** | `/2` あり |
+| preset-load | **NULL** | `/2` と `.draft/2` あり | **NULL** | `/2` と `.draft/2` あり（実 `.sfz` は `false`） |
 
-**2026-08-22 の再 probe で 0001 の初版から直した点**: Surge の preset 系を
-「draft ID のみ」と書いていたが、実際は **preset-discovery factory も preset-load も
-安定 ID（`/2`）が非 NULL**。判断そのもの（[0006](0006-no-generic-clap-preset-api.md)）は
-変わらないが、記録としては誤りだった。
+main output（port 0）はいずれも stereo `IS_MAIN`、note input port はいずれも 1 本。
+name / vendor / features / params 数のような判断に効かない値は `probe-capabilities` で取る。
 
 ## いちばんの落とし穴: Surge の output は 3 本
 
-設計時の資料は「両方 1 本」と書いていたが、それは **Dexed についてのみ正しかった**。
-受け入れ条件を「port の本数」で書くと **Surge が起動しなくなる。**
-
-現行の受け入れ条件:
+受け入れ条件を「port の本数」で書くと **Surge が起動しなくなる。** 現行の受け入れ条件:
 
 - output port 0 本 → エラー
 - 先頭 output port が `IS_MAIN` でない → エラー
@@ -55,9 +43,8 @@ clap-mml-realtime-play-server probe-capabilities --plugin-path "C:\Program Files
 - note input port 0 本 → エラー
 - dialect が CLAP でも MIDI でもない → エラー
 
-**Vaporizer2 はこの 5 条件を素通りする**ので、追加にあたって `descriptor.rs` の改修は
-1 バイトも要らなかった。descriptor も 1 件なので `plugin_id` の指定は必須ではない
-（それでも config には書く。将来 descriptor が増えたときに黙って別物を掴まないため）。
+descriptor はどれも 1 件なので `plugin_id` の指定は必須ではないが、config には書く
+（将来 descriptor が増えたときに黙って別物を掴まないため）。
 
 ## note dialect が MIDI だけのプラグインは voicing probe が成立しない
 
@@ -72,10 +59,9 @@ MIDI dialect には `note_id` が無いので `NOTE_END` が返らない。**Dex
 
 ## 残っている契約違反（承知のうえ）
 
-host は広告された本数ぶんの buffer を渡すべきだが、このコードは以前から
+host は広告された本数ぶんの buffer を渡すべきだが、このコードは
 **Surge の 3 本のうち port 0 だけを渡して動いてきた**。直すと Surge の出音が変わりうるので
-現行動作を維持している。理由は `core-lib/src/render/descriptor.rs` の
-`PluginCapabilities` の doc コメントにもある。
+現行動作を維持している。
 
 ## 壊れたら気づく場所
 

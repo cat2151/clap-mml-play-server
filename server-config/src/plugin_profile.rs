@@ -113,7 +113,7 @@ pub fn builtin_plugin_profiles() -> BTreeMap<String, PluginProfile> {
 /// ものか」を決める規則が要る。現状その材料は**文字列の形だけ**で、`.syx` コンポーネントを
 /// 含むかどうかで割り切れている（`docs/adr/0007-patch-string-decides-the-plugin.md`）。
 /// patch 文字列そのものにプラグイン名を入れる仕様変更は、display 文字列が永続 ID である
-/// ため保存済みデータの移行が要る。いまは踏み込まない（同 §2.1）。
+/// ため保存済みデータの移行が要る。いまは踏み込まない。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PatchForm {
     /// ファイル 1 つ = 音色 1 つ。Surge XT の `.fxp`（CLAP state）。

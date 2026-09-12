@@ -3,8 +3,6 @@
 CLAP プラグイン（Surge XT / Dexed / Vaporizer2）の**実測仕様**と、サーバー側の**確定した設計判断**。
 「なぜそうしなかったのか」と「再取得コストの高い実測値」を残している。
 
-実装はすべて完了済み。
-
 TUI 側（データ表現・config・カタログ）は `../clap-mml-render-tui/docs/adr/` にある。
 依存の向きが TUI → play-server の一方向なので、ADR も repo ごとに閉じている。
 

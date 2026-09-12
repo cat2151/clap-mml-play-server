@@ -1,18 +1,14 @@
 # ADR 0005: Dexed の `MonoMode` は既定 POLY。生成時に設定しない
 
-- 状態: 記録（2026-08-20 実測）
+- 状態: 記録
 - 関連: clap-mml-render-tui `docs/adr/0008-voicing-per-patch.md`
 
 ## 実測
 
 `MonoMode` は **parameter index 3**（表示値 `MONO` / `POLY`、値 1 / 0）。
 **cartridge program の属性ではなく instance state の parameter。**
-
-| 状態 | 値 |
-|---|---|
-| instance 生成直後 | 0.0 = `POLY` |
-| cartridge program を選んだ後（3 program で確認） | 0.0 = `POLY` |
-| `set_patch(None)`（= CLAP state load）の後 | 0.0 = `POLY` |
+instance 生成直後・cartridge program を選んだ後・`set_patch(None)`（= CLAP state load）の後の
+いずれも 0.0 = `POLY`。
 
 ## 決定
 

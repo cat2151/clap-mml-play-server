@@ -63,7 +63,7 @@ fn installed_vaporizer2_presets() -> (String, Vec<std::path::PathBuf>) {
 }
 
 /// 実物のプリセット置き場が丸ごと列挙できること。
-/// 資料の実測（460 件・フラット・すべて `.vvp`）と突き合わせる。
+/// ディスク上の `.vvp` の実ファイル数と突き合わせる。
 #[test]
 fn installed_vaporizer2_presets_are_all_listed() {
     let (dir, patches) = installed_vaporizer2_presets();

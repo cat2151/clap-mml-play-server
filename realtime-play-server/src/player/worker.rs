@@ -99,7 +99,7 @@ pub(super) fn run_player_worker(
     let auto_gain_target_db = target_rms_db(live_instance_count);
     let mut playback_mode: Option<PlaybackMode> = None;
     let mut timing_window = LiveTimingWindow::new(core_cfg.sample_rate);
-    // 進行中の先読みロード。**持ったまま演奏 bank を回し続ける**のが Stage 3 の要点。
+    // 進行中の先読みロード。**持ったまま演奏 bank を回し続ける**。
     let mut standby: Option<StandbyLoad> = None;
     // live mix の出力そのものを録る診断用のタップ（`CMRT_LIVE_CAPTURE_WAV`）。
     // 既定では None なので、通常の演奏では 1 命令も増えない。

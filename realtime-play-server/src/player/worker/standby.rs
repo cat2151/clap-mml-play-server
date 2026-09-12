@@ -1,6 +1,5 @@
 //! 先読みロードの進行管理（coordinator 側）。
 //!
-//! # ここが Stage 3 の本体
 //! 先読み（`PrepareStandbyPatch`）を受けた coordinator は、
 //!
 //! 1. その bank の未消化イベントと auto gain を落とし、
@@ -45,7 +44,7 @@ pub(super) struct StandbyLoad {
     instance_index: usize,
     started: Instant,
     /// 開始時点の「対象 bank 以外が render したブロック数」と underrun frames。
-    /// 完了時の差分が「ロード中も演奏が進んだか」の機械判定になる（受け入れ条件 2）。
+    /// 完了時の差分が「ロード中も演奏が進んだか」の機械判定になる。
     blocks_elsewhere_at_start: u64,
     underrun_at_start: u64,
     /// 開始時点の「この bank が塞がっていて render を出せなかった instance 数」。
@@ -170,7 +169,7 @@ fn complete(ctx: &mut StandbyContext<'_>, load: StandbyLoad, result: Result<(), 
         .banks
         .render_skips(load.bank)
         .saturating_sub(load.render_skips_at_start);
-    // 受け入れ条件 2 の機械判定に使う行。ロード中に演奏 bank が何ブロック進んだか、
+    // 「ロード中も演奏が進んだか」の機械判定に使う行。演奏 bank が何ブロック進んだか、
     // その間に underrun が増えたかを 1 行で出す。
     eprintln!(
         "cmrt-standby-load: bank={} event=finish instance={} elapsed_ms={} \

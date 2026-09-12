@@ -1,24 +1,15 @@
 # ADR 0019: cache-player のスロットは 4 本（クロックの先行を吸収するための余裕）
 
-- 状態: 採用（2026-09-04）
+- 状態: 採用
 - 関連: [0018](0018-patch-load-must-not-spin-the-plugin.md) /
   clap-mml-render-tui `docs/adr/0012-live-clock-drift-is-absorbed-not-eliminated.md`
 
 ## 背景
 
-DAW の live 演奏で **予約した小節とは違う小節が鳴る**ことがあった。実測（2026-09-03、
-録った live mix と各キャッシュ WAV の整合フィルタ）:
-
-| 実音の位置 | 予約された小節 | 実際に鳴った素材 |
-|---|---|---|
-| 142843 | meas1 | **meas3** |
-| 244790 | meas2 | **meas4** |
-| 346737 | meas3 | **meas1** |
-| 448684 | meas4 | **meas2** |
-
-meas1↔meas3 / meas2↔meas4 は**同じスロットを共有する組**（当時 `SLOT_COUNT = 2` なので
-slot0 = meas1/meas3、slot1 = meas2/meas4）。サーバーログの
-`cmrt-live-patch: event=apply … clock=` が決定打で、**上書きは note on が発火する
+DAW の live 演奏で **予約した小節とは違う小節が鳴る**ことがあった。録った live mix と
+各キャッシュ WAV の整合フィルタで見ると、meas1 の位置で meas3、meas2 の位置で meas4 が鳴っていた。
+meas1↔meas3 / meas2↔meas4 は**同じスロットを共有する組**（当時 `SLOT_COUNT = 2`）で、
+サーバーログの `cmrt-live-patch: event=apply … clock=` が決定打: **上書きは note on が発火する
 16891 フレーム（352ms）前**に起きていた。
 
 原因は演奏ループ（TUI 側）がサーバーのサンプルクロックより**先行**していたこと。
@@ -51,35 +42,21 @@ patch 文字列の綴りも SHM のレイアウトも変わらないので、**�
 
 ## 値段（実測）
 
-release の play server（`--instances 8`、DAW の 7 行を 7 instance で鳴らす、
-キャッシュ WAV は 4 秒ステレオ f32 = 1.54MB/本）で、演奏中のピーク working set:
-
-| `SLOT_COUNT` | ピーク working set | 差 |
-|---|---|---|
-| 2 | 1,048,457,216 B（999.9 MiB） | — |
-| 4 | 1,072,648,192 B（1023.0 MiB） | **+24.2MB（+23.1MiB）** |
-
-理論値（7 instance × 増える 2 本 × 1.54MB ≒ 21MB）とほぼ一致する。
+キャッシュ WAV は 4 秒ステレオ f32 = 1.54MB/本。release の play server（`--instances 8`、
+DAW の 7 行を 7 instance で鳴らす）で演奏中のピーク working set は 2 → 4 本で **+24.2MB**
+（理論値 7 × 2 × 1.54MB ≒ 21MB とほぼ一致）。
 **最悪でも 16 instance × 4 本 × 1.54MB = 98MB**（2 本なら 49MB）。
 
 RT スレッドは `Arc` の clone しかしない（確保も解放もしない）ので、
 **増やしても `process` の重さは変わらない。**
 
-## 効き目（実測・同じ先行を注いだ A/B）
+## 効き目（同じ先行を注いだ A/B）
 
 `MeasureTimeline` の原点を 2 小節ぶん過去へずらす細工（＝演奏ループがサーバーより
-2 小節先行している状態そのもの）を入れて、TUI 側の
-`python scripts/capture_daw_live_mix.py --loop-measures 4 --measures 10 --tracks 9`
-を release サーバーで走らせた:
-
-| | `SLOT_COUNT = 2` | `SLOT_COUNT = 4` |
-|---|---|---|
-| スロット踏み潰し | **10 件**（margin −99169〜−100153） | **0 件**（margin +104253〜+105060） |
-| 小節ごとの `corr` | **0.40〜0.45**（違う小節が鳴っている） | **0.70〜0.74**（先行なしのときと同じ） |
-| `lag` の揃い | +240 / spread 0 | +240 / spread 0 |
-
-先行が無いときの余裕（同スクリプトの「余裕のいちばん薄いところ」）も
-**104106 frames（1.02 小節）→ 308394 frames（3.03 小節）**へちょうど 3 倍になっている。
+2 小節先行している状態そのもの）を入れて、TUI 側の `python scripts/capture_daw_live_mix.py`
+を release サーバーで走らせた。`SLOT_COUNT = 2` ではスロット踏み潰し 10 件で小節ごとの `corr`
+が 0.40〜0.45（違う小節が鳴っている）、`4` では踏み潰し 0 件で `corr` 0.70〜0.74
+（先行なしのときと同じ）。先行が無いときの余裕も 1.02 小節 → 3.03 小節へちょうど 3 倍。
 
 ## 余裕はループ長にも依る（残っている穴）
 
@@ -96,11 +73,11 @@ TUI 側のテスト（`daw/src/playback/live_cache/tests/slot_headroom.rs`）で
 - **1〜4 小節のループ（実演奏はここ）は、先行が何秒あっても壊れない。**
   小節とスロットが 1 対 1 になり、差し替えても中身が同じ小節だから
 - **`ループ長 % SLOT_COUNT == 1` のときは余裕 0。** 4 スロットなら 5・9・13 小節のループ
-  （2 スロットの頃は 3 以上の奇数すべてがこれだった）
+  （2 スロットなら 3 以上の奇数すべて）
 
 この穴は**本数を増やしても消えない**。消すにはスロットの選び方を「小節 index」から
 「演奏した小節の通し番号」へ変える必要がある。今回は入れていない
-（同 ADR の「残っているリスク」）。
+（clap-mml-render-tui `docs/adr/0012` の「残っているリスク」）。
 
 ## 壊れたら気づく場所
 

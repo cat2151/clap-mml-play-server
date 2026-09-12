@@ -1,6 +1,6 @@
 # ADR 0003: Dexed の音色変更は single voice SysEx で送る
 
-- 状態: 採用（2026-08-20）
+- 状態: 採用
 - 関連: [0004](0004-syx-format-and-persistent-ids.md) / [0008](0008-spare-instance-pool.md)
 
 ## 実測した現象
@@ -8,12 +8,8 @@
 **Dexed v1.0.1 は CLAP state load の直後 約 2 秒、host からの Program Change を捨てる。**
 
 cartridge SysEx 自体は通るので、**「cartridge はロードされ、program 0 のまま鳴る」という
-いちばん気づきにくい壊れ方**をする。
-
-| 手順 | 結果 |
-|---|---|
-| program 01 を選ぶ → 発音 | peak 0.257 / rms 0.0518 |
-| `set_patch(None)`（= CLAP state load）→ program 01 を選び直す → 発音 | peak 0.126 / rms 0.0709 = **program 00 の音**（差 0.00034） |
+いちばん気づきにくい壊れ方**をする（`set_patch(None)` の直後に program 01 を選び直すと、
+出音は program 00 と rms 差 0.00034 で一致する）。
 
 ## 決定: single voice SysEx
 

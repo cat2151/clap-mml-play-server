@@ -39,7 +39,7 @@ pub(super) struct BankRenderInstance {
 ///
 /// **物理インスタンスは載っていない。** プラグイン種別が変わる差し替えは、
 /// その bank worker が自分の予備プール（[`super::super::super::instances::LiveInstances`]）
-/// から取り出して自分で入れ替える（Stage 4）。
+/// から取り出して自分で入れ替える。
 pub(super) struct PatchJob {
     pub(super) local_index: usize,
     pub(super) patch: Option<String>,

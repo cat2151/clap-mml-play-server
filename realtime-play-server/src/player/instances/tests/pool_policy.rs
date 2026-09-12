@@ -34,7 +34,7 @@ fn a_prepaid_spares_are_all_ordered_up_front() {
     let instances = live_instances(kinds, 8);
 
     assert_eq!(instances.spare_target, 8);
-    // 既定プラグイン（添字 0）は自給自足なので発注しない（§1.3）。
+    // 既定プラグイン（添字 0）は自給自足なので発注しない。
     assert_eq!(instances.outstanding[0], 0);
     assert_eq!(instances.outstanding[1], 8);
 }
@@ -54,7 +54,7 @@ fn floe_is_retained_as_its_own_spare_pool_kind() {
     assert_eq!(instances.outstanding, vec![0, 4, 4, 4]);
 }
 
-/// **受け入れ条件 8。** bank へ分けても予備の目標数の合計は分離前と同じ。
+/// bank へ分けても予備の目標数の合計は分離前と同じ。
 /// 合計が増えると物理インスタンス数とメモリがそのぶん増える。
 #[test]
 fn splitting_the_spare_target_across_banks_keeps_the_total() {

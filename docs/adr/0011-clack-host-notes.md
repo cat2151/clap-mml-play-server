@@ -1,6 +1,6 @@
 # ADR 0011: clack / host 実装の知識
 
-- 状態: 記録（2026-08-20）
+- 状態: 記録
 - 関連: [0002](0002-capability-driven-ports-and-dialects.md)
 
 ## 実装で効いている性質
@@ -12,9 +12,8 @@
   （オフラインレンダリングの再現性のため）
 - **MIDI dialect には `note_id` が無いので `NoteEnd` が返らない。**
   voicing probe は CLAP note に `note_id` を載せて NoteOn を送り、返る `NOTE_END` の数で
-  voice 数を決めているので、Dexed では**永久に返らず常に Poly を返す**。
-  「判定できていない」と「Poly と判定した」が見分けられなくなるので、
-  **dialect が CLAP を含まない場合は probe を実行しない**
+  voice 数を決めるので、Dexed では永久に返らず常に Poly になり「判定できていない」と
+  「Poly と判定した」が見分けられない。**dialect が CLAP を含まない場合は probe を実行しない**
 
 ## 参照 rev / 外部資料
 

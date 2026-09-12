@@ -19,12 +19,12 @@
 //! **render 可否は「返事待ちの仕事があるか」1 つから決まる。** 別に真偽値を持って
 //! 「先読み中」を表すと、消し忘れたときにその bank が二度と鳴らなくなる。
 //!
-//! # 予備インスタンスの袋も bank worker が持つ（Stage 4）
+//! # 予備インスタンスの袋も bank worker が持つ
 //! 「論理スロット → 物理インスタンスの種別」の台帳と予備の袋
 //! （[`super::super::instances::LiveInstances`]）は bank ごとに 1 つで、所有 bank の
 //! worker スレッドの上で作られる。coordinator は袋に触れないので、プラグイン種別が
-//! 変わる差し替えでも `RendererHandoff` の往復（Stage 3 までの
-//! 「袋から出す → worker へ送る → 押し出された方を受け取って袋へ戻す」）が要らない。
+//! 変わる差し替えでも `RendererHandoff` の往復
+//! （「袋から出す → worker へ送る → 押し出された方を受け取って袋へ戻す」）が要らない。
 //! 予備の目標数は 2 bank の**合計が分離前と同じ**になるように割ってある。
 //!
 //! # renderer をどう配るか
@@ -125,8 +125,7 @@ impl BankWorkers {
 
     /// 指定した bank 以外が render したブロック数の合計。
     ///
-    /// 先読みの前後で差を取れば「ロード中に演奏 bank が何ブロック進んだか」が出る
-    /// （受け入れ条件 2 の機械判定）。
+    /// 先読みの前後で差を取れば「ロード中に演奏 bank が何ブロック進んだか」が出る。
     pub(super) fn blocks_rendered_elsewhere(&self, bank: usize) -> u64 {
         self.workers
             .iter()

@@ -1,25 +1,12 @@
 //! スロット（同時に載せておけるキャッシュ WAV）と、それを指示する CLAP state の綴り。
 //!
-//! # なぜスロットが要るのか
-//! DAW の演奏は小節ごとにキャッシュ WAV を差し替える。1 instance = 1 WAV のままだと、
-//! 差し替えは**小節境界に到達してから**しか出せず、その state load（実測 100〜130ms）が
-//! まるごと小節の頭の無音になる。「小節 N を鳴らしている最中に小節 N+1 を載せておく」
-//! ための最小構成が **2 スロット**（現在の小節 + 次の小節）。
+//! 1 instance = 1 WAV のままだと差し替えは**小節境界に到達してから**しか出せず、その state load
+//! （100〜130ms）がまるごと小節の頭の無音になる。「小節 N を鳴らしている最中に小節 N+1 を載せて
+//! おく」ために複数スロットを持つ。増やすのは track 方向ではなく**時間方向だけ**。gain は
+//! instance 単位なので 1 演奏 track = 1 live instance は維持する。
 //!
-//! **ただし最小構成では余裕が 1 小節しか無い。** 実際に採ってあるのは 4 スロットで、
-//! その理由は [`SLOT_COUNT`] の doc に書いてある。
-//!
-//! 増やすのは track 方向ではなく**時間方向だけ**。gain は
-//! `set_live_instance_gain_db(instance_id, ..)` と instance 単位なので、
-//! 1 演奏 track = 1 live instance は維持する。
-//!
-//! # note number でスロットを選ぶ
-//! [`slot_for_note`] を参照。
-//!
-//! # state の綴り
-//! **綴りの定義（単一ソース）は `core-lib/src/cache_wav.rs` の module doc。**
-//! ここはその parser で、[`parse_state`] / [`slot_patch_state`] /
-//! [`split_slot_prefix`] が実装にあたる。綴りを変えるときは向こうの doc も直すこと。
+//! 綴りの定義（単一ソース）は `core-lib/src/cache_wav.rs` の module doc。ここはその parser
+//! （[`parse_state`] / [`slot_patch_state`] / [`split_slot_prefix`]）。綴りを変えるときは向こうの doc も直すこと。
 
 use std::sync::Arc;
 
@@ -28,28 +15,15 @@ use crate::graveyard::BufferGraveyard;
 
 /// 同時に載せておけるキャッシュ WAV の本数。
 ///
-/// **鳴っている音を保持する仕組みではない**ので、余韻の長さとは無関係
-/// （voice は自分が握った `Arc` を鳴らし続ける）。効くのは
-/// **「先読みが、まだ鳴っていない小節のスロットを踏み潰すまでの余裕」**だけ。
+/// **鳴っている音を保持する仕組みではない**（voice は自分が握った `Arc` を鳴らし続ける）。効くのは
+/// **「先読みが、まだ鳴っていない小節のスロットを踏み潰すまでの余裕」**だけで、演奏ループが
+/// サーバーのサンプルクロックより `D` 小節先行すると `D >= SLOT_COUNT` で踏み潰す。
+/// 2 本では余裕が 1 小節しか無く、1.3 小節の先行で実際に違う小節が鳴った
+/// （`clap-mml-render-tui` の `docs/adr/0012-live-clock-drift-is-absorbed-not-eliminated.md`）。
+/// 4 本の値段はメモリだけで、16 instance でも 98MB（`docs/adr/0019-cache-player-slot-headroom.md`）。
 ///
-/// # なぜ 4 本なのか（2 本ではない）
-/// DAW の先読みは 1 小節先まで（`daw/src/playback/live_cache.rs`）。演奏ループが
-/// サーバーのサンプルクロックより `D` 小節ぶん先行しているとき、踏み潰しが起きるのは
-/// **`D >= SLOT_COUNT`** のとき。つまり吸収できる先行は `SLOT_COUNT - 1` 小節ぶん。
-///
-/// 実測（`clap-mml-render-tui` の `docs/adr/0012-live-clock-drift-is-absorbed-not-eliminated.md`）では、
-/// 1 小節目の state load 中にクロックが止まるせいで **2.7 秒＝1.3 小節（BPM113）**
-/// 先行していた。2 本では余裕が 1 小節しか無く、**実際に踏み潰して違う小節が鳴った。**
-/// 4 本なら余裕は 3 小節（BPM113 で 6.4 秒）になる。
-///
-/// 値段はメモリだけ。1 本 1.54MB（4 秒ステレオ f32）なので、
-/// **16 instance すべてを使っても 49MB → 98MB**（実測は
-/// `docs/adr/0019-cache-player-slot-headroom.md`）。RT スレッドは `Arc` の clone しか
-/// しないので、増やしても `process` の重さは変わらない。
-///
-/// **奇数に近い値にしないこと。** 小節 index `N` はスロット `N % SLOT_COUNT` へ載り、
-/// note number は `60 + (N % SLOT_COUNT)`。60 は 4 の倍数なので
-/// `slot_for_note(60 + s) == s` が成り立つ（[`slot_for_note`]）。
+/// **60 を割り切る値にすること。** note number は `60 + (N % SLOT_COUNT)` で、60 が [`SLOT_COUNT`] の
+/// 倍数だから `slot_for_note(60 + s) == s` が成り立つ（[`slot_for_note`]）。
 pub const SLOT_COUNT: usize = 4;
 
 /// state の綴りのプレフィクス。`slot=1;C:\...\track2_meas3.wav` の形。

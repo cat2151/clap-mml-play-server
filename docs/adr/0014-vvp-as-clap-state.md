@@ -1,21 +1,13 @@
 # ADR 0014: `.vvp` は CLAP state として流す（列挙も選択も host 側）
 
-- 状態: 採用（2026-08-22）
+- 状態: 採用
 - 関連: [0001](0001-measured-plugin-capabilities.md) / [0003](0003-dexed-program-change-guard.md) /
   [0006](0006-no-generic-clap-preset-api.md) / [0007](0007-patch-string-decides-the-plugin.md)
 
 ## 決定
 
-Vaporizer2 の音色ファイル `.vvp` は、**中身の XML に 9 バイト被せて `clap.state` へ渡す。**
-
-```rust
-// core-lib/src/vvp.rs
-let mut blob = Vec::with_capacity(xml.len() + 9);
-blob.extend_from_slice(&0x2132_4356u32.to_le_bytes()); // JUCE の magic
-blob.extend_from_slice(&(xml.len() as u32).to_le_bytes()); // 末尾 NUL を含まない長さ
-blob.extend_from_slice(&xml);
-blob.push(0);
-```
+Vaporizer2 の音色ファイル `.vvp` は、**中身の XML に 9 バイト被せて `clap.state` へ渡す**
+（JUCE の magic 4 + 末尾 NUL を含まない長さ 4 + UTF-8 XML + NUL 1。`core-lib/src/vvp.rs`）。
 
 単位は Surge XT の `.fxp` と同じ「1 音色 = 1 ファイル = 1 CLAP state」。
 
@@ -29,8 +21,8 @@ blob.push(0);
 | `savePatchXML`（`.vvp` を書く） | 同じ `createPatchXML(true)` (:576) |
 | `setStateInformation`（CLAP state ロード） | `getXmlFromBinary()` → `PatchVersion` で分岐 (:940-960) |
 
-つまり **CLAP state = `.vvp` の XML を JUCE の binary-XML で包んだもの**。
-包み方は `juce_AudioProcessor.cpp:946-961`（magic 4 + 長さ 4 + UTF-8 XML + NUL 1）。
+つまり **CLAP state = `.vvp` の XML を JUCE の binary-XML で包んだもの**
+（包み方は `juce_AudioProcessor.cpp:946-961`）。
 
 `isFromState=true` の経路は**同期ロード**（:1163 `passTreeToAudioThread(..., isSeparateThread=false, ...)`）。
 一方 `.vvp` をファイル名で読ませる `loadPresetFile` は detached thread で非同期なので、
@@ -40,11 +32,11 @@ blob.push(0);
 
 - **Program Change**: プラグインが起動時に非同期スキャンした preset 配列の index に依存する
   （`setCurrentProgram` → `loadPreset(index)`）。順序が環境依存で、`setChunk` 直後 400ms の
-  ガードもある（:542）。**Dexed で同じ形の罠を踏んでいる**（[0003](0003-dexed-program-change-guard.md)）
+  ガードもある（:542）。Dexed と同じ形の罠（[0003](0003-dexed-program-change-guard.md)）
 - **CLAP の preset-discovery / preset-load**: Vaporizer2 3.5.0 は**どちらも NULL**
-  （実 probe。[0006](0006-no-generic-clap-preset-api.md)）。列挙も選択もできない
+  （[0006](0006-no-generic-clap-preset-api.md)）。列挙も選択もできない
 
-## 罠 1: **V2.00000 の 50 件は版を読み替えないと誤解釈される**
+## 罠 1: **V2.00000 の音色は版を読み替えないと誤解釈される**
 
 `setStateInformation` は **`VASTVaporizerParamsV2.00000` のときだけ
 `externalRepresentation=false`** でパースする（:954-955。コード中のコメント自体が疑問形）。
@@ -58,7 +50,6 @@ blob.push(0);
   置換しても補正は失われない
 - **2.20000 には触らない**（skew 挙動が違う）
 - 置換は**バイト列の同じ長さの差し替え**（`const _: () = assert!(len == len);` で固定）
-- 内訳は V2.20000 = 375 件 / V2.10000 = 35 件 / V2.00000 = **50 件**
 
 **この読み替えは「名前が state に入ったか」では検出できない**（名前も長さも変わらない）。
 番人テストは**鳴らし比べ**にしてある（`retagging_a_v2_00000_patch_changes_what_it_sounds_like`）。
@@ -67,8 +58,7 @@ blob.push(0);
 
 `load_patch()` は FXP ヘッダが無いバイト列を**素通しで** state へ渡すので、
 `.vvp` の生 XML が Vaporizer2 の `setStateInformation` へ届きうる。
-実測すると **STATUS_ACCESS_VIOLATION でテストハーネスごと落ちた**
-（「静かに間違った音が鳴る」ではない）。
+届くと **STATUS_ACCESS_VIOLATION でプロセスごと落ちる**（「静かに間違った音が鳴る」ではない）。
 
 → `.vvp` の分岐（`patch_switch.rs` / `render.rs` の activate 前 / `ensure_vvp_capable()`）は
 **どれも省略できない**。落ちるテストは同居させられないので、
@@ -79,15 +69,13 @@ blob.push(0);
 必要な情報（`PatchVersion` / `PatchName` / `PatchCategory` / `m_uPolyMode`）はすべて先頭にある。
 **460 ファイル全読み（681MB・最大 1 ファイル 17MB）は絶対にしない。**
 
-- 実測での `m_uPolyMode` の終端は最大 835 バイト目（`AR Comb ARP.vvp`）だが、
-  `PatchComments` が長いユーザープリセットでは後ろへずれるので 4096 にしてある
+- 実測での `m_uPolyMode` の終端は最大 835 バイト目だが、`PatchComments` が長い
+  ユーザープリセットでは後ろへずれるので 4096 にしてある
 - **届かなかったときは黙って既定値にせずエラー。** Mono を poly と誤ると和音行へ出てしまう
-- 実測 460 件すべてで読めた（未判定 0 件・warm 40ms / cold 近似 51ms）
 - `parse_vvp_header(prefix)` を `read_vvp_header(path)` と別に公開してある。
   ファイルを置かずに単体テストを書けるようにするため
 
-`m_uPolyMode` の内訳: Mono 144 / Poly4 16 / Poly16 298 / Poly32 2。
-**判定は「`Mono` か」であって綴りの一覧ではない**（新しい Poly 値が増えても poly 側）。
+`m_uPolyMode` の**判定は「`Mono` か」であって綴りの一覧ではない**（新しい Poly 値が増えても poly 側）。
 使い道は TUI 側 `docs/adr/0008-voicing-per-patch.md` の `VvpHeader` 方針。
 
 ## 音色置き場の既定値は持たない
@@ -97,7 +85,7 @@ Vaporizer2 のプリセット置き場は `%APPDATA%\Vaporizer2\VASTvaporizerSet
 `default_vaporizer2_plugin_path()` はあるが **`patches_dirs` の既定値は作らない**。
 
 結果として `[plugins.Vaporizer2]` に `patches_dirs` を書くまで**カタログに載らない**
-（音色置き場ゼロのプラグインは `catalog_plugins_with()` が飛ばす）。
+（音色置き場ゼロのプラグインはカタログが飛ばす）。
 **「音色 0 件」で倒れるのが正しい倒れ方**で、Surge の dir を流用すると
 `.fxp` が Vaporizer2 の音色として一覧に出る。
 

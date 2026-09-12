@@ -1,5 +1,5 @@
 //! Vaporizer2（`com.vastdynamics.VAST2`）の実測と、`.vvp` を CLAP state として
-//! 流し込む経路（Stage 2）。
+//! 流し込む経路。
 //!
 //! `.vvp` を読むテストは、音色置き場を本番と同じ経路で config.toml の
 //! `[plugins.Vaporizer2] patches_dirs` から読む（[`vaporizer2_presets_dir`]）。
@@ -138,7 +138,7 @@ fn state_blob_without_retagging(xml: &[u8]) -> Vec<u8> {
     blob
 }
 
-/// **Stage 2 の本題**: `.vvp` を CLAP state として流し込むと、版によらず音が出ること。
+/// `.vvp` を CLAP state として流し込むと、版によらず音が出ること。
 ///
 /// 確かめているのは 3 つ:
 ///
@@ -246,13 +246,11 @@ fn a_vvp_patch_is_refused_before_it_reaches_surge() {
     assert!(error.to_string().contains(VAPORIZER2_PLUGIN_ID));
 }
 
-/// **Stage 3 の本題**: 公開 API の `set_patch()` が `.vvp` を Vaporizer2 の経路へ流すこと。
+/// 公開 API の `set_patch()` が `.vvp` を Vaporizer2 の経路へ流すこと。
 ///
-/// Stage 2 の時点では `load_vvp_patch()` を直接呼ぶしか無く、`set_patch()` は `.vvp` を
-/// `PatchTarget::StateFile` として扱っていた。そのまま渡すと `load_patch()` が
-/// **JUCE の 9 バイトを被せずに生の XML を state へ押し込む**ので、
-/// 「操作は成功したのに音色が変わらない」という静かな間違いになる。
-/// 音色の名前が state に入るかどうかで、それを見分ける。
+/// `.vvp` を `PatchTarget::StateFile` として渡すと `load_patch()` が **JUCE の 9 バイトを
+/// 被せずに生の XML を state へ押し込む**。音色の名前が state に入るかどうかで、
+/// 正しい経路を通ったことを見分ける。
 #[test]
 #[ignore = "実プラグインが要る"]
 fn set_patch_routes_a_vvp_path_to_the_vaporizer2_loader() {
@@ -301,14 +299,12 @@ fn vaporizer2_loads_one_requested_patch() {
     assert!(peak(&samples) > 0.0, "無音になった: {patch}");
 }
 
-// 生の XML をそのまま state として渡すのでは駄目だ、という Stage 3 の前提は
-// **テストとして残せない**。実測すると Vaporizer2 は生の XML を渡された時点で
-// STATUS_ACCESS_VIOLATION でプロセスごと落ちる（2026-08-22。テスト
-// `the_raw_vvp_xml_is_not_a_valid_clap_state_on_its_own` として一度書いて確認した）。
-// テストハーネスごと落ちるので同居させられない。
+// 「生の XML をそのまま state に渡すと駄目」は**テストとして残せない**。Vaporizer2 は
+// 生の XML を渡された時点で STATUS_ACCESS_VIOLATION でプロセスごと落ちるので、
+// テストハーネスごと落ちて同居させられない。
 //
-// この実測には設計上の意味がある。`.vvp` を `PatchForm::StateFile` のまま扱うと、
-// ADR 0007 が想定していた「静かに間違った音が鳴る」ではなく**プロセスが死ぬ**。
+// `.vvp` を `PatchForm::StateFile` のまま扱うと、ADR 0007 が想定していた
+// 「静かに間違った音が鳴る」ではなく**プロセスが死ぬ**。
 // だから `patch_switch.rs` と `render.rs` の `.vvp` 分岐と、
 // `ensure_vvp_capable()` のガードはどちらも省略できない。
 

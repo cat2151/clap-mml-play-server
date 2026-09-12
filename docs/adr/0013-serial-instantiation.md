@@ -1,6 +1,6 @@
 # ADR 0013: 並列生成に耐えないプラグインだけ、instance 生成を直列化する
 
-- 状態: 採用（2026-08-22）
+- 状態: 採用
 - 関連: [0008](0008-spare-instance-pool.md) / [0009](0009-unsafe-thread-handoff.md) /
   [0012](0012-measured-baselines.md)
 
@@ -17,7 +17,7 @@ CLAP の規約では instance 生成は main thread 限定なので、これは�
 （[0009](0009-unsafe-thread-handoff.md)）で、Surge XT と Dexed では当たっていた。
 
 **Vaporizer2 3.5.0 で外れた。2 スレッドでも `STATUS_ACCESS_VIOLATION` でプロセスごと落ちる**
-（3/3 で再現。entry を共有しなくても落ちるので `PluginEntry::load` の競合ではなく
+（entry を共有しなくても落ちるので `PluginEntry::load` の競合ではなく
 instance 生成そのもの）。直列なら 8 個でも 16 個でも通る。
 
 ## 決定
@@ -64,29 +64,19 @@ Vaporizer2 のコンストラクタはプリセット走査（`reloadPresetArray
 
 `off` / `0` / `false` を渡すとロックを取らなくなる。**未設定は必ず有効側。**
 
-これがあるので「落ちなくなったのは直列化のおかげ」を機械で示せる:
-
-| | 直列 8 個 | 並列 8 個（8 スレッド） | 終了コード |
-|---|---|---|---|
-| 直列化を入れる前 | ok | **segfault** | **139** |
-| 入れたあと | ok | ok（1 個ずつ 110ms 刻みで完成する） | **0** |
-| 入れたあと + `CMRT_SERIAL_INSTANTIATION=off` | ok | **segfault**（再現する） | **139** |
-
-```
-cargo run --release --example parallel_instance_creation -- "<CLAP のパス>" 8
-```
-
-**対応プラグインを増やすときは必ずここを通すこと。** 終了コードで判定できる。
+これがあるので「落ちなくなったのは直列化のおかげ」を機械で示せる。
+`cargo run --release --example parallel_instance_creation -- "<CLAP のパス>" 8` を
+そのまま走らせると終了コード 0、`CMRT_SERIAL_INSTANTIATION=off` を付けると並列 8 個で
+segfault（終了コード 139）が再現する。**対応プラグインを増やすときは必ずここを通すこと。**
 
 ## 判定材料は descriptor の本物の ID
 
 `plugin_requires_serial_instantiation(plugin_id)` は **CLAP descriptor から読んだ ID**で決める。
 config の `plugin_id`（ユーザーが書く推測値）ではない。省略されている config でも効く。
 
-## コスト（実測 / release / warm）
+## コスト
 
-Vaporizer2 の生成は 1 個 97〜107ms。直列 8 個で 845ms、並列 8 個でも 895ms
-（直列化されるので同じ）。**Surge XT の 1/5 の時間**なので、直列化しても Surge より速い。
+Vaporizer2 の生成は 1 個約 100ms で **Surge XT の 1/5** なので、直列化しても Surge より速い。
 数字は [0012](0012-measured-baselines.md)。
 
 ## 壊れたら気づく場所

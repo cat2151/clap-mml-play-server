@@ -1,8 +1,6 @@
-# 0016: UI向けaudio plugin catalog APIをserver共有crateで提供する
+# ADR 0016: UI向けaudio plugin catalog APIをserver共有crateで提供する
 
-## Status
-
-Accepted
+- 状態: 採用
 
 ## Context
 
@@ -28,4 +26,3 @@ serverの`PluginKind`も`PluginKey`を持ち、patch form判定は`audio_plugin`
 clientはplugin IDやpreset形式で分岐せず、server共有crateのcatalog結果を消費できる。
 新しいadapter追加時の具象変更箇所はserver repositoryに閉じる。将来、同形式pluginを
 wire越しに明示選択する必要が生じた場合は、別途protocol versionを設けて`PluginKey`を運ぶ。
-
