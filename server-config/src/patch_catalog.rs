@@ -38,6 +38,22 @@ pub fn resolve_patch_catalog(
     resolve_plain_directories(configured)
 }
 
+/// Resolve only the directory roots needed to route relative patch paths.
+///
+/// Unlike [`resolve_patch_catalog`], this never recursively enumerates patch files or parses every
+/// installed-bank manifest. Realtime servers use it when the persistent catalog-source cache is
+/// absent or stale, so a missing cache does not turn every server start into a full catalog scan.
+pub fn resolve_patch_catalog_roots(
+    plugin_id: Option<&str>,
+    plugin_path: &str,
+    configured: Option<&[String]>,
+) -> PatchCatalogResolution {
+    if patch_form_of(plugin_id, plugin_path) == PatchForm::Sfz {
+        return sforzando_programs::resolve_roots(configured, Path::new(plugin_path).exists());
+    }
+    resolve_plain_directories(configured)
+}
+
 fn cached_sforzando_catalog(
     plugin_id: Option<&str>,
     plugin_path: &str,

@@ -18,6 +18,8 @@ use cmrt_server_config::{
     patch_form_of, PatchForm, ServerConfig, CACHE_PLAYER_PLUGIN_ID, PRIMARY_PLUGIN_PROFILE_NAME,
 };
 
+mod source_cache;
+
 /// 1 プロセスへ載せうるプラグイン 1 種別。
 #[derive(Clone, Debug)]
 pub struct PluginKind {
@@ -255,16 +257,25 @@ fn sforzando_patch_root(
     plugin_name: &str,
 ) -> Option<String> {
     let started = Instant::now();
-    let resolved = cmrt_server_config::resolve_patch_catalog(
+    let current = cmrt_server_config::resolve_patch_catalog_roots(
         Some(cmrt_server_config::SFORZANDO_PLUGIN_ID),
         plugin_path,
         configured,
     );
+    let cached = source_cache::load_sforzando(plugin_path, &current.dirs);
+    let (resolved, source) = match cached {
+        Ok(cached) => (cached, "cache"),
+        Err(error) => {
+            crate::logging::emit_diagnostic(format!(
+                "cmrt-catalog: plugin={plugin_name} source-cache=unavailable detail={error:#}"
+            ));
+            (current, "roots-fallback")
+        }
+    };
     crate::logging::emit_diagnostic(format!(
-        "cmrt-catalog: plugin={plugin_name} phase=resolve ms={} dirs={} patches={} notices={} result={}",
+        "cmrt-catalog: plugin={plugin_name} phase=resolve-roots source={source} ms={} dirs={} notices={} result={}",
         started.elapsed().as_millis(),
         resolved.dirs.len(),
-        resolved.resolved_patches.as_ref().map_or(0, Vec::len),
         resolved.notices.len(),
         if resolved.source_error.is_some() {
             "partial"

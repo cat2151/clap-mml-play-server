@@ -83,29 +83,12 @@ pub(super) fn resolve_catalog(
     configured: Option<&[String]>,
     include_registry_user_bank: bool,
 ) -> PatchCatalogResolution {
-    let plain = resolve_plain_directories(configured);
-    let mut roots = plain.dirs.iter().map(PathBuf::from).collect::<Vec<_>>();
-    let mut notices = Vec::new();
-    let user_lookup = if include_registry_user_bank {
-        user_bank::read_user_bank_source()
-    } else {
-        user_bank::UserBankLookup {
-            source: None,
-            error: None,
-        }
-    };
-    if let Some(error) = user_lookup.error.as_ref() {
-        notices.push(format!("ARIA user bank: {error}"));
-    }
-    if let Some(source) = user_lookup.source.as_ref() {
-        if !roots
-            .iter()
-            .any(|root| canonical_key(root) == canonical_key(&source.root))
-        {
-            roots.push(source.root.clone());
-        }
-    }
-
+    let CatalogRoots {
+        plain,
+        roots,
+        mut notices,
+        user_lookup,
+    } = catalog_roots(configured, include_registry_user_bank);
     let mut programs = BTreeMap::<String, SforzandoProgramRef>::new();
     let mut conflicts = HashSet::new();
     if let Some(source) = user_lookup.source.as_ref() {
@@ -166,20 +149,86 @@ pub(super) fn resolve_catalog(
     let source_error = resolved_patches
         .is_empty()
         .then(|| "ARIA program source からロード可能な SFZ を 1 件も解決できない".to_string());
+
+    PatchCatalogResolution {
+        dirs: root_strings(roots),
+        resolved_patches: Some(resolved_patches),
+        configured_missing: plain.configured_missing,
+        source_error,
+        notices,
+    }
+}
+
+/// Realtime startup fallback: resolve roots and diagnostics without walking SFZ files.
+pub(super) fn resolve_roots(
+    configured: Option<&[String]>,
+    include_registry_user_bank: bool,
+) -> PatchCatalogResolution {
+    let CatalogRoots {
+        plain,
+        roots,
+        notices,
+        ..
+    } = catalog_roots(configured, include_registry_user_bank);
+    let dirs = root_strings(roots);
+    let source_error = dirs
+        .is_empty()
+        .then(|| "ARIA program sourceのrootを1件も解決できない".to_string());
+    PatchCatalogResolution {
+        dirs,
+        configured_missing: plain.configured_missing,
+        source_error,
+        notices,
+        ..PatchCatalogResolution::default()
+    }
+}
+
+struct CatalogRoots {
+    plain: PatchCatalogResolution,
+    roots: Vec<PathBuf>,
+    notices: Vec<String>,
+    user_lookup: user_bank::UserBankLookup,
+}
+
+fn catalog_roots(configured: Option<&[String]>, include_registry_user_bank: bool) -> CatalogRoots {
+    let plain = resolve_plain_directories(configured);
+    let mut roots = plain.dirs.iter().map(PathBuf::from).collect::<Vec<_>>();
+    let mut notices = Vec::new();
+    let user_lookup = if include_registry_user_bank {
+        user_bank::read_user_bank_source()
+    } else {
+        user_bank::UserBankLookup {
+            source: None,
+            error: None,
+        }
+    };
+    if let Some(error) = user_lookup.error.as_ref() {
+        notices.push(format!("ARIA user bank: {error}"));
+    }
+    if let Some(source) = user_lookup.source.as_ref() {
+        if !roots
+            .iter()
+            .any(|root| canonical_key(root) == canonical_key(&source.root))
+        {
+            roots.push(source.root.clone());
+        }
+    }
+    CatalogRoots {
+        plain,
+        roots,
+        notices,
+        user_lookup,
+    }
+}
+
+fn root_strings(roots: Vec<PathBuf>) -> Vec<String> {
     let mut dirs = roots
         .into_iter()
         .map(|root| root.to_string_lossy().into_owned())
         .collect::<Vec<_>>();
     dirs.sort();
     dirs.dedup_by(|left, right| canonical_key(Path::new(left)) == canonical_key(Path::new(right)));
-
-    PatchCatalogResolution {
-        dirs,
-        resolved_patches: Some(resolved_patches),
-        configured_missing: plain.configured_missing,
-        source_error,
-        notices,
-    }
+    dirs
 }
 
 fn insert_program(

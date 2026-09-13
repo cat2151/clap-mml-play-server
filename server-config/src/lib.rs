@@ -20,7 +20,9 @@ mod primary_plugin;
 mod sforzando_programs;
 mod vaporizer2_categories;
 
-pub use patch_catalog::{resolve_patch_catalog, PatchCatalogResolution};
+pub use patch_catalog::{
+    resolve_patch_catalog, resolve_patch_catalog_roots, PatchCatalogResolution,
+};
 pub use patch_dirs::{configured_patch_dirs, patch_root_dir, shared_patch_root_dir};
 pub use paths::{config_app_dir, config_file_path};
 pub use plugin_defaults::{
