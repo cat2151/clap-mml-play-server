@@ -2,8 +2,8 @@
 //!
 //! クライアント（clap-mml-render-tui）は子プロセスの stderr を全行ログファイルへ
 //! 転送するため、ここで `eprintln!` するだけで内訳が `log.txt` に残る。
-//! `cmrt-server-startup: instances=N/total` はクライアントがパースしている
-//! ので書式を変えず、計測は別プレフィックスで出す。
+//! `cmrt-server-startup:` はクライアントが中央 overlay の段階表示に使う。
+//! 完了後の所要時間は `cmrt-server-timing:` へ分け、同じ `phase` 名で対応付ける。
 
 use std::{
     sync::OnceLock,
@@ -12,6 +12,7 @@ use std::{
 
 /// 計測行のプレフィックス。クライアント側の grep はこれを使う。
 const TIMING_PREFIX: &str = "cmrt-server-timing:";
+const STARTUP_PREFIX: &str = "cmrt-server-startup:";
 
 static BOOT: OnceLock<Instant> = OnceLock::new();
 
@@ -32,3 +33,18 @@ pub(crate) fn log(fields: &str) {
 pub(crate) fn log_phase(phase: &str, elapsed: Duration) {
     log(&format!("phase={phase} ms={}", elapsed.as_millis()));
 }
+
+/// 長い起動フェーズへ入る直前に出す。完了時間は同じ名前で [`log_phase`] が出す。
+pub(crate) fn begin_startup_phase(phase: &str) {
+    eprintln!("{}", startup_phase_line(phase, boot().elapsed()));
+}
+
+fn startup_phase_line(phase: &str, since_boot: Duration) -> String {
+    format!(
+        "{STARTUP_PREFIX} phase={phase} event=begin since_boot_ms={}",
+        since_boot.as_millis()
+    )
+}
+
+#[cfg(test)]
+mod tests;

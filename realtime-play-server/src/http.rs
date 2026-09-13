@@ -32,6 +32,7 @@ pub(crate) fn run_realtime_play_server(
     player: Arc<dyn PlayerHandle>,
 ) -> Result<()> {
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    crate::timing::begin_startup_phase("listen");
     let bind_started = Instant::now();
     let listener = TcpListener::bind(addr)
         .with_context(|| format!("failed to bind realtime-play-server to {addr}"))?;

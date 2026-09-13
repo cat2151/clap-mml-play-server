@@ -11,7 +11,7 @@
 //! 分かれると、片方だけ直したときに「操作は成功したが前の音のまま」という静かな
 //! 間違いになる**ので、種別の一覧と patch → 種別の引き当てはここへ 1 本化する。
 
-use std::path::Path;
+use std::{path::Path, time::Instant};
 
 use crate::{audio_plugin::patch_form_of_path, CoreConfig, PluginKey};
 use cmrt_server_config::{
@@ -254,11 +254,24 @@ fn sforzando_patch_root(
     configured: Option<&[String]>,
     plugin_name: &str,
 ) -> Option<String> {
+    let started = Instant::now();
     let resolved = cmrt_server_config::resolve_patch_catalog(
         Some(cmrt_server_config::SFORZANDO_PLUGIN_ID),
         plugin_path,
         configured,
     );
+    crate::logging::emit_diagnostic(format!(
+        "cmrt-catalog: plugin={plugin_name} phase=resolve ms={} dirs={} patches={} notices={} result={}",
+        started.elapsed().as_millis(),
+        resolved.dirs.len(),
+        resolved.resolved_patches.as_ref().map_or(0, Vec::len),
+        resolved.notices.len(),
+        if resolved.source_error.is_some() {
+            "partial"
+        } else {
+            "ok"
+        }
+    ));
     for notice in &resolved.notices {
         crate::logging::emit_diagnostic(format!(
             "cmrt-catalog: plugin={plugin_name} source-notice: {notice}"

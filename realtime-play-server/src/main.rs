@@ -87,10 +87,13 @@ fn main() -> Result<()> {
     let (cfg, realtime_cfg) = load_configs()?;
     timing::log_phase("config", config_started.elapsed());
 
+    timing::begin_startup_phase("plugin_catalog");
+    let catalog_started = Instant::now();
     let core_cfg = core_config_from_server_config(&cfg, &realtime_cfg);
     // 1 プロセスに複数のプラグインを載せうるので、Surge データディレクトリの判定も
     // 「載りうるものの中に Surge があるか」で行う。
     let kinds = plugin_kinds(&cfg, &core_cfg);
+    timing::log_phase("plugin_catalog", catalog_started.elapsed());
     apply_surge_data_home_for(&kinds);
 
     let player: Arc<dyn PlayerHandle> = Arc::new(RealtimePlayer::new(

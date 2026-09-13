@@ -20,6 +20,7 @@ pub(super) fn create_live_renderers(
 ) -> anyhow::Result<Vec<RealtimeRenderer>> {
     let plugin_path = default_kind.plugin_path.as_str();
     let core_cfg = &default_kind.core_cfg;
+    timing::begin_startup_phase("load_entry");
     let load_entry_started = Instant::now();
     let entry = cmrt_core::load_entry(plugin_path)?;
     timing::log_phase("load_entry", load_entry_started.elapsed());
@@ -34,6 +35,7 @@ pub(super) fn create_live_renderers(
         descriptor.log_fields()
     ));
 
+    timing::begin_startup_phase("instances");
     let instances_started = Instant::now();
     let threads = instance_build_threads(instance_count);
     let specs = vec![

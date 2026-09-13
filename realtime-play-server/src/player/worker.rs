@@ -73,6 +73,7 @@ pub(super) fn run_player_worker(
             return;
         }
     };
+    timing::begin_startup_phase("audio_stream");
     // ここから先、CLAP インスタンスも予備プールも bank worker が所有する。この
     // coordinator は `process()` も `set_patch()` も直接呼ばない。
     // 予備プールはここから背景でインスタンスを作り始める。起動時のインスタンス生成が
