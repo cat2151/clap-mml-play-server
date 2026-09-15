@@ -160,7 +160,7 @@ pub(super) fn run_player_worker(
             // worker 末尾までは走らないので、**止まった瞬間に書く**必要がある。
             if playback_mode.is_none() {
                 if let Some(capture) = live_capture.as_mut() {
-                    capture.finish();
+                    capture.finish_on_stop();
                 }
             }
             continue;
@@ -184,7 +184,7 @@ pub(super) fn run_player_worker(
             // worker 末尾までは走らないので、**止まった瞬間に書く**必要がある。
             if playback_mode.is_none() {
                 if let Some(capture) = live_capture.as_mut() {
-                    capture.finish();
+                    capture.finish_on_stop();
                 }
             }
             continue;

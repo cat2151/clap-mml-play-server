@@ -17,6 +17,7 @@ fn capture(path: &std::path::Path, seconds: f64, sample_rate: u32) -> LiveCaptur
         samples: Vec::with_capacity(capacity),
         first_clock: None,
         truncated: false,
+        minimum_frames: 0,
         written: false,
     }
 }
@@ -67,4 +68,22 @@ fn an_empty_capture_writes_nothing() {
     let mut c = capture(&path, 1.0, 48_000);
     c.finish();
     assert!(!path.exists());
+}
+
+#[test]
+fn stop_does_not_finish_before_the_requested_minimum_length() {
+    let path = out_path("minimum-length");
+    let mut c = capture(&path, 2.0, 10);
+    c.minimum_frames = 10;
+    c.push(&[0.25; 16], 0);
+
+    c.finish_on_stop();
+
+    assert!(!c.written);
+    assert!(!path.exists());
+    c.push(&[0.5; 4], 8);
+    c.finish_on_stop();
+    assert!(c.written);
+    assert!(path.exists());
+    let _ = std::fs::remove_file(path);
 }

@@ -1,13 +1,13 @@
 //! オフラインレンダリングループ
 
+mod live;
 mod silence;
 
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use clack_host::events::event_types::{MidiEvent as ClapMidiEvent, NoteOffEvent, NoteOnEvent};
+use clack_host::events::event_types::{NoteOffEvent, NoteOnEvent};
 use clack_host::events::spaces::CoreEventSpace;
-use clack_host::events::EventFlags;
 use clack_host::prelude::*;
 use cmrt_clack_timeline::{process_block_timing, ProcessBlockTiming};
 use cmrt_timeline::{BlockSpan, FreeRunningTimeline, SamplePosition, SampleRate};
@@ -41,10 +41,12 @@ use instance::create_plugin_instance_without_patch;
 use patch_state::{load_patch, save_plugin_state};
 use process_inputs::{input_buffer, push_offline_note_event};
 use sfz_state::load_initial_sfz_state;
+use silence::ActiveNotes;
 use vvp_patch::{ensure_vvp_capable, load_vvp_state};
 
 pub use capability_probe::{probe_plugin_capabilities, PluginProbeReport, ProbedDescriptor};
 pub use descriptor::{select_descriptor, SelectedDescriptor};
+pub use live::LiveMidiEvent;
 pub use serial_instantiation::plugin_requires_serial_instantiation;
 
 #[cfg(test)]
@@ -52,16 +54,6 @@ mod tests;
 pub use offline::{render, render_to_memory};
 pub use parallel::{create_renderers_parallel, RendererCreated, RendererHandoff, RendererSpec};
 pub use playback::RealtimePlaybackSchedule;
-
-/// live MIDI 1.0 short message と、その chunk 先頭からのフレームオフセット。
-///
-/// オフセットは呼び出し側が chunk 境界へ割り付け済みであること。`render_live_chunk_with_offsets`
-/// は `buf_size - 1` を超えるオフセットをクランプするだけで、次 chunk へ持ち越さない。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct LiveMidiEvent {
-    pub offset_frames: u32,
-    pub message: [u8; 3],
-}
 
 pub struct RealtimeRenderer {
     plugin_instance: Option<PluginInstance<MidiRenderHost>>,
@@ -91,6 +83,8 @@ pub struct RealtimeRenderer {
     input_ports: AudioPorts,
     output_ports: AudioPorts,
     output_events_buf: EventBuffer,
+    /// live 経路で実際に process 済みの note。停止時はこの分だけ NoteOff を送る。
+    active_notes: ActiveNotes,
     /// CLAP `steady_time` is activation-local and never moves backwards, including across a
     /// musical transport reset or a patch probe.
     process_cursor_samples: u64,
@@ -218,6 +212,7 @@ impl RealtimeRenderer {
             ),
             output_ports: AudioPorts::with_capacity(2, 1),
             output_events_buf: EventBuffer::new(),
+            active_notes: ActiveNotes::default(),
             process_cursor_samples: 0,
             sample_rate: SampleRate::new(cfg.sample_rate)
                 .map_err(|error| anyhow::anyhow!(error))?,
@@ -235,10 +230,11 @@ impl RealtimeRenderer {
     ///
     /// `reset()` だけでは音が止まらないので、先に全 note を切る（[`silence`] 参照）。
     pub fn reset(&mut self) {
-        self.silence_all_notes();
+        self.release_all_notes();
         if let Some(processor) = self.processor.as_mut() {
             processor.reset();
         }
+        self.active_notes.clear();
     }
 
     pub fn render_next_chunk(
@@ -255,12 +251,14 @@ impl RealtimeRenderer {
             as u32;
         let buf_end = playback.current_sample + frames as u64;
         let mut input_events_raw = EventBuffer::new();
+        let mut processed_messages = Vec::new();
         while playback.event_cursor < playback.events.len()
             && playback.events[playback.event_cursor].sample_pos < buf_end
         {
             let ev = &playback.events[playback.event_cursor];
             let offset = (ev.sample_pos.saturating_sub(playback.current_sample)) as u32;
             push_offline_note_event(&mut input_events_raw, offset, ev.message, self.note_dialect);
+            processed_messages.push(ev.message.to_short_message());
             playback.event_cursor += 1;
         }
 
@@ -268,6 +266,7 @@ impl RealtimeRenderer {
         let samples = self
             .process_chunk_with_timing(frames, &input_events_raw, timing)
             .map(|processed| processed.samples)?;
+        self.active_notes.record_messages(&processed_messages);
         playback.current_sample = buf_end;
         Ok(Some(samples))
     }
@@ -309,52 +308,6 @@ impl RealtimeRenderer {
     /// 「このスロットにいま何が載っているか」を確かめるために使う。
     pub fn plugin_id(&self) -> &str {
         &self.plugin_id
-    }
-
-    /// timestampを持たないlive MIDI 1.0 short message群を、順序を保って
-    /// 次のchunk先頭で処理する。複数のNote Onは同時発音としてpluginへ渡る。
-    pub fn render_live_chunk(&mut self, midi_messages: &[[u8; 3]]) -> Result<Vec<f32>> {
-        let events = midi_messages
-            .iter()
-            .map(|message| LiveMidiEvent {
-                offset_frames: 0,
-                message: *message,
-            })
-            .collect::<Vec<_>>();
-        self.render_live_chunk_with_offsets(&events)
-    }
-
-    /// chunk 内オフセット付きの live 描画。オフセットはサンプル精度でpluginへ渡る。
-    ///
-    /// イベントは `offset_frames` 昇順で渡すこと（CLAP のイベントリストは時刻順が前提）。
-    pub fn render_live_chunk_with_offsets(&mut self, events: &[LiveMidiEvent]) -> Result<Vec<f32>> {
-        let block = BlockSpan::new(
-            SamplePosition(self.process_cursor_samples),
-            self.buf_size as u32,
-        )
-        .map_err(|error| anyhow::anyhow!(error))?;
-        let timing = process_block_timing(block, self.sample_rate, &FreeRunningTimeline);
-        self.render_live_chunk_with_timing(events, timing)
-    }
-
-    /// Render a live block with an explicit musical transport snapshot. `steady_time` remains
-    /// renderer-local and monotonic; callers may reset the musical timeline independently.
-    pub fn render_live_chunk_with_timing(
-        &mut self,
-        events: &[LiveMidiEvent],
-        mut timing: ProcessBlockTiming,
-    ) -> Result<Vec<f32>> {
-        let last_frame = self.buf_size.saturating_sub(1) as u32;
-        let mut input_events_raw = EventBuffer::new();
-        for event in events {
-            let offset = event.offset_frames.min(last_frame);
-            input_events_raw.push(
-                &ClapMidiEvent::new(offset, 0, event.message).with_flags(EventFlags::IS_LIVE),
-            );
-        }
-        timing.steady_time = self.process_cursor_samples;
-        self.process_chunk_with_timing(self.buf_size as u32, &input_events_raw, timing)
-            .map(|processed| processed.samples)
     }
 
     fn process_chunk_with_events(

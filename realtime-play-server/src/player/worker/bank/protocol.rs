@@ -22,10 +22,11 @@ pub(super) enum BankCommand {
     RenderScheduled(Box<RealtimePlaybackSchedule>),
     PreparePatch(PatchJob),
     ProbePatch(PatchJob),
-    ResetInstance {
+    ResetAll,
+    ReleaseInstance {
         local_index: usize,
     },
-    ResetAll,
+    ReleaseAll,
     Shutdown,
 }
 

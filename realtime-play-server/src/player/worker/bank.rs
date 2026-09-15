@@ -141,10 +141,17 @@ impl BankWorkers {
         }
     }
 
-    /// 1 instance の音を止める。
-    pub(super) fn reset_instance(&self, instance_index: usize) {
+    /// processor / patch state は保ったまま、process 済みの note だけを離す。
+    pub(super) fn release_all_notes(&self) {
+        for worker in &self.workers {
+            worker.notify(BankCommand::ReleaseAll);
+        }
+    }
+
+    /// 1 instance の process 済み note だけを離す。
+    pub(super) fn release_instance_notes(&self, instance_index: usize) {
         let slot = self.layout.slot_of_index(instance_index);
-        self.workers[slot.bank].notify(BankCommand::ResetInstance {
+        self.workers[slot.bank].notify(BankCommand::ReleaseInstance {
             local_index: slot.local_index,
         });
     }

@@ -30,6 +30,25 @@ fn ports_and_workers_fall_back_to_the_defaults() {
 }
 
 #[test]
+fn app_http_base_url_uses_the_shared_default_port() {
+    assert!(DEFAULT_APP_HTTP_BASE_URL.ends_with(&format!(":{DEFAULT_APP_HTTP_SERVER_PORT}")));
+}
+
+#[test]
+fn default_ports_stay_below_the_windows_default_dynamic_range() {
+    for port in [
+        DEFAULT_APP_HTTP_SERVER_PORT,
+        DEFAULT_OFFLINE_RENDER_SERVER_PORT,
+        DEFAULT_REALTIME_PLAY_SERVER_PORT,
+    ] {
+        assert!(
+            port < 49_152,
+            "default server port {port} overlaps the Windows default dynamic range"
+        );
+    }
+}
+
+#[test]
 fn explicit_ports_and_workers_are_read() {
     let cfg = load(
         r#"

@@ -65,7 +65,7 @@ pub(super) fn apply_command(context: CommandContext<'_>, command: PlayerCommand)
         PlayerCommand::StopAll { generation } => {
             let _ = generation;
             eprintln!("cmrt-live: event=apply-stop-all");
-            banks.reset_all();
+            banks.release_all_notes();
             limiter.reset();
             limiter_meter.reset();
             auto_gain.clear_gains();
@@ -77,7 +77,7 @@ pub(super) fn apply_command(context: CommandContext<'_>, command: PlayerCommand)
         } => {
             ensure_live_mode(playback_mode, generation, banks.instance_count());
             let instance_index = usize::from(instance_id);
-            banks.reset_instance(instance_index);
+            banks.release_instance_notes(instance_index);
             if let Some(PlaybackMode::Live {
                 generation: live_generation,
                 instances,
@@ -103,7 +103,7 @@ pub(super) fn apply_command(context: CommandContext<'_>, command: PlayerCommand)
             enter_live,
         } => {
             if enter_live || !matches!(playback_mode, Some(PlaybackMode::Live { .. })) {
-                banks.reset_all();
+                banks.release_all_notes();
                 limiter.reset();
                 limiter_meter.reset();
                 auto_gain.clear_gains();
@@ -135,7 +135,7 @@ pub(super) fn apply_command(context: CommandContext<'_>, command: PlayerCommand)
             }
         }
         PlayerCommand::BeginLiveTimeline { generation, config } => {
-            banks.reset_all();
+            banks.release_all_notes();
             limiter.reset();
             limiter_meter.reset();
             auto_gain.clear_gains();

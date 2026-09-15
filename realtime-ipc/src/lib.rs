@@ -392,14 +392,16 @@ pub use unsupported::{FastMidiClient, FastMidiServer};
 mod tests {
     use super::*;
 
+    const TEST_PORT: u16 = 12_345;
+
     #[test]
     fn unsupported_platform_returns_explicit_error() {
         assert!(matches!(
-            FastMidiClient::connect(62154),
+            FastMidiClient::connect(TEST_PORT),
             Err(FastIpcError::UnsupportedPlatform)
         ));
         assert!(matches!(
-            FastMidiServer::create(62154),
+            FastMidiServer::create(TEST_PORT),
             Err(FastIpcError::UnsupportedPlatform)
         ));
     }

@@ -5,6 +5,7 @@
 
 use super::*;
 use crate::pipeline::mml_render_stateless;
+use clack_host::events::event_types::MidiEvent as ClapMidiEvent;
 
 const DEXED_CARTRIDGES_ENV: &str = "CMRT_TEST_DEXED_CARTRIDGES";
 

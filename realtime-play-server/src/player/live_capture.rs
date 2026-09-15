@@ -9,6 +9,9 @@
 //!
 //! 有効にするには `CMRT_LIVE_CAPTURE_WAV` へ出力先パスを入れる。長さの上限は
 //! `CMRT_LIVE_CAPTURE_SECONDS`（既定 60 秒）。
+//! 連続する live timeline をまたいで診断するときは
+//! `CMRT_LIVE_CAPTURE_MIN_SECONDS` を指定する。その長さを超えるまで、中間の
+//! StopAll で WAV を確定しない。
 //!
 //! **バッファは armed の時点で 1 回だけ確保する。** render スレッドで伸ばすと
 //! その確保自体が音を止めるので、上限に達したらそこで録るのをやめる
@@ -29,6 +32,8 @@ pub(super) struct LiveCapture {
     first_clock: Option<u64>,
     /// 上限に達して録るのをやめたか。ログに出すためだけに持つ。
     truncated: bool,
+    /// StopAll で書き出してよい最小フレーム数。0 なら従来どおり即時。
+    minimum_frames: usize,
     /// 書き出し済み。二重に書かない。
     written: bool,
 }
@@ -46,9 +51,16 @@ impl LiveCapture {
             .filter(|s| *s > 0.0)
             .unwrap_or(DEFAULT_CAPTURE_SECONDS);
         let sample_rate = sample_rate.round().max(1.0) as u32;
+        let minimum_seconds = std::env::var("CMRT_LIVE_CAPTURE_MIN_SECONDS")
+            .ok()
+            .and_then(|s| s.parse::<f64>().ok())
+            .filter(|s| *s > 0.0)
+            .unwrap_or(0.0);
         let capacity = (seconds * sample_rate as f64).round() as usize * 2;
+        let minimum_frames = (minimum_seconds * sample_rate as f64).round() as usize;
         eprintln!(
-            "cmrt-live-capture: event=armed path=\"{path}\" seconds={seconds} sample_rate={sample_rate}"
+            "cmrt-live-capture: event=armed path=\"{path}\" seconds={seconds} \
+             minimum_seconds={minimum_seconds} sample_rate={sample_rate}"
         );
         Some(Self {
             path: PathBuf::from(path),
@@ -56,6 +68,7 @@ impl LiveCapture {
             samples: Vec::with_capacity(capacity),
             first_clock: None,
             truncated: false,
+            minimum_frames,
             written: false,
         })
     }
@@ -88,6 +101,19 @@ impl LiveCapture {
                 self.samples.len() / 2
             );
         }
+    }
+
+    /// StopAll 時の書き出し。指定された最小長に達するまでは録音を続ける。
+    pub(super) fn finish_on_stop(&mut self) {
+        let frames = self.samples.len() / 2;
+        if frames < self.minimum_frames {
+            eprintln!(
+                "cmrt-live-capture: event=continue frames={frames} minimum_frames={}",
+                self.minimum_frames
+            );
+            return;
+        }
+        self.finish();
     }
 
     /// 貯めたものを WAV へ書き出す。録っていなければ何もしない。

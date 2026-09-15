@@ -299,6 +299,49 @@ fn vaporizer2_loads_one_requested_patch() {
     assert!(peak(&samples) > 0.0, "無音になった: {patch}");
 }
 
+/// Chord Chart が行内カーソルを右へ送るときの最小再現。
+///
+/// patch は最初の 1 回だけ読み、各 chord の直前に process 済みの全 note を
+/// NoteOff する。note-on は本番の lookahead と同じく約 50 ms 後に渡し、
+/// 次の chord までの約 1 秒を描画する。
+#[test]
+#[ignore = "実プラグインと調査対象の .vvp が要る"]
+fn vaporizer2_keeps_sounding_when_chords_replace_each_other() {
+    let patch = std::env::var(VAPORIZER2_PATCH_ENV).unwrap_or_else(|_| {
+        panic!("{VAPORIZER2_PATCH_ENV} に調査対象の .vvp を設定してから実行すること")
+    });
+    let path = plugin_path(VAPORIZER2_CLAP_ENV);
+    let entry = load_entry(&path).unwrap();
+    let mut renderer =
+        RealtimeRenderer::new(&test_config_with_plugin_id(VAPORIZER2_PLUGIN_ID), &entry).unwrap();
+    renderer.set_patch(Some(&patch)).unwrap();
+
+    let chords = [
+        ("C", [60, 64, 67]),
+        ("G", [67, 71, 74]),
+        ("Am", [69, 72, 76]),
+        ("F", [65, 69, 72]),
+    ];
+    for cycle in 1..=3 {
+        for (name, keys) in chords {
+            renderer.release_all_notes();
+            for _ in 0..5 {
+                renderer.render_live_chunk(&[]).unwrap();
+            }
+            let note_ons = keys.map(|key| [0x90, key, 100]);
+            let mut loudest = peak(&renderer.render_live_chunk(&note_ons).unwrap());
+            for _ in 0..93 {
+                loudest = loudest.max(peak(&renderer.render_live_chunk(&[]).unwrap()));
+            }
+            eprintln!("vaporizer2 cycle={cycle} chord={name} peak={loudest:.6} patch={patch:?}");
+            assert!(
+                loudest > 0.0,
+                "cycle={cycle} {name} が無音になった: {patch}"
+            );
+        }
+    }
+}
+
 // 「生の XML をそのまま state に渡すと駄目」は**テストとして残せない**。Vaporizer2 は
 // 生の XML を渡された時点で STATUS_ACCESS_VIOLATION でプロセスごと落ちるので、
 // テストハーネスごと落ちて同居させられない。

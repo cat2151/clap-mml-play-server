@@ -41,7 +41,7 @@ impl RealtimeRenderer {
         {
             return Ok(());
         }
-        self.silence_all_notes();
+        self.release_all_notes();
         self.send_voice(patch)?;
 
         let empty = EventBuffer::new();

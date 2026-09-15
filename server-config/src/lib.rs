@@ -52,8 +52,19 @@ use anyhow::{Context as _, Result};
 use serde::Deserialize;
 
 pub const DEFAULT_OFFLINE_RENDER_SERVER_WORKERS: usize = 4;
-pub const DEFAULT_OFFLINE_RENDER_SERVER_PORT: u16 = 62153;
-pub const DEFAULT_REALTIME_PLAY_SERVER_PORT: u16 = 62154;
+
+macro_rules! define_app_http_defaults {
+    ($port:literal) => {
+        /// TUI の `--server` と DAW HTTP server/client が共有する既定 port。
+        pub const DEFAULT_APP_HTTP_SERVER_PORT: u16 = $port;
+        /// [`DEFAULT_APP_HTTP_SERVER_PORT`] と同じ endpoint を表す既定 base URL。
+        pub const DEFAULT_APP_HTTP_BASE_URL: &str = concat!("http://127.0.0.1:", stringify!($port));
+    };
+}
+
+define_app_http_defaults!(42151);
+pub const DEFAULT_OFFLINE_RENDER_SERVER_PORT: u16 = 42153;
+pub const DEFAULT_REALTIME_PLAY_SERVER_PORT: u16 = 42154;
 const MIN_OFFLINE_RENDER_WORKERS: usize = 1;
 const MAX_OFFLINE_RENDER_WORKERS: usize = 16;
 

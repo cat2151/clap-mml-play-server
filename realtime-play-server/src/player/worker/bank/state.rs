@@ -92,8 +92,12 @@ pub(super) fn run_bank_worker(
                 state.reset_all();
                 continue;
             }
-            BankCommand::ResetInstance { local_index } => {
-                state.reset_instance(local_index);
+            BankCommand::ReleaseAll => {
+                state.release_all();
+                continue;
+            }
+            BankCommand::ReleaseInstance { local_index } => {
+                state.release_instance(local_index);
                 continue;
             }
             BankCommand::RenderBlock { timing, instances } => {
@@ -130,9 +134,15 @@ impl BankState {
         }
     }
 
-    fn reset_instance(&mut self, local_index: usize) {
+    fn release_all(&mut self) {
+        for renderer in &mut self.renderers {
+            renderer.release_all_notes();
+        }
+    }
+
+    fn release_instance(&mut self, local_index: usize) {
         if let Some(renderer) = self.renderers.get_mut(local_index) {
-            renderer.reset();
+            renderer.release_all_notes();
         }
     }
 
