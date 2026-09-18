@@ -87,12 +87,87 @@ fn manifest_catalog_lists_only_declared_existing_sfz() {
 
     let resolution = resolve_catalog(Some(&configured), false);
 
-    let paths = resolution.resolved_patches.unwrap();
-    assert_eq!(paths, vec![std::fs::canonicalize(good).unwrap()]);
-    assert!(resolution
+    let paths = resolution.resolved_patches.as_ref().unwrap();
+    assert_eq!(*paths, vec![std::fs::canonicalize(good).unwrap()]);
+    assert_no_excluded_notice(&resolution);
+}
+
+fn assert_no_excluded_notice(resolution: &PatchCatalogResolution) {
+    assert!(
+        !resolution
+            .notices
+            .iter()
+            .any(|notice| notice.contains("除外")),
+        "{:?}",
+        resolution.notices
+    );
+}
+
+fn excluded_notice(resolution: &PatchCatalogResolution) -> &str {
+    let mut excluded = resolution
         .notices
         .iter()
-        .any(|notice| notice.contains("1 件") && notice.contains("除外")));
+        .filter(|notice| notice.contains("catalog から除外"));
+    let notice = excluded.next().expect("one excluded notice");
+    assert_eq!(excluded.next(), None, "{:?}", resolution.notices);
+    notice
+}
+
+#[test]
+fn unregistered_files_inside_an_installed_bank_are_excluded_silently() {
+    let root = TempRoot::new("include_parts");
+    let programs = root.0.join("Programs");
+    let kit = programs.join("CR-909");
+    write(
+        &kit.join("main.sfz"),
+        b"<global>
+#include \"BD.sfz\"
+",
+    );
+    write(&kit.join("BD.sfz"), b"<region>");
+    write(&programs.join("Xylophone.sfz"), b"<region>");
+    write(
+        &root.0.join("Free Sounds.bank.xml"),
+        manifest("3102", "1001", &[("CR-909", "Programs/CR-909/main.sfz")]).as_bytes(),
+    );
+    let configured = vec![programs.to_string_lossy().into_owned()];
+
+    let resolution = resolve_catalog(Some(&configured), false);
+
+    assert_eq!(resolution.resolved_patches.as_ref().unwrap().len(), 1);
+    assert_no_excluded_notice(&resolution);
+}
+
+#[test]
+fn examples_are_capped_with_a_remaining_count() {
+    let root = TempRoot::new("example_cap");
+    let loose = root.0.join("Loose");
+    for name in ["a", "b", "c"] {
+        write(&loose.join(format!("{name}.sfz")), b"<region>");
+    }
+    let configured = vec![loose.to_string_lossy().into_owned()];
+
+    let resolution = resolve_catalog(Some(&configured), false);
+
+    let notice = excluded_notice(&resolution);
+    assert!(notice.contains("3 件"), "{notice}");
+    assert!(notice.contains("a.sfz, b.sfz 他 1 件"), "{notice}");
+}
+
+#[test]
+fn sfz_outside_any_program_source_points_to_the_user_files_directory() {
+    let root = TempRoot::new("no_source");
+    let loose = root.0.join("Loose");
+    write(&loose.join("Piano.sfz"), b"<region>");
+    let configured = vec![loose.to_string_lossy().into_owned()];
+
+    let resolution = resolve_catalog(Some(&configured), false);
+
+    assert!(resolution.resolved_patches.as_ref().unwrap().is_empty());
+    let notice = excluded_notice(&resolution);
+    assert!(notice.contains("user files directory"), "{notice}");
+    assert!(notice.contains("Piano.sfz"), "{notice}");
+    assert!(notice.contains("ロードできる"), "{notice}");
 }
 
 #[test]

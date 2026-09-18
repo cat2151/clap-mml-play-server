@@ -3,6 +3,7 @@
 //! ARIA bank IDs, manifests, and the Windows registry stay here. Generic catalog callers reach
 //! this implementation only through [`crate::resolve_patch_catalog`].
 
+mod excluded;
 mod manifest;
 mod user_bank;
 
@@ -100,8 +101,10 @@ pub(super) fn resolve_catalog(
     }
 
     let mut seen_manifests = HashSet::new();
+    let mut bank_roots = HashSet::new();
     for root in &roots {
         for manifest_path in manifest::manifests_near(root) {
+            bank_roots.insert(canonical_key(root));
             if !seen_manifests.insert(canonical_key(&manifest_path)) {
                 continue;
             }
@@ -132,14 +135,21 @@ pub(super) fn resolve_catalog(
         }
     }
     let excluded = all_files
-        .keys()
-        .filter(|key| !programs.contains_key(*key))
-        .count();
-    if excluded > 0 {
-        notices.push(format!(
-            "ARIA program source に登録されていない SFZ を {excluded} 件 catalog から除外"
-        ));
-    }
+        .into_iter()
+        .filter(|(key, _)| !programs.contains_key(key) && !conflicts.contains(key))
+        .map(|(_, path)| path)
+        .collect::<Vec<_>>();
+    notices.extend(excluded::notice(
+        &excluded,
+        &excluded::ExcludedContext {
+            roots: &roots,
+            bank_roots: &bank_roots,
+            user_root: user_lookup
+                .source
+                .as_ref()
+                .map(|source| source.root.as_path()),
+        },
+    ));
 
     let mut resolved_patches = programs
         .values()
