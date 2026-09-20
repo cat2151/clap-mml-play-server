@@ -18,7 +18,7 @@ use super::descriptor::SelectedDescriptor;
 use super::serial_instantiation::InstantiationPermit;
 use crate::host::{MidiRenderHost, MidiRenderHostMainThread, MidiRenderHostShared};
 
-pub(super) fn create_plugin_instance_without_patch(
+pub(crate) fn create_plugin_instance_without_patch(
     entry: &PluginEntry,
     descriptor: &SelectedDescriptor,
 ) -> Result<PluginInstance<MidiRenderHost>> {

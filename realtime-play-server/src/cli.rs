@@ -23,6 +23,9 @@ pub(crate) enum CliAction {
         plugin_id: Option<String>,
         json: bool,
     },
+    ListEffectPresets {
+        json: bool,
+    },
     PrintHelp(String),
 }
 
@@ -91,6 +94,12 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// List the factory presets of the effect plugins (TONE3000, Surge XT Effects) the render pipeline can insert after the instrument
+    ListEffectPresets {
+        /// Print the catalog as JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 pub(crate) fn parse_cli<I, T>(args: I) -> Result<CliAction>
@@ -122,6 +131,7 @@ where
                 plugin_id,
                 json,
             }),
+            Some(Commands::ListEffectPresets { json }) => Ok(CliAction::ListEffectPresets { json }),
             None => Ok(CliAction::Run),
         },
         Err(error) if error.kind() == ErrorKind::DisplayHelp => {

@@ -2,32 +2,37 @@
 
 use anyhow::Result;
 use clack_host::prelude::PluginEntry;
-use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::patch_list::{collect_patches, to_relative};
 use crate::render::RealtimePlaybackSchedule;
 use crate::CoreConfig;
 
 use mmlabc_to_smf::{mml_preprocessor, raw_mml_to_smf_bytes_with_options, SmfConversionOptions};
 
 mod audio;
+mod effects;
+mod history;
 mod output_dirs;
+mod patch_resolution;
 mod rendering;
+mod temp_dir;
 #[cfg(test)]
 mod test_support;
 
 pub use audio::{encode_wav_i16, play_samples, write_wav};
+pub use effects::{EffectEntryLoader, RenderEffects};
+use history::append_history;
 pub use output_dirs::{ensure_cmrt_dir, ensure_daw_dir, ensure_phrase_dir};
+pub use patch_resolution::embedded_patch_ref;
+use patch_resolution::{patch_display_for_render, resolve_effective_patch};
 #[cfg(test)]
 use rendering::{apply_render_preroll, trim_render_preroll};
 use rendering::{
     prepare_playback_schedule, prepare_render_inputs, render_prepared_inputs, PreparedRenderInputs,
 };
 pub use rendering::{RenderOptions, RenderPreroll};
+use temp_dir::RenderTempDir;
 #[cfg(test)]
 pub(crate) use test_support::{env_lock, EnvVarGuard};
-
-static TEMP_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// MML → レンダリングのみ。再生はしない。
 /// 戻り値: (サンプル列, 使用パッチ相対パス)
@@ -36,16 +41,28 @@ pub fn mml_render(mml: &str, cfg: &CoreConfig, entry: &PluginEntry) -> Result<(V
 }
 
 /// MML → レンダリングのみ。`RenderOptions` で preroll などの追加処理を指定できる。
+/// effect chain 付きの MML はエラー（[`mml_render_with_effects`] を使う）。
 pub fn mml_render_with_options(
     mml: &str,
     cfg: &CoreConfig,
     entry: &PluginEntry,
     options: RenderOptions,
 ) -> Result<(Vec<f32>, String)> {
-    let prepared = prepare_phrase_render(mml, cfg, options)?;
+    mml_render_with_effects(mml, cfg, entry, options, RenderEffects::unsupported())
+}
+
+/// MML → レンダリングのみ。先頭 JSON の effect chain を instrument の後段に通す。
+pub fn mml_render_with_effects(
+    mml: &str,
+    cfg: &CoreConfig,
+    entry: &PluginEntry,
+    options: RenderOptions,
+    effects: RenderEffects,
+) -> Result<(Vec<f32>, String)> {
+    let prepared = prepare_phrase_render(mml, cfg, options, effects)?;
     let patch_display = prepared.patch_display;
     let output_wav = prepared.output_wav;
-    let samples = render_prepared_inputs(prepared.inputs, entry)?;
+    let samples = render_prepared_inputs(prepared.inputs, entry, &effects)?;
     write_wav(&samples, cfg.sample_rate as u32, &output_wav)?;
     Ok((samples, patch_display))
 }
@@ -56,16 +73,29 @@ pub fn mml_render_stateless(mml: &str, cfg: &CoreConfig, entry: &PluginEntry) ->
 }
 
 /// MML → レンダリングのみ。中間ファイルは生成しない。
+/// effect chain 付きの MML はエラー（[`mml_render_stateless_with_effects`] を使う）。
 pub fn mml_render_stateless_with_options(
     mml: &str,
     cfg: &CoreConfig,
     entry: &PluginEntry,
     options: RenderOptions,
 ) -> Result<Vec<f32>> {
+    mml_render_stateless_with_effects(mml, cfg, entry, options, RenderEffects::unsupported())
+}
+
+/// MML → レンダリングのみ。中間ファイルは生成しない。先頭 JSON の effect chain を通す。
+pub fn mml_render_stateless_with_effects(
+    mml: &str,
+    cfg: &CoreConfig,
+    entry: &PluginEntry,
+    options: RenderOptions,
+    effects: RenderEffects,
+) -> Result<Vec<f32>> {
     let temp_dir = RenderTempDir::create()?;
     let preprocessed = mml_preprocessor::extract_embedded_json(mml);
     let effective_patch =
         resolve_effective_patch(preprocessed.embedded_json.as_deref(), cfg, false)?;
+    let chain = effects.chain_spec(preprocessed.embedded_json.as_deref())?;
     let smf_bytes = mml_str_to_smf_bytes(&preprocessed.remaining_mml)?;
     let patched_cfg = CoreConfig {
         output_midi: utf8_path_string(&temp_dir.path().join("output.mid"), "一時MIDIパス")?,
@@ -74,8 +104,8 @@ pub fn mml_render_stateless_with_options(
         random_patch: false,
         ..cfg.clone()
     };
-    let inputs = prepare_render_inputs(&smf_bytes, patched_cfg, options)?;
-    render_prepared_inputs(inputs, entry)
+    let inputs = prepare_render_inputs(&smf_bytes, patched_cfg, options, chain)?;
+    render_prepared_inputs(inputs, entry, &effects)
 }
 
 /// SMF bytes → レンダリングのみ。中間ファイルは生成しない。
@@ -92,8 +122,9 @@ pub fn smf_render_stateless_with_options(
         random_patch: false,
         ..cfg.clone()
     };
-    let inputs = prepare_render_inputs(smf_bytes, patched_cfg, options)?;
-    render_prepared_inputs(inputs, entry)
+    // SMF には先頭 JSON が無いので effect chain は常に空。
+    let inputs = prepare_render_inputs(smf_bytes, patched_cfg, options, Default::default())?;
+    render_prepared_inputs(inputs, entry, &RenderEffects::unsupported())
 }
 
 /// SMF bytes → realtime playback 用イベント列。中間ファイルは生成しない。
@@ -116,15 +147,27 @@ pub fn mml_render_for_cache(mml: &str, cfg: &CoreConfig, entry: &PluginEntry) ->
 }
 
 /// キャッシュ構築専用の MML → レンダリング。`RenderOptions` で preroll などを指定できる。
+/// effect chain 付きの MML はエラー（[`mml_render_for_cache_with_effects`] を使う）。
 pub fn mml_render_for_cache_with_options(
     mml: &str,
     cfg: &CoreConfig,
     entry: &PluginEntry,
     options: RenderOptions,
 ) -> Result<Vec<f32>> {
-    let prepared = prepare_cache_render(mml, cfg, options)?;
+    mml_render_for_cache_with_effects(mml, cfg, entry, options, RenderEffects::unsupported())
+}
+
+/// キャッシュ構築専用の MML → レンダリング。先頭 JSON の effect chain を instrument の後段に通す。
+pub fn mml_render_for_cache_with_effects(
+    mml: &str,
+    cfg: &CoreConfig,
+    entry: &PluginEntry,
+    options: RenderOptions,
+    effects: RenderEffects,
+) -> Result<Vec<f32>> {
+    let prepared = prepare_cache_render(mml, cfg, options, effects)?;
     let output_wav = prepared.output_wav;
-    let samples = render_prepared_inputs(prepared.inputs, entry)?;
+    let samples = render_prepared_inputs(prepared.inputs, entry, &effects)?;
     write_wav(&samples, cfg.sample_rate as u32, &output_wav)?;
 
     Ok(samples)
@@ -169,10 +212,12 @@ fn prepare_phrase_render(
     mml: &str,
     cfg: &CoreConfig,
     options: RenderOptions,
+    effects: RenderEffects,
 ) -> Result<PreparedPhraseRender> {
     let preprocessed = mml_preprocessor::extract_embedded_json(mml);
     let effective_patch =
         resolve_effective_patch(preprocessed.embedded_json.as_deref(), cfg, cfg.random_patch)?;
+    let chain = effects.chain_spec(preprocessed.embedded_json.as_deref())?;
     append_history(mml, &effective_patch, cfg)?;
 
     let phrase_dir = ensure_phrase_dir()?;
@@ -188,7 +233,7 @@ fn prepare_phrase_render(
         ..cfg.clone()
     };
     let patch_display = patch_display_for_render(effective_patch.as_deref(), cfg);
-    let inputs = prepare_render_inputs(&smf_bytes, patched_cfg, options)?;
+    let inputs = prepare_render_inputs(&smf_bytes, patched_cfg, options, chain)?;
     Ok(PreparedPhraseRender {
         inputs,
         output_wav,
@@ -200,10 +245,12 @@ fn prepare_cache_render(
     mml: &str,
     cfg: &CoreConfig,
     options: RenderOptions,
+    effects: RenderEffects,
 ) -> Result<PreparedCacheRender> {
     let preprocessed = mml_preprocessor::extract_embedded_json(mml);
     let effective_patch =
         resolve_effective_patch(preprocessed.embedded_json.as_deref(), cfg, false)?;
+    let chain = effects.chain_spec(preprocessed.embedded_json.as_deref())?;
 
     let smf_bytes = mml_str_to_smf_bytes(&preprocessed.remaining_mml)?;
     let daw_dir = ensure_daw_dir()?;
@@ -218,35 +265,8 @@ fn prepare_cache_render(
         random_patch: false,
         ..cfg.clone()
     };
-    let inputs = prepare_render_inputs(&smf_bytes, patched_cfg, options)?;
+    let inputs = prepare_render_inputs(&smf_bytes, patched_cfg, options, chain)?;
     Ok(PreparedCacheRender { inputs, output_wav })
-}
-
-fn resolve_effective_patch(
-    embedded_json: Option<&str>,
-    cfg: &CoreConfig,
-    allow_random_patch: bool,
-) -> Result<Option<String>> {
-    if let Some(patch) = extract_patch_from_json(embedded_json, cfg) {
-        return Ok(Some(patch));
-    }
-    if allow_random_patch {
-        return pick_random_patch(cfg);
-    }
-    Ok(cfg.patch_path.clone())
-}
-
-fn patch_display_for_render(effective_patch: Option<&str>, cfg: &CoreConfig) -> String {
-    match effective_patch {
-        Some(abs) => {
-            if let Some(ref base) = cfg.patches_dir {
-                to_relative(base, std::path::Path::new(abs))
-            } else {
-                abs.to_string()
-            }
-        }
-        None => "(Init Saw)".to_string(),
-    }
 }
 
 fn write_smf_file(path: &std::path::Path, smf_bytes: &[u8], label: &str) -> Result<()> {
@@ -258,97 +278,6 @@ fn utf8_path_string(path: &std::path::Path, label: &str) -> Result<String> {
     path.to_str()
         .map(str::to_string)
         .ok_or_else(|| anyhow::anyhow!("{}が非UTF-8です: {}", label, path.display()))
-}
-
-/// MML 先頭 JSON が指す音色の display 文字列を、**解決せずそのまま**返す。
-///
-/// 「この MML をどのプラグインへ渡すか」の判別はこの未解決の文字列だけで足りる
-/// （[`crate::is_cartridge_patch_path`]）。解決の基点（`CoreConfig.patches_dir`）は
-/// プラグインごとに違うので、プラグインを決める前には選べない。
-pub fn embedded_patch_ref(mml: &str) -> Option<String> {
-    let preprocessed = mml_preprocessor::extract_embedded_json(mml);
-    let value: serde_json::Value =
-        serde_json::from_str(preprocessed.embedded_json.as_deref()?).ok()?;
-    Some(value.get("Surge XT patch")?.as_str()?.to_string())
-}
-
-/// MML先頭JSONから "Surge XT patch" キーの値を取り出し、絶対パスに変換する。
-fn extract_patch_from_json(json_str: Option<&str>, cfg: &CoreConfig) -> Option<String> {
-    let json_str = json_str?;
-    let v: serde_json::Value = serde_json::from_str(json_str).ok()?;
-    let rel = v.get("Surge XT patch")?.as_str()?;
-    // patches_dir があれば絶対パスに変換、なければそのまま
-    if let Some(ref base) = cfg.patches_dir {
-        let abs = std::path::Path::new(base).join(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
-        Some(abs.to_string_lossy().into_owned())
-    } else {
-        Some(rel.to_string())
-    }
-}
-
-/// patches_dir からランダムに1つ選んで絶対パスを返す。
-fn pick_random_patch(cfg: &CoreConfig) -> Result<Option<String>> {
-    let dir = match &cfg.patches_dir {
-        Some(d) => d,
-        None => return Ok(None),
-    };
-    let patches = collect_patches(dir)?;
-    if patches.is_empty() {
-        return Ok(None);
-    }
-    // 簡易乱数: 現在時刻のナノ秒を使う
-    let idx = {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        let ns = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.subsec_nanos())
-            .unwrap_or(0) as usize;
-        ns % patches.len()
-    };
-    Ok(Some(patches[idx].to_string_lossy().into_owned()))
-}
-
-/// patch_history.txt に「JSON、MML」形式で追記する。
-fn append_history(mml: &str, patch: &Option<String>, cfg: &CoreConfig) -> Result<()> {
-    let patch_rel = match patch {
-        Some(abs) => {
-            if let Some(ref base) = cfg.patches_dir {
-                to_relative(base, std::path::Path::new(abs))
-            } else {
-                abs.clone()
-            }
-        }
-        None => "(none)".to_string(),
-    };
-
-    // JSON部分を除いたMML本文（先頭JSONがあれば除去済みのものを使う）
-    let preprocessed = mml_preprocessor::extract_embedded_json(mml);
-    let mml_body = preprocessed.remaining_mml.trim().to_string();
-
-    let json = format!(
-        "{{\"Surge XT patch\": \"{}\"}}",
-        patch_rel.replace('\\', "/")
-    );
-    let line = format!("{} {}\n", json, mml_body);
-
-    use std::io::Write;
-    let Some(path) =
-        dirs::config_local_dir().map(|d| d.join("clap-mml-render-tui").join("patch_history.txt"))
-    else {
-        return Ok(()); // ディレクトリが取得できない場合はスキップ
-    };
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)
-            .map_err(|e| anyhow::anyhow!("patch_history.txt のディレクトリ作成失敗: {}", e))?;
-    }
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-        .map_err(|e| anyhow::anyhow!("patch_history.txt を開けない: {}", e))?;
-    file.write_all(line.as_bytes())
-        .map_err(|e| anyhow::anyhow!("patch_history.txt への書き込み失敗: {}", e))?;
-    Ok(())
 }
 
 /// MML文字列（JSON除去済み）→ SMFバイト列
@@ -391,41 +320,5 @@ pub fn prepare_realtime_play(mml: &str, cfg: &CoreConfig) -> Result<PreparedReal
     })
 }
 
-struct RenderTempDir {
-    path: std::path::PathBuf,
-}
-
-impl RenderTempDir {
-    fn create() -> Result<Self> {
-        let base = std::env::temp_dir();
-        let process_id = std::process::id();
-        for _ in 0..100 {
-            let counter = TEMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
-            let path = base.join(format!("cmrt_stateless_render_{process_id}_{counter}"));
-            match std::fs::create_dir(&path) {
-                Ok(()) => return Ok(Self { path }),
-                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-                Err(e) => {
-                    return Err(anyhow::anyhow!(
-                        "一時ディレクトリの作成に失敗 ({}): {}",
-                        path.display(),
-                        e
-                    ));
-                }
-            }
-        }
-        anyhow::bail!("一時ディレクトリ名を確保できませんでした")
-    }
-
-    fn path(&self) -> &std::path::Path {
-        &self.path
-    }
-}
-
-impl Drop for RenderTempDir {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.path);
-    }
-}
 #[cfg(test)]
 mod tests;

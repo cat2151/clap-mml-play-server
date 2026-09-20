@@ -84,6 +84,23 @@ fn probe_capabilities_without_a_plugin_path_targets_every_configured_plugin() {
 }
 
 #[test]
+fn list_effect_presets_subcommand_parses_the_json_flag() {
+    assert_eq!(
+        parse_cli(["clap-mml-realtime-play-server", "list-effect-presets"]).unwrap(),
+        CliAction::ListEffectPresets { json: false }
+    );
+    assert_eq!(
+        parse_cli([
+            "clap-mml-realtime-play-server",
+            "list-effect-presets",
+            "--json"
+        ])
+        .unwrap(),
+        CliAction::ListEffectPresets { json: true }
+    );
+}
+
+#[test]
 fn help_lists_self_update_commands_and_server_details() {
     let CliAction::PrintHelp(help) =
         parse_cli(["clap-mml-realtime-play-server", "--help"]).unwrap()
@@ -96,6 +113,7 @@ fn help_lists_self_update_commands_and_server_details() {
     assert!(help.contains("check"));
     assert!(help.contains("probe-voicing"));
     assert!(help.contains("probe-capabilities"));
+    assert!(help.contains("list-effect-presets"));
     assert!(help.contains("POST /play"));
     assert!(help.contains("POST /play-mml"));
     assert!(help.contains("LIVE MIDI (Windows)"));

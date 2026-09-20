@@ -13,7 +13,9 @@ fn limits_a_linked_stereo_peak_to_the_ceiling() {
     assert!(peak <= 10.0f32.powf(CEILING_DB / 20.0) + 1.0e-6);
     assert!(reduction.peak_db > 0.0);
     let peak_frame = samples
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .find(|frame| frame[0].abs() > 0.0)
         .unwrap();
     assert!((peak_frame[1] / peak_frame[0] - 0.25).abs() < 1.0e-6);

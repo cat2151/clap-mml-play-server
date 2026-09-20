@@ -67,7 +67,7 @@ fn plugin_state_extension(
 }
 
 /// 現在のプラグイン state をバイト列としてスナップショットする。
-pub(super) fn save_plugin_state(
+pub(crate) fn save_plugin_state(
     plugin_instance: &mut PluginInstance<MidiRenderHost>,
 ) -> Result<Vec<u8>> {
     let state_ext = plugin_state_extension(plugin_instance)?;
@@ -80,7 +80,7 @@ pub(super) fn save_plugin_state(
 }
 
 /// バイト列の state をプラグインへ流し込む。
-pub(super) fn load_plugin_state(
+pub(crate) fn load_plugin_state(
     plugin_instance: &mut PluginInstance<MidiRenderHost>,
     state: &[u8],
 ) -> Result<()> {

@@ -1,6 +1,8 @@
 use anyhow::Result;
 use clack_host::prelude::PluginEntry;
 
+use super::effects::RenderEffects;
+use crate::audio_effect::EffectChainSpec;
 use crate::midi::{parse_smf_playback, TimedMidiEvent};
 use crate::render::{render_to_memory, RealtimePlaybackSchedule};
 use crate::CoreConfig;
@@ -89,6 +91,8 @@ pub(crate) struct PreparedRenderInputs {
     pub(crate) patched_cfg: CoreConfig,
     pub(crate) playback: RealtimePlaybackSchedule,
     pub(crate) preroll_samples: u64,
+    /// instrument の出力直後に通す effect。空なら通さない。
+    pub(crate) effects: EffectChainSpec,
 }
 
 /// SMF bytes → 再生スケジュール。tempo map も一緒に載せる。
@@ -116,6 +120,7 @@ pub(crate) fn prepare_render_inputs(
     smf_bytes: &[u8],
     patched_cfg: CoreConfig,
     options: RenderOptions,
+    effects: EffectChainSpec,
 ) -> Result<PreparedRenderInputs> {
     let preroll_samples = options.preroll_samples(patched_cfg.sample_rate);
     let playback = prepare_playback_schedule(smf_bytes, patched_cfg.sample_rate, options)?;
@@ -123,19 +128,32 @@ pub(crate) fn prepare_render_inputs(
         patched_cfg,
         playback,
         preroll_samples,
+        effects,
     })
 }
 
+/// instrument を render し、effect chain を通してから preroll を切り落とす。
 pub(crate) fn render_prepared_inputs(
     prepared: PreparedRenderInputs,
     entry: &PluginEntry,
+    render_effects: &RenderEffects,
 ) -> Result<Vec<f32>> {
     let PreparedRenderInputs {
         patched_cfg,
         playback,
         preroll_samples,
+        effects,
     } = prepared;
-    let samples = render_to_memory(&patched_cfg, entry, playback)?;
+    let tempo_map = playback.tempo_map().cloned();
+    let musical_origin_samples = playback.musical_origin_samples();
+    let mut samples = render_to_memory(&patched_cfg, entry, playback)?;
+    render_effects.apply(
+        &effects,
+        &mut samples,
+        &patched_cfg,
+        tempo_map.as_ref(),
+        musical_origin_samples,
+    )?;
     Ok(trim_render_preroll(samples, preroll_samples))
 }
 

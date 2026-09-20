@@ -1,5 +1,6 @@
 mod cli;
 mod config;
+mod effect_presets;
 mod fast_ipc;
 mod http;
 mod player;
@@ -22,6 +23,7 @@ use cmrt_core::{
 use config::{
     core_config_from_server_config, validate_realtime_play_server_config, RealtimeServerConfig,
 };
+use effect_presets::list_effect_presets;
 use http::run_realtime_play_server;
 use player::{plugin_kinds, PlayerHandle, PluginKind, RealtimePlayer};
 use probe::{run_capability_probe, run_voicing_probe};
@@ -75,6 +77,10 @@ fn main() -> Result<()> {
             json,
         } => {
             run_capability_probe(plugin_path.as_deref(), plugin_id.as_deref(), json)?;
+            return Ok(());
+        }
+        CliAction::ListEffectPresets { json } => {
+            list_effect_presets(json)?;
             return Ok(());
         }
         CliAction::PrintHelp(help) => {

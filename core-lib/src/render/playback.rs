@@ -62,6 +62,16 @@ impl RealtimePlaybackSchedule {
         self.total_samples
     }
 
+    /// 曲の tempo map。`None` なら transport を渡していない。
+    pub fn tempo_map(&self) -> Option<&TempoMapTimeline> {
+        self.transport.as_ref()
+    }
+
+    /// 拍 0 に対応するサンプル位置（preroll のサンプル数）。
+    pub fn musical_origin_samples(&self) -> u64 {
+        self.musical_origin_samples
+    }
+
     pub fn current_sample(&self) -> u64 {
         self.current_sample
     }

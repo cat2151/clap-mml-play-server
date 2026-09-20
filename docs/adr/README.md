@@ -1,6 +1,6 @@
 # ADR — 設計判断の記録
 
-CLAP プラグイン（Surge XT / Dexed / Vaporizer2）の**実測仕様**と、サーバー側の**確定した設計判断**。
+CLAP プラグイン（Surge XT / Dexed / Vaporizer2 と、effect の TONE3000 / Surge XT Effects）の**実測仕様**と、サーバー側の**確定した設計判断**。
 「なぜそうしなかったのか」と「再取得コストの高い実測値」を残している。
 
 TUI 側（データ表現・config・カタログ）は `../clap-mml-render-tui/docs/adr/` にある。
@@ -27,3 +27,4 @@ TUI 側（データ表現・config・カタログ）は `../clap-mml-render-tui/
 | [0017](0017-fixed-surge-primary-plugin.md) | 共有 config の既定プラグインを Surge XT に固定する |
 | [0018](0018-patch-load-must-not-spin-the-plugin.md) | 音色ロードの下準備で `process()` を空回ししてよいかはプラグインの契約で決める |
 | [0019](0019-cache-player-slot-headroom.md) | cache-player のスロットは 4 本（クロックの先行を吸収する余裕） |
+| [0020](0020-audio-effects-are-baked-into-the-offline-render.md) | audio effect は offline render で焼き込む。chain の位置は instrument 直後・gain 前 |

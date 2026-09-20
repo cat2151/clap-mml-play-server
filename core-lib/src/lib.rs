@@ -1,9 +1,12 @@
+pub mod audio_effect;
 mod audio_plugin;
 pub mod boot_log;
 pub mod cache_wav;
 pub mod dx7;
+pub mod effect;
 pub mod floe;
 pub mod host;
+pub mod juce_value_tree;
 mod logging;
 pub mod midi;
 pub mod patch_list;
@@ -12,6 +15,8 @@ pub mod plugin_catalog;
 pub mod render;
 pub mod sforzando;
 pub mod surge_data;
+pub mod surge_fx_preset;
+pub mod tone3000_preset;
 pub mod voicing;
 pub mod vvp;
 mod workspace_update;
@@ -37,6 +42,11 @@ pub struct CoreConfig {
     pub random_patch: bool,
 }
 
+pub use audio_effect::{
+    builtin_effect_plugins, effect_chain_spec_from_embedded_json, embedded_json_has_effect_chain,
+    AudioEffectCatalog, AudioEffectPluginInfo, AudioEffectPreset, EffectChainSpec, EffectStageSpec,
+    PresetLocation, EFFECT_CHAIN_JSON_KEY,
+};
 pub use audio_plugin::{
     patch_lookup_candidates, patch_sort_metadata, plugin_voicing_source, AudioPatch,
     AudioPluginCatalog, AudioPluginInfo, PatchRef, PatchSortMetadata, PatchVoicingHint, PluginKey,
@@ -56,11 +66,13 @@ pub use logging::{set_log_sink, LogSink};
 pub use patch_list::{collect_patches, to_relative};
 pub use pipeline::{
     embedded_patch_ref, encode_wav_i16, ensure_cmrt_dir, ensure_daw_dir, ensure_phrase_dir,
-    mml_render, mml_render_for_cache, mml_render_for_cache_with_options, mml_render_stateless,
-    mml_render_stateless_with_options, mml_render_with_options, mml_str_to_smf_bytes, mml_to_play,
-    mml_to_play_with_options, mml_to_smf_bytes, play_samples, prepare_realtime_play,
-    smf_playback_schedule_with_options, smf_render_stateless_with_options, write_wav,
-    PreparedRealtimePlay, RenderOptions, RenderPreroll,
+    mml_render, mml_render_for_cache, mml_render_for_cache_with_effects,
+    mml_render_for_cache_with_options, mml_render_stateless, mml_render_stateless_with_effects,
+    mml_render_stateless_with_options, mml_render_with_effects, mml_render_with_options,
+    mml_str_to_smf_bytes, mml_to_play, mml_to_play_with_options, mml_to_smf_bytes, play_samples,
+    prepare_realtime_play, smf_playback_schedule_with_options, smf_render_stateless_with_options,
+    write_wav, EffectEntryLoader, PreparedRealtimePlay, RenderEffects, RenderOptions,
+    RenderPreroll,
 };
 pub use plugin_catalog::{kind_for_patch, plugin_kinds, PatchBases, PluginKind};
 pub use render::{

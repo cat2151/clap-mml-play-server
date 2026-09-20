@@ -189,6 +189,7 @@ fn prepare_render_inputs_applies_configured_preroll() {
         &smf_bytes,
         config,
         RenderOptions::new().with_preroll(RenderPreroll::from_millis(100)),
+        Default::default(),
     )
     .unwrap();
 
@@ -213,7 +214,12 @@ fn prepare_render_inputs_rejects_invalid_smf_bytes() {
         ..Default::default()
     };
 
-    let result = prepare_render_inputs(b"not a midi file", config, RenderOptions::default());
+    let result = prepare_render_inputs(
+        b"not a midi file",
+        config,
+        RenderOptions::default(),
+        Default::default(),
+    );
     assert!(
         result.is_err(),
         "invalid SMF bytes should fail before plugin rendering"
@@ -439,3 +445,5 @@ fn ensure_cmrt_dir_uses_non_utf8_env_override() {
             .unwrap_or_else(|e| eprintln!("クリーンアップ失敗 {:?}: {}", parent, e));
     }
 }
+
+mod effects;

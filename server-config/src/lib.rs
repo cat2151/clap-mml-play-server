@@ -9,6 +9,7 @@
 //! 固定の既定プラグイン Surge XT の解決規則も、プラグインをロードするこちら側の知識として
 //! ここが持つ。
 
+mod effect_defaults;
 mod patch_catalog;
 mod patch_dirs;
 mod paths;
@@ -20,6 +21,10 @@ mod primary_plugin;
 mod sforzando_programs;
 mod vaporizer2_categories;
 
+pub use effect_defaults::{
+    default_surge_fx_plugin_path, default_surge_fx_preset_root, default_tone3000_plugin_path,
+    default_tone3000_preset_root,
+};
 pub use patch_catalog::{
     resolve_patch_catalog, resolve_patch_catalog_roots, PatchCatalogResolution,
 };
