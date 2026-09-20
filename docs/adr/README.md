@@ -28,3 +28,4 @@ TUI 側（データ表現・config・カタログ）は `../clap-mml-render-tui/
 | [0018](0018-patch-load-must-not-spin-the-plugin.md) | 音色ロードの下準備で `process()` を空回ししてよいかはプラグインの契約で決める |
 | [0019](0019-cache-player-slot-headroom.md) | cache-player のスロットは 4 本（クロックの先行を吸収する余裕） |
 | [0020](0020-audio-effects-are-baked-into-the-offline-render.md) | audio effect は offline render で焼き込む。chain の位置は instrument 直後・gain 前 |
+| [0021](0021-offline-render-serializes-instance-creation.md) | オフライン render は instance 生成を全 plugin 一律に直列化する |

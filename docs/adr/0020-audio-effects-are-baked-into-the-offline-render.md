@@ -79,7 +79,8 @@ chain は各段の `clap.latency` を合計し、末尾に無音を足して回�
   TONE3000 は preset 適用込みで 114〜928 ms（model の大きさに比例）
 - chain は instrument と同じサンプル数だけ回すので、リバーブの尻尾は WAV 末尾で切れる
   （Cathedral 2 で末尾 1 s が -46 dBFS）。render の延長は入れていない
-- render-server backend は effect を持たない（chain 付きはエラー）。足すなら別途
+- render-server backend も effect を持つ（`render-server/src/main.rs` が boot で `EffectPlugins` を
+  1 つ持ち、worker 間で `Arc` 共有する）
 
 ## 壊れたら気づく場所
 

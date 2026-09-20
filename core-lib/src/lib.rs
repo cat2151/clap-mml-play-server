@@ -4,6 +4,7 @@ pub mod boot_log;
 pub mod cache_wav;
 pub mod dx7;
 pub mod effect;
+pub mod effect_plugins;
 pub mod floe;
 pub mod host;
 pub mod juce_value_tree;
@@ -58,6 +59,7 @@ pub use dx7::{
     parse_dx7_cartridge, CartridgePatchPath, Dx7Cartridge, DEXED_PLUGIN_ID, DX7_BULK_DUMP_LEN,
     DX7_PROGRAMS_PER_CARTRIDGE,
 };
+pub use effect_plugins::EffectPlugins;
 pub use floe::{is_floe_preset_path, FLOE_PLUGIN_ID};
 pub use host::{
     builtin_plugin_path, load_builtin_entry, load_entry, PluginEntry, BUILTIN_PLUGIN_PATH_PREFIX,

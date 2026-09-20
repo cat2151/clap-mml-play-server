@@ -36,10 +36,16 @@ fn content_type_accepts_charset_suffix() {
 }
 
 #[test]
-fn write_text_response_uses_plain_text_headers() {
+fn text_response_uses_plain_text_headers() {
     let mut response = Vec::new();
 
-    write_text_response(&mut response, StatusCode::BadRequest, "invalid request").unwrap();
+    write_binary_response(
+        &mut response,
+        StatusCode::BadRequest,
+        TEXT_PLAIN_UTF8,
+        b"invalid request",
+    )
+    .unwrap();
 
     let response = String::from_utf8(response).unwrap();
     assert!(response.starts_with("HTTP/1.1 400 Bad Request\r\n"));

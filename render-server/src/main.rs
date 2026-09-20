@@ -13,8 +13,8 @@ use anyhow::{Context as _, Result};
 use clap::{error::ErrorKind, Parser, Subcommand};
 use cmrt_core::{
     check_workspace_update, embedded_patch_ref, encode_wav_i16, kind_for_patch, load_entry,
-    log_boot, log_boot_fatal, mml_render_stateless_with_options, plugin_kinds,
-    run_workspace_update, CoreConfig, PluginKind, RenderOptions,
+    log_boot, log_boot_fatal, mml_render_stateless_with_effects, plugin_kinds,
+    run_workspace_update, CoreConfig, EffectPlugins, PluginKind, RenderOptions,
 };
 use cmrt_server_config::ServerConfig;
 use http::run_render_server;
@@ -95,7 +95,20 @@ fn load_config(path: Option<&std::path::Path>) -> Result<ServerConfig> {
     loaded.inspect_err(|error: &anyhow::Error| log_boot_fatal("config", &format!("{error:#}")))
 }
 
+/// 既定の panic hook は stderr へ書くだけで終わる。CLAP plugin の `extern "C"` 境界を
+/// 越えて unwind すると（Rust の規則で）即 abort になり、その前に書いた行が worker の
+/// 出力バッファに埋もれて見えなくなることがある。ここで明示的に `flush` してから既定の
+/// hook を呼び、クラッシュ調査でパニックか access violation かを切り分けられるようにする。
+fn install_panic_hook() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        default_hook(info);
+        let _ = std::io::Write::flush(&mut std::io::stderr());
+    }));
+}
+
 fn main() -> Result<()> {
+    install_panic_hook();
     // 「どの実体を、どの版で起動したか」を、失敗しうる処理より前に残す。
     log_boot(BUILD_COMMIT_HASH);
     let config_path = match parse_cli(std::env::args_os())? {
@@ -125,6 +138,10 @@ fn main() -> Result<()> {
     apply_surge_data_home_for(&kinds);
     let sample_rate = core_cfg.sample_rate as u32;
     let workers = cfg.offline_render_server_workers;
+    // catalog の走査（preset ファイルの読み取り）は起動時に済ませ、最初の render を
+    // 遅らせない。DLL のロードは chain 付きの MML を初めて受け取るまで遅らせる。
+    let effect_plugins = EffectPlugins::discover();
+    log_effect_catalog(&effect_plugins);
 
     let shutdown = Arc::new(AtomicBool::new(false));
     install_shutdown_handler(Arc::clone(&shutdown))?;
@@ -136,6 +153,10 @@ fn main() -> Result<()> {
         shutdown,
         move || {
             let kinds = kinds.clone();
+            // effect の catalog と entry 表はプロセスに 1 つを worker 間で共有する
+            // （`Arc` で安い clone。instrument の entry のように worker ごとにロードし
+            // 直す理由が無い）。
+            let effect_plugins = effect_plugins.clone();
             // entry は worker ごとにロードする（今までどおり）。載りうるプラグインぶん
             // 並べるので、Dexed の音色を受け取っても worker を作り直さずに済む。
             let entries = kinds
@@ -166,12 +187,15 @@ fn main() -> Result<()> {
                 // 音色無指定の MML は既定プラグイン（先頭）で鳴らす。
                 let index = kind_for_patch(&kinds, 0, embedded_patch_ref(mml).as_deref())
                     .map_err(|error| anyhow::anyhow!(error))?;
-                let samples = mml_render_stateless_with_options(
-                    mml,
-                    &kinds[index].core_cfg,
-                    &entries[index],
-                    RenderOptions::new().with_preroll_ms(RENDER_PREROLL_MS),
-                )?;
+                let samples = effect_plugins.with_render_effects(|effects| {
+                    mml_render_stateless_with_effects(
+                        mml,
+                        &kinds[index].core_cfg,
+                        &entries[index],
+                        RenderOptions::new().with_preroll_ms(RENDER_PREROLL_MS),
+                        effects,
+                    )
+                })?;
                 encode_wav_i16(&samples, sample_rate)
             })
         },
@@ -223,6 +247,21 @@ fn apply_surge_data_home(plugin_id: Option<&str>, plugin_path: &str) {
     }
 }
 
+/// effect の catalog を先に走査しておき、件数を stderr へ残す。
+/// `EffectPlugins::discover()` は必ず「chain 付きの MML を受け付ける」側で作るので、
+/// catalog は常に `Some`。走査は `catalog()` の初回呼び出しでここに閉じ込める。
+fn log_effect_catalog(effect_plugins: &EffectPlugins) {
+    let Some(catalog) = effect_plugins.catalog() else {
+        return;
+    };
+    eprintln!(
+        "cmrt-render-server: effect-catalog: plugins={} presets={} skipped={}",
+        catalog.plugins().len(),
+        catalog.presets().len(),
+        catalog.skipped().len()
+    );
+}
+
 fn validate_render_server_config(cfg: &ServerConfig) -> Result<()> {
     if cfg.plugin_path.trim().is_empty() {
         anyhow::bail!("plugin_path が空です");
@@ -254,165 +293,4 @@ fn install_shutdown_handler(shutdown: Arc<AtomicBool>) -> Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// `ServerConfig` は増えるフィールドに serde default を付ける決まりなので、
-    /// 構造体リテラルではなく TOML から作って項目追加への追従を不要にする。
-    fn test_config() -> ServerConfig {
-        ServerConfig::from_toml_str(
-            r#"
-output_midi = "output.mid"
-output_wav = "output.wav"
-sample_rate = 48000
-buffer_size = 512
-"#,
-        )
-        .unwrap()
-    }
-
-    #[test]
-    fn cli_without_subcommand_runs_server() {
-        assert_eq!(
-            parse_cli(["clap-mml-render-server"]).unwrap(),
-            CliAction::Run { config: None }
-        );
-    }
-
-    /// 実ユーザーの config.toml を書き換えずに `[plugins.*]` を試すための入口。
-    /// TUI 側の `cmrt patch-roles --config` / `cmrt render-mml --config` と対になる。
-    #[test]
-    fn cli_takes_an_optional_config_path() {
-        assert_eq!(
-            parse_cli(["clap-mml-render-server", "--config", "/tmp/try.toml"]).unwrap(),
-            CliAction::Run {
-                config: Some(PathBuf::from("/tmp/try.toml"))
-            }
-        );
-    }
-
-    #[test]
-    fn update_subcommand_returns_update_action() {
-        assert_eq!(
-            parse_cli(["clap-mml-render-server", "update"]).unwrap(),
-            CliAction::Update
-        );
-    }
-
-    #[test]
-    fn check_subcommand_returns_check_action() {
-        assert_eq!(
-            parse_cli(["clap-mml-render-server", "check"]).unwrap(),
-            CliAction::Check
-        );
-    }
-
-    #[test]
-    fn help_lists_self_update_commands_and_server_details() {
-        let CliAction::PrintHelp(help) = parse_cli(["clap-mml-render-server", "--help"]).unwrap()
-        else {
-            panic!("expected help action");
-        };
-
-        assert!(help.contains("Commands:"));
-        assert!(help.contains("update"));
-        assert!(help.contains("check"));
-        assert!(help.contains("POST /render"));
-    }
-
-    #[test]
-    fn unknown_argument_returns_error() {
-        let error = parse_cli(["clap-mml-render-server", "unknown"]).unwrap_err();
-
-        assert!(error
-            .to_string()
-            .contains("unrecognized subcommand 'unknown'"));
-    }
-
-    #[test]
-    fn core_config_from_server_config_uses_the_shared_patch_root() {
-        let mut cfg = test_config();
-        cfg.patches_dirs = Some(vec![
-            "/tmp/surge-data/patches_factory".to_string(),
-            "/tmp/surge-data/patches_3rdparty".to_string(),
-        ]);
-
-        let core_cfg = core_config_from_server_config(&cfg);
-
-        assert_eq!(core_cfg.output_midi, "output.mid");
-        assert_eq!(core_cfg.output_wav, "output.wav");
-        assert_eq!(core_cfg.sample_rate, REQUIRED_SAMPLE_RATE);
-        assert_eq!(core_cfg.buffer_size, 512);
-        assert_eq!(core_cfg.patches_dir.as_deref(), Some("/tmp/surge-data"));
-        assert!(!core_cfg.random_patch);
-    }
-
-    /// `plugin_id` を CoreConfig まで運べないと、descriptor を複数持つ CLAP で
-    /// 起動ログとレンダリング側の descriptor 選択が食い違う。
-    #[test]
-    fn core_config_from_server_config_carries_plugin_id() {
-        let mut cfg = test_config();
-        cfg.plugin_id = Some("com.digital-suburban.dexed".to_string());
-
-        let core_cfg = core_config_from_server_config(&cfg);
-
-        assert_eq!(
-            core_cfg.plugin_id.as_deref(),
-            Some("com.digital-suburban.dexed")
-        );
-    }
-
-    #[test]
-    fn core_config_from_server_config_uses_the_builtin_surge_id_when_profile_omits_it() {
-        let core_cfg = core_config_from_server_config(&test_config());
-
-        assert_eq!(
-            core_cfg.plugin_id.as_deref(),
-            Some(cmrt_server_config::SURGE_XT_PLUGIN_ID)
-        );
-    }
-
-    #[test]
-    fn render_server_plugin_kinds_retain_floe_as_a_distinct_form() {
-        let root = std::env::temp_dir().join("cmrt_render_server_floe_kind");
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(root.join("presets")).unwrap();
-        std::fs::write(root.join("Floe.clap"), b"fixture").unwrap();
-        let plugin = root.join("Floe.clap").to_string_lossy().replace('\\', "/");
-        let presets = root.join("presets").to_string_lossy().replace('\\', "/");
-        let cfg = ServerConfig::from_toml_str(&format!(
-            r#"
-output_midi = "output.mid"
-output_wav = "output.wav"
-sample_rate = 48000
-buffer_size = 512
-
-[plugins.Floe]
-plugin_path = "{plugin}"
-patches_dirs = ["{presets}"]
-"#
-        ))
-        .unwrap();
-
-        let kinds = plugin_kinds(&cfg, &core_config_from_server_config(&cfg));
-        let floe = kinds.iter().find(|kind| kind.name == "Floe").unwrap();
-
-        assert_eq!(floe.patch_form, cmrt_server_config::PatchForm::FloePreset);
-        assert_eq!(
-            floe.core_cfg.plugin_id.as_deref(),
-            Some(cmrt_server_config::FLOE_PLUGIN_ID)
-        );
-        assert_eq!(floe.core_cfg.patches_dir.as_deref(), Some(presets.as_str()));
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn validate_render_server_config_rejects_non_48khz() {
-        let mut cfg = test_config();
-        cfg.sample_rate = 44_100.0;
-
-        let error = validate_render_server_config(&cfg).unwrap_err();
-
-        assert!(error.to_string().contains("48000"));
-    }
-}
+mod tests;
