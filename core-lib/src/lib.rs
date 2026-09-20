@@ -46,7 +46,7 @@ pub struct CoreConfig {
 pub use audio_effect::{
     builtin_effect_plugins, effect_chain_spec_from_embedded_json, embedded_json_has_effect_chain,
     AudioEffectCatalog, AudioEffectPluginInfo, AudioEffectPreset, EffectChainSpec, EffectStageSpec,
-    PresetLocation, EFFECT_CHAIN_JSON_KEY,
+    PresetLocation, EFFECT_CHAIN_JSON_KEY, EFFECT_STAGE_BYPASS_JSON_KEY,
 };
 pub use audio_plugin::{
     patch_lookup_candidates, patch_sort_metadata, plugin_voicing_source, AudioPatch,

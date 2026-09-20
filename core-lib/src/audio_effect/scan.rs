@@ -16,14 +16,22 @@ use crate::tone3000_preset::{parse_t3k_preset, TONE3000_PLUGIN_ID};
 const SRGFX_EXTENSION: &str = "srgfx";
 const T3K_PRESET_EXTENSION: &str = "t3kpreset";
 
-/// JSON に書く値と、一覧に出す文字列。
+/// Surge の値で、この先頭セグメントは role `MultiPurpose` に読み替える。
+const SURGE_AIRWINDOWS_SEGMENT: &str = "Airwindows";
+const SURGE_AIRWINDOWS_ROLE: &str = "MultiPurpose";
+
+/// TONE3000 preset の role（種類は 1 つしか無い）。
+pub(super) const TONE3000_ROLE: &str = "Amp Simulator";
+
+/// JSON に書く値と、一覧に出す文字列・role。
 struct PresetValue {
     value: String,
     shown: String,
+    role: String,
 }
 
-/// `(preset_root, path)` から値を作る。読めない・未対応ならエラー。
-type DescribePreset = fn(&Path, &Path) -> Result<PresetValue>;
+/// `(preset_root, path, plugin_name)` から値を作る。読めない・未対応ならエラー。
+type DescribePreset = fn(&Path, &Path, &str) -> Result<PresetValue>;
 
 pub(super) fn scan_presets(
     plugin: &AudioEffectPluginInfo,
@@ -46,11 +54,13 @@ pub(super) fn scan_presets(
     files.sort();
     for path in files {
         let relative = relative_display(&plugin.preset_root, &path);
-        match describe(&plugin.preset_root, &path) {
-            Ok(PresetValue { value, shown }) => presets.push(AudioEffectPreset {
+        match describe(&plugin.preset_root, &path, &plugin.name) {
+            Ok(PresetValue { value, shown, role }) => presets.push(AudioEffectPreset {
                 plugin: plugin.key.clone(),
                 json_key: plugin.json_key.clone(),
                 display: format!("{}: {shown}", plugin.name),
+                name: shown,
+                role,
                 value,
                 path,
             }),
@@ -82,7 +92,7 @@ fn relative_display(root: &Path, path: &Path) -> String {
 }
 
 /// 先頭の snapshot が読めて effect 種別が対応済みなら、相対パスを値にする。
-fn surge_fx_value(root: &Path, path: &Path) -> Result<PresetValue> {
+fn surge_fx_value(root: &Path, path: &Path, plugin_name: &str) -> Result<PresetValue> {
     let xml = std::fs::read_to_string(path).context("読めない")?;
     let snapshot = parse_srgfx(&xml)?
         .into_iter()
@@ -96,15 +106,26 @@ fn surge_fx_value(root: &Path, path: &Path) -> Result<PresetValue> {
         .strip_suffix(&format!(".{SRGFX_EXTENSION}"))
         .unwrap_or(&value)
         .to_string();
-    Ok(PresetValue { value, shown })
+    let role = surge_role_from_value(&value, plugin_name);
+    Ok(PresetValue { value, shown, role })
+}
+
+/// 値の先頭 `/` セグメントを role にする。`/` が無ければ plugin 名。
+pub(super) fn surge_role_from_value(value: &str, plugin_name: &str) -> String {
+    match value.split_once('/') {
+        Some((SURGE_AIRWINDOWS_SEGMENT, _)) => SURGE_AIRWINDOWS_ROLE.to_string(),
+        Some((first, _)) => first.to_string(),
+        None => plugin_name.to_string(),
+    }
 }
 
 /// preset 内の `name` を値にする（ファイル名は uuid で読めない）。
-fn tone3000_value(_root: &Path, path: &Path) -> Result<PresetValue> {
+fn tone3000_value(_root: &Path, path: &Path, _plugin_name: &str) -> Result<PresetValue> {
     let bytes = std::fs::read(path).context("読めない")?;
     let name = parse_t3k_preset(&bytes)?.name;
     Ok(PresetValue {
         shown: name.clone(),
         value: name,
+        role: TONE3000_ROLE.to_string(),
     })
 }

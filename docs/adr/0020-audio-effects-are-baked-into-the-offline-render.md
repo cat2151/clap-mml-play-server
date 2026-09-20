@@ -18,6 +18,9 @@ instrument の後段に直列で挿す CLAP audio effect（TONE3000 / Surge XT E
   分岐しない（[0016](0016-audio-plugin-catalog-api.md) と同じ境界）
 - **effect を持たない経路に chain 付きの MML が来たらエラー**にする（`RenderEffects::unsupported`）。
   黙って dry で返すと、出音が違うのに成功に見える
+- chain 要素は「plugin を決めるキー 1 つ」＋任意の `bypass`（bool）キーを持てる
+  （`EFFECT_STAGE_BYPASS_JSON_KEY`）。`bypass: true` の段は parse 時（`stage_from_element`）に
+  chain から落ちる。`apply` はこの段の存在を知らない
 
 ## live 経路に入れなかった理由
 

@@ -16,11 +16,22 @@ fn plugin(name: &str, plugin_id: &str) -> AudioEffectPluginInfo {
 }
 
 fn preset(plugin: &AudioEffectPluginInfo, value: &str, path: &str) -> AudioEffectPreset {
+    preset_with_role(plugin, value, path, "Test Role")
+}
+
+fn preset_with_role(
+    plugin: &AudioEffectPluginInfo,
+    value: &str,
+    path: &str,
+    role: &str,
+) -> AudioEffectPreset {
     AudioEffectPreset {
         plugin: plugin.key.clone(),
         json_key: plugin.json_key.clone(),
         value: value.to_string(),
         display: format!("{}: {value}", plugin.name),
+        name: value.to_string(),
+        role: role.to_string(),
         path: PathBuf::from(path),
     }
 }
@@ -205,9 +216,97 @@ fn scan_lists_readable_srgfx_files_and_reports_the_rest() {
     assert_eq!(listed.json_key, SURGE_FX_JSON_KEY);
     assert_eq!(listed.value, "Reverb 1/Cathedral 2.srgfx");
     assert_eq!(listed.display, "Surge XT Effects: Reverb 1/Cathedral 2");
+    assert_eq!(listed.name, "Reverb 1/Cathedral 2");
+    assert_eq!(listed.role, "Reverb 1");
     assert_eq!(catalog.skipped().len(), 1);
     assert!(catalog.skipped()[0].contains("Broken.srgfx"));
     assert!(catalog
         .find(SURGE_FX_JSON_KEY, "Reverb 1/Cathedral 2.srgfx")
         .is_ok());
+}
+
+#[test]
+fn bypass_true_stage_is_dropped_from_the_chain() {
+    let chain = spec(
+        r#"{"effects after instrument": [
+              {"TONE3000 preset": "Bogner Fullstack"},
+              {"Surge XT Effects preset": "Reverb 1/Cathedral 2.srgfx", "bypass": true}
+            ]}"#,
+    )
+    .unwrap();
+    assert_eq!(chain.len(), 1);
+    assert_eq!(
+        chain.stages()[0].preset.path,
+        PathBuf::from("/presets/TONE3000/Factory/a.t3kpreset")
+    );
+}
+
+#[test]
+fn bypass_false_stage_behaves_like_no_bypass_key() {
+    let chain = spec(
+        r#"{"effects after instrument": [
+              {"TONE3000 preset": "Bogner Fullstack", "bypass": false}
+            ]}"#,
+    )
+    .unwrap();
+    assert_eq!(chain.len(), 1);
+}
+
+#[test]
+fn bypass_must_be_a_bool() {
+    let error = spec(
+        r#"{"effects after instrument": [
+              {"TONE3000 preset": "Bogner Fullstack", "bypass": "yes"}
+            ]}"#,
+    )
+    .unwrap_err();
+    assert!(format!("{error:#}").contains("bool"), "{error:#}");
+}
+
+#[test]
+fn two_plugin_keys_besides_bypass_is_still_an_error() {
+    let error = spec(
+        r#"{"effects after instrument": [
+              {"TONE3000 preset": "a", "Surge XT Effects preset": "b", "bypass": true}
+            ]}"#,
+    )
+    .unwrap_err();
+    assert!(format!("{error:#}").contains("キー 1 つ"), "{error:#}");
+}
+
+#[test]
+fn surge_role_is_the_leading_segment_and_airwindows_becomes_multi_purpose() {
+    assert_eq!(
+        scan::surge_role_from_value("Reverb 2/Cathedral.srgfx", "Surge XT Effects"),
+        "Reverb 2"
+    );
+    assert_eq!(
+        scan::surge_role_from_value("Airwindows/Sub/Foo.srgfx", "Surge XT Effects"),
+        "MultiPurpose"
+    );
+    assert_eq!(
+        scan::surge_role_from_value("Foo.srgfx", "Surge XT Effects"),
+        "Surge XT Effects"
+    );
+}
+
+#[test]
+fn tone3000_role_is_amp_simulator() {
+    assert_eq!(scan::TONE3000_ROLE, "Amp Simulator");
+}
+
+#[test]
+fn roles_are_deduplicated_and_sorted() {
+    let surge = plugin("Surge XT Effects", SURGE_FX_PLUGIN_ID);
+    let tone = plugin("TONE3000", TONE3000_PLUGIN_ID);
+    let presets = vec![
+        preset_with_role(&surge, "b", "/p/b", "Reverb 2"),
+        preset_with_role(&surge, "a", "/p/a", "Reverb 2"),
+        preset_with_role(&tone, "c", "/p/c", "Amp Simulator"),
+    ];
+    let catalog = AudioEffectCatalog::with_entries(vec![tone, surge], presets);
+    assert_eq!(
+        catalog.roles(),
+        vec!["Amp Simulator".to_string(), "Reverb 2".to_string()]
+    );
 }

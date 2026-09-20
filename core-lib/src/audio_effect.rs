@@ -6,11 +6,13 @@
 //! ```json
 //! {"effects after instrument": [
 //!    {"TONE3000 preset": "Bogner Fullstack"},
-//!    {"Surge XT Effects preset": "Reverb 1/Cathedral 2"}
+//!    {"Surge XT Effects preset": "Reverb 1/Cathedral 2", "bypass": true}
 //! ]}
 //! ```
 //!
-//! 配列の順が信号の順。各要素はキー 1 つのオブジェクトで、キーが plugin を決める。
+//! 配列の順が信号の順。各要素は「plugin を決めるキー 1 つ」＋任意の
+//! [`EFFECT_STAGE_BYPASS_JSON_KEY`]。bypass が `true` の段は parse 時に chain から落ちる
+//! （apply 側は無変更）。
 //! [`effect_chain_spec_from_embedded_json`] がこれを [`EffectChainSpec`] へ引き直し、
 //! 未知のキーや catalog に無い preset はエラーにする（黙って dry で鳴らさない）。
 
@@ -29,6 +31,10 @@ mod scan;
 
 /// MML 先頭 JSON で effect chain を持つキー。
 pub const EFFECT_CHAIN_JSON_KEY: &str = "effects after instrument";
+
+/// chain 要素で、その段を bypass するかを持つキー。plugin を決めるキーと共存できる
+/// 唯一の追加キー。値は bool。
+pub const EFFECT_STAGE_BYPASS_JSON_KEY: &str = "bypass";
 
 /// catalog の診断行のプレフィックス。
 const CATALOG_LOG_PREFIX: &str = "cmrt-effect-catalog:";
@@ -76,6 +82,10 @@ pub struct AudioEffectPreset {
     pub value: String,
     /// `<plugin 名>: <value>`。
     pub display: String,
+    /// 一覧に出す語（`display` から plugin 名の接頭辞を剥がした形）。
+    pub name: String,
+    /// 種類（Surge: 値の先頭 `/` セグメント、TONE3000: `Amp Simulator`）。
+    pub role: String,
     pub path: PathBuf,
 }
 
@@ -139,6 +149,18 @@ impl AudioEffectCatalog {
 
     pub fn skipped(&self) -> &[String] {
         &self.skipped
+    }
+
+    /// preset が持つ role の一覧。重複なし・文字列順。
+    pub fn roles(&self) -> Vec<String> {
+        let mut roles: Vec<String> = self
+            .presets
+            .iter()
+            .map(|preset| preset.role.clone())
+            .collect();
+        roles.sort();
+        roles.dedup();
+        roles
     }
 
     pub fn plugin(&self, key: &PluginKey) -> Result<&AudioEffectPluginInfo> {
@@ -279,36 +301,53 @@ pub fn effect_chain_spec_from_embedded_json(
     for (index, element) in elements.iter().enumerate() {
         let stage = stage_from_element(element, catalog)
             .with_context(|| format!("'{EFFECT_CHAIN_JSON_KEY}' の {} 番目", index + 1))?;
-        stages.push(stage);
+        if let Some(stage) = stage {
+            stages.push(stage);
+        }
     }
     Ok(EffectChainSpec(stages))
 }
 
+/// 要素を 1 段へ引き直す。bypass の段は `Ok(None)`（chain から落とす）。
 fn stage_from_element(
     element: &serde_json::Value,
     catalog: &AudioEffectCatalog,
-) -> Result<EffectStageSpec> {
+) -> Result<Option<EffectStageSpec>> {
     let object = element
         .as_object()
         .ok_or_else(|| anyhow::anyhow!("要素はキー 1 つのオブジェクトでなければならない"))?;
-    let mut entries = object.iter();
-    let (Some((json_key, value)), None) = (entries.next(), entries.next()) else {
-        bail!(
-            "要素はキー 1 つのオブジェクトでなければならない（キー {} 個）",
-            object.len()
-        );
+    let mut bypass = false;
+    let mut plugin_entries: Vec<(&String, &serde_json::Value)> = Vec::new();
+    for (key, value) in object {
+        if key == EFFECT_STAGE_BYPASS_JSON_KEY {
+            bypass = value.as_bool().ok_or_else(|| {
+                anyhow::anyhow!("'{EFFECT_STAGE_BYPASS_JSON_KEY}' の値は bool でなければならない")
+            })?;
+        } else {
+            plugin_entries.push((key, value));
+        }
+    }
+    let (json_key, value) = match plugin_entries.as_slice() {
+        [(json_key, value)] => (*json_key, *value),
+        _ => bail!(
+            "要素は '{EFFECT_STAGE_BYPASS_JSON_KEY}' を除いてキー 1 つのオブジェクトでなければならない（キー {} 個）",
+            plugin_entries.len()
+        ),
     };
+    if bypass {
+        return Ok(None);
+    }
     let value = value
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("'{json_key}' の値は文字列でなければならない"))?;
     let preset = catalog.find(json_key, value)?;
-    Ok(EffectStageSpec {
+    Ok(Some(EffectStageSpec {
         plugin: preset.plugin.clone(),
         preset: PresetLocation {
             path: preset.path.clone(),
             display: preset.display.clone(),
         },
-    })
+    }))
 }
 
 #[cfg(test)]
