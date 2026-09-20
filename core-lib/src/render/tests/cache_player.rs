@@ -185,6 +185,29 @@ fn both_slots_stay_loaded_and_each_note_sounds_its_own_wav() {
     );
 }
 
+/// **同じ綴りをもう一度 `set_patch()` しても、ファイルの中身を読み直すこと。**
+///
+/// DAW は小節ごとに同じパスへ焼き直すので、綴りが同じでも中身は変わる。
+/// 他の patch と同じく「同じ綴りなら何もしない」で省くと、焼き直す前の音が
+/// スロットに残ったまま鳴る。振幅を変えて上書きし、どちらが鳴るかで見分ける。
+#[test]
+fn the_same_wav_patch_string_reloads_the_file_contents() {
+    let wav = write_test_wav("rewritten.wav", 0.5);
+    let patch = crate::cache_wav::cache_wav_patch_with_slot(0, wav.to_str().unwrap());
+
+    let mut renderer = cache_player_renderer();
+    renderer.set_patch(Some(&patch)).unwrap();
+
+    write_test_wav("rewritten.wav", 0.125);
+    renderer.set_patch(Some(&patch)).unwrap();
+
+    let loudness = peak(&render_live_note_number(&mut renderer, 60));
+    assert!(
+        loudness > 0.0 && loudness < 0.25,
+        "焼き直す前の WAV が残っている: peak={loudness}"
+    );
+}
+
 /// スロット番号なしの綴りは従来どおりスロット 0（＝note 60）で鳴ること。
 ///
 /// cache-player を入れたときの呼び出しをそのまま残すための後方互換。
@@ -284,6 +307,28 @@ fn a_prefetch_while_sounding_does_not_advance_the_playing_voice() {
         "先読みで再生位置が {} フレーム飛んだ",
         ramp_position(&after) as i64 - (BUFFER_SIZE * 2) as i64
     );
+}
+
+/// **停止（`release_all_notes()`）が鳴っている voice を切ること。**
+///
+/// play server の停止と timeline の張り直しはどちらも `release_all_notes()` で、他の
+/// プラグインには NoteOff を流す。cache-player は NoteOff を見ないので、そのままだと
+/// voice は render が止まった位置で残り、次の演奏の頭で続きから鳴って新しい小節と重なる。
+#[test]
+fn a_stop_silences_the_voice_instead_of_leaving_it_for_the_next_play() {
+    let wav = write_ramp_wav("reset_ramp.wav", SAMPLE_RATE as usize);
+    let patch = crate::cache_wav::cache_wav_patch_with_slot(0, wav.to_str().unwrap());
+
+    let mut renderer = cache_player_renderer();
+    renderer.set_patch(Some(&patch)).unwrap();
+    let first = renderer.render_live_chunk(&[[0x90, 60, 100]]).unwrap();
+    assert_eq!(ramp_position(&first), 0, "note on の位置から鳴っていない");
+
+    // play server の StopAll / BeginLiveTimeline はこれしか呼ばない。
+    renderer.release_all_notes();
+
+    let after = renderer.render_live_chunk(&[]).unwrap();
+    assert_eq!(peak(&after), 0.0, "停止前の voice が続きから鳴っている");
 }
 
 /// play server が先読みで空回しするブロック数（`worker/bank/state.rs` と同じ値）。

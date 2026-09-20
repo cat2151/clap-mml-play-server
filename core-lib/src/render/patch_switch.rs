@@ -31,11 +31,16 @@ impl RealtimeRenderer {
     /// SysEx + Program Change になる（[`super::cartridge_patch`]）。`.vvp`（Vaporizer2）は
     /// Surge XT の `.fxp` と同じ state load だが、**渡す前に XML を包む**ので経路が別
     /// （[`super::vvp_patch`]）。
+    ///
+    /// **キャッシュ WAV だけは同一の綴りでも読み直す。** 綴りはパスであって中身ではなく、
+    /// DAW は同じパスへ焼き直すので、綴りで省くと焼き直し前の音がスロットに残る
+    /// （読み直しは数 ms で、鳴っている voice も切らない）。
     pub fn set_patch(&mut self, patch: Option<&str>) -> Result<()> {
-        if self.current_patch.as_deref() == patch {
+        let target = self.resolve_patch_target(patch)?;
+        if self.current_patch.as_deref() == patch && !target.reloads_on_same_patch() {
             return Ok(());
         }
-        match self.resolve_patch_target(patch)? {
+        match target {
             PatchTarget::Cartridge(cartridge) => self.load_cartridge_patch(&cartridge)?,
             PatchTarget::Vvp(path) => {
                 self.forget_cartridge_program();
@@ -180,6 +185,16 @@ enum PatchTarget {
     StateFile(String),
     /// 生成直後にスナップショットした state へ戻す。
     InitState,
+}
+
+impl PatchTarget {
+    /// 同じ綴りをもう一度渡されても読み直すか。
+    ///
+    /// 綴りが中身を決める patch は省いてよい。キャッシュ WAV は綴りがパスなので、
+    /// 中身が変わったかは綴りからは分からない。
+    fn reloads_on_same_patch(&self) -> bool {
+        matches!(self, PatchTarget::CacheWav(_))
+    }
 }
 
 #[cfg(test)]

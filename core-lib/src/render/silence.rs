@@ -96,8 +96,19 @@ impl RealtimeRenderer {
     ///
     /// 返ってくる音声は捨てる。イベント自体は通常の live 描画と同じ CLAP process
     /// 入力なので、plugin が広告した note dialect と単調増加する steady time を使う。
+    ///
+    /// **cache-player だけは NoteOff ではなく CLAP の `reset()` で切る。** あのプラグインは
+    /// NoteOff を見ない（voice は WAV の最後まで鳴る契約）ので、NoteOff だけの停止では
+    /// voice が render の止まった位置で残り、次の演奏の頭で続きから鳴る。
     pub fn release_all_notes(&mut self) {
         if self.processor.is_none() {
+            return;
+        }
+        if self.keeps_voices_across_patch_load() {
+            if let Some(processor) = self.processor.as_mut() {
+                processor.reset();
+            }
+            self.active_notes.clear();
             return;
         }
         let events = self.active_notes.note_off_events();

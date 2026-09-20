@@ -253,11 +253,21 @@ impl<'a> PluginAudioProcessor<'a, CachePlayerShared, CachePlayerMainThread<'a>>
         }
     }
 
-    /// 演奏そのものの停止。**ここでだけ `stop_all()` を呼んでよい。**
+    /// 演奏そのものの停止。`stop_all()` を呼んでよいのはここと [`Self::reset`] だけ。
     ///
     /// 停止時なので音が切れて構わないが、解放は RT の外へ出す。手元に残ったぶんは
     /// deactivate（main thread）でこの struct ごと落ちるときに解放される。
     fn stop_processing(&mut self) {
+        self.voices.stop_all(&mut self.returns);
+        self.shared.graveyard.try_collect(&mut self.returns);
+    }
+
+    /// CLAP の `reset()`。鳴っている voice を全部切る。
+    ///
+    /// play server は演奏の開始（`BeginLiveTimeline`）でこれを呼ぶ。演奏の停止は
+    /// note off しか送らず、このプラグインは note off を見ないので、停止で残った voice は
+    /// ここで切らないと次の演奏の頭で続きから鳴る。
+    fn reset(&mut self) {
         self.voices.stop_all(&mut self.returns);
         self.shared.graveyard.try_collect(&mut self.returns);
     }
