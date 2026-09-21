@@ -16,18 +16,59 @@ use crate::tone3000_preset::{parse_t3k_preset, TONE3000_PLUGIN_ID};
 const SRGFX_EXTENSION: &str = "srgfx";
 const T3K_PRESET_EXTENSION: &str = "t3kpreset";
 
-/// Surge の値で、この先頭セグメントは role `MultiPurpose` に読み替える。
-const SURGE_AIRWINDOWS_SEGMENT: &str = "Airwindows";
-const SURGE_AIRWINDOWS_ROLE: &str = "MultiPurpose";
+/// Surge の preset フォルダ（親フォルダの相対パス）→ `(category, kind)` の表。
+/// フォルダがここに無ければ、フォルダ自身を category / kind にする。
+pub(super) const SURGE_FOLDER_CLASSIFICATION: &[(&str, &str, &str)] = &[
+    ("EQ", "Filter / EQ", "EQ"),
+    ("Graphic EQ", "Filter / EQ", "EQ"),
+    ("Airwindows/Filter", "Filter / EQ", "Filter"),
+    ("Resonator", "Filter / EQ", "Filter"),
+    ("Combulator", "Filter / EQ", "Filter"),
+    ("Distortion", "Distortion / Saturation", "Distortion"),
+    ("CHOW", "Distortion / Saturation", "Distortion"),
+    ("Neuron", "Distortion / Saturation", "Distortion"),
+    ("Exciter", "Distortion / Saturation", "Saturation / Exciter"),
+    ("Bonsai", "Distortion / Saturation", "Saturation / Exciter"),
+    (
+        "Airwindows/Saturation And More",
+        "Distortion / Saturation",
+        "Saturation / Exciter",
+    ),
+    ("Tape", "Distortion / Saturation", "Tape"),
+    ("Airwindows/Tape", "Distortion / Saturation", "Tape"),
+    ("Airwindows/Lo-Fi", "Distortion / Saturation", "LoFi"),
+    ("Airwindows/Noise", "Distortion / Saturation", "LoFi"),
+    ("Chorus", "Modulation", "Chorus / Ensemble"),
+    ("Ensemble", "Modulation", "Chorus / Ensemble"),
+    ("Rotary", "Modulation", "Rotary"),
+    ("Phaser", "Modulation", "Phaser / Flanger"),
+    ("Flanger", "Modulation", "Phaser / Flanger"),
+    ("Ring Mod", "Modulation", "Ring Modulator"),
+    ("Treemonster", "Modulation", "Ring Modulator"),
+    ("Freq Shift", "Modulation", "Freq Shift"),
+    ("Airwindows/Pitch", "Modulation", "Pitch / Granular"),
+    ("Nimbus", "Modulation", "Pitch / Granular"),
+    ("Reverb 2", "Space / Imaging", "Reverb"),
+    ("Airwindows/Ambience", "Space / Imaging", "Reverb"),
+    ("Reverb 1", "Space / Imaging", "Reverb"),
+    ("Delay", "Space / Imaging", "Delay"),
+    ("Mid-Side Tool", "Space / Imaging", "Stereo"),
+    ("Airwindows/Stereo", "Space / Imaging", "Stereo"),
+    ("Airwindows/Dynamics", "Dynamics", "Compressor"),
+    ("Conditioner", "Dynamics", "Limiter / Clipper"),
+    ("Airwindows/Clipping", "Dynamics", "Limiter / Clipper"),
+];
 
-/// TONE3000 preset の role（種類は 1 つしか無い）。
-pub(super) const TONE3000_ROLE: &str = "Amp Simulator";
+/// TONE3000 preset の分類（種類は 1 つしか無い）。
+pub(super) const TONE3000_CATEGORY: &str = "Distortion / Saturation";
+pub(super) const TONE3000_KIND: &str = "Amp Simulator";
 
-/// JSON に書く値と、一覧に出す文字列・role。
+/// JSON に書く値と、一覧に出す文字列・分類。
 struct PresetValue {
     value: String,
     shown: String,
-    role: String,
+    category: String,
+    kind: String,
 }
 
 /// `(preset_root, path, plugin_name)` から値を作る。読めない・未対応ならエラー。
@@ -55,12 +96,18 @@ pub(super) fn scan_presets(
     for path in files {
         let relative = relative_display(&plugin.preset_root, &path);
         match describe(&plugin.preset_root, &path, &plugin.name) {
-            Ok(PresetValue { value, shown, role }) => presets.push(AudioEffectPreset {
+            Ok(PresetValue {
+                value,
+                shown,
+                category,
+                kind,
+            }) => presets.push(AudioEffectPreset {
                 plugin: plugin.key.clone(),
                 json_key: plugin.json_key.clone(),
                 display: format!("{}: {shown}", plugin.name),
                 name: shown,
-                role,
+                category,
+                kind,
                 value,
                 path,
             }),
@@ -106,16 +153,27 @@ fn surge_fx_value(root: &Path, path: &Path, plugin_name: &str) -> Result<PresetV
         .strip_suffix(&format!(".{SRGFX_EXTENSION}"))
         .unwrap_or(&value)
         .to_string();
-    let role = surge_role_from_value(&value, plugin_name);
-    Ok(PresetValue { value, shown, role })
+    let (category, kind) = surge_classification(&value, plugin_name);
+    Ok(PresetValue {
+        value,
+        shown,
+        category,
+        kind,
+    })
 }
 
-/// 値の先頭 `/` セグメントを role にする。`/` が無ければ plugin 名。
-pub(super) fn surge_role_from_value(value: &str, plugin_name: &str) -> String {
-    match value.split_once('/') {
-        Some((SURGE_AIRWINDOWS_SEGMENT, _)) => SURGE_AIRWINDOWS_ROLE.to_string(),
-        Some((first, _)) => first.to_string(),
-        None => plugin_name.to_string(),
+/// 値の親フォルダ（最後の `/` より前）で [`SURGE_FOLDER_CLASSIFICATION`] を引く。
+/// 表に無ければフォルダ自身を category / kind にする。`/` が無ければ plugin 名。
+pub(super) fn surge_classification(value: &str, plugin_name: &str) -> (String, String) {
+    let Some((folder, _)) = value.rsplit_once('/') else {
+        return (plugin_name.to_string(), plugin_name.to_string());
+    };
+    match SURGE_FOLDER_CLASSIFICATION
+        .iter()
+        .find(|(entry_folder, _, _)| *entry_folder == folder)
+    {
+        Some((_, category, kind)) => (category.to_string(), kind.to_string()),
+        None => (folder.to_string(), folder.to_string()),
     }
 }
 
@@ -126,6 +184,7 @@ fn tone3000_value(_root: &Path, path: &Path, _plugin_name: &str) -> Result<Prese
     Ok(PresetValue {
         shown: name.clone(),
         value: name,
-        role: TONE3000_ROLE.to_string(),
+        category: TONE3000_CATEGORY.to_string(),
+        kind: TONE3000_KIND.to_string(),
     })
 }

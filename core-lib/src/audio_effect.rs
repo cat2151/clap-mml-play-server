@@ -84,8 +84,10 @@ pub struct AudioEffectPreset {
     pub display: String,
     /// 一覧に出す語（`display` から plugin 名の接頭辞を剥がした形）。
     pub name: String,
-    /// 種類（Surge: 値の先頭 `/` セグメント、TONE3000: `Amp Simulator`）。
-    pub role: String,
+    /// 何であるかの分類の大分類（5 個程度）。
+    pub category: String,
+    /// 何であるかの分類の種類（category の下位、15 個程度）。
+    pub kind: String,
     pub path: PathBuf,
 }
 
@@ -151,16 +153,30 @@ impl AudioEffectCatalog {
         &self.skipped
     }
 
-    /// preset が持つ role の一覧。重複なし・文字列順。
-    pub fn roles(&self) -> Vec<String> {
-        let mut roles: Vec<String> = self
+    /// preset が持つ category の一覧。重複なし・文字列順。
+    pub fn categories(&self) -> Vec<String> {
+        let mut categories: Vec<String> = self
             .presets
             .iter()
-            .map(|preset| preset.role.clone())
+            .map(|preset| preset.category.clone())
             .collect();
-        roles.sort();
-        roles.dedup();
-        roles
+        categories.sort();
+        categories.dedup();
+        categories
+    }
+
+    /// preset が持つ kind の一覧。重複なし・文字列順。
+    /// `category` が `Some` ならその category 配下の kind だけ、`None` なら全体。
+    pub fn kinds_in(&self, category: Option<&str>) -> Vec<String> {
+        let mut kinds: Vec<String> = self
+            .presets
+            .iter()
+            .filter(|preset| category.is_none_or(|category| preset.category == category))
+            .map(|preset| preset.kind.clone())
+            .collect();
+        kinds.sort();
+        kinds.dedup();
+        kinds
     }
 
     pub fn plugin(&self, key: &PluginKey) -> Result<&AudioEffectPluginInfo> {
