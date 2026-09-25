@@ -233,3 +233,54 @@ fn buffer_lead_changes_do_not_change_inter_event_samples() {
         );
     }
 }
+
+/// 同じ generation の張り直しは clock・instance を保ったまま、timeline の 0 秒を今の clock に置く。
+/// clock を 0 へ戻すと instance を作り直すことになり、前の演奏の release が描けない。
+#[test]
+fn rebeginning_a_timeline_in_the_same_generation_continues_from_the_clock() {
+    let mut mode = live_mode_with_timeline(120.0);
+    if let Some(PlaybackMode::Live { instances, .. }) = mode.as_mut() {
+        instances[0].active = true;
+    }
+    let next = LiveTimelineState::new(LiveTimelineConfig {
+        timeline_id: 8,
+        sample_rate_hz: 48_000.0,
+        tempo_bpm: 120.0,
+        time_signature_numerator: 4,
+        time_signature_denominator: 4,
+    })
+    .unwrap();
+
+    assert!(begin_live_timeline(&mut mode, 1, next, 2));
+
+    let (generation, clock_samples, timeline) = live_parts(&mode);
+    assert_eq!((generation, clock_samples), (1, LIVE_CLOCK_SAMPLES));
+    assert_eq!(timeline.id, 8);
+    assert_eq!(timeline.origin_samples, LIVE_CLOCK_SAMPLES);
+    let Some(PlaybackMode::Live { instances, .. }) = &mode else {
+        unreachable!()
+    };
+    assert!(instances[0].active, "release を描くため instance は残す");
+}
+
+/// generation が変わっていれば（リングは捨てられている）live を作り直す。
+#[test]
+fn beginning_a_timeline_in_a_new_generation_restarts_the_clock() {
+    let mut mode = live_mode_with_timeline(120.0);
+    let next = LiveTimelineState::new(LiveTimelineConfig {
+        timeline_id: 8,
+        sample_rate_hz: 48_000.0,
+        tempo_bpm: 120.0,
+        time_signature_numerator: 4,
+        time_signature_denominator: 4,
+    })
+    .unwrap();
+
+    assert!(!begin_live_timeline(&mut mode, 2, next, 2));
+
+    let (generation, clock_samples, timeline) = live_parts(&mode);
+    assert_eq!(
+        (generation, clock_samples, timeline.origin_samples),
+        (2, 0, 0)
+    );
+}

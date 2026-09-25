@@ -34,8 +34,9 @@ impl BankWorkers {
         &self,
         instance_index: usize,
         patch: Option<&str>,
+        effect_chain: &str,
     ) -> Result<PendingPatch, String> {
-        self.send_patch_job(instance_index, patch, true, true)
+        self.send_patch_job(instance_index, patch, effect_chain, true, true)
     }
 
     /// 返事が来ていれば引き取る。来ていなければ `pending` を触らずに `None`。
@@ -61,16 +62,18 @@ impl BankWorkers {
         Some(absorb_patch_reply(bank, reply))
     }
 
-    /// 音色を載せて完了まで待つ。`settle` が真なら反映のため 4 ブロック空回しする。
+    /// 音色と effect chain を載せて完了まで待つ。`settle` が真なら反映のため 4 ブロック空回しする。
     ///
     /// 現在 bank の手動変更・MML overlay・起動時 prepare が使う既存の経路。
     pub(in super::super) fn prepare_patch(
         &self,
         instance_index: usize,
         patch: Option<&str>,
+        effect_chain: &str,
         settle: bool,
     ) -> Result<(), String> {
-        let mut pending = Some(self.send_patch_job(instance_index, patch, true, settle)?);
+        let mut pending =
+            Some(self.send_patch_job(instance_index, patch, effect_chain, true, settle)?);
         self.finish_patch(&mut pending)
             .expect("送った仕事には返事が 1 つある")
     }
@@ -80,7 +83,7 @@ impl BankWorkers {
         &self,
         patch: Option<&str>,
     ) -> Result<(), String> {
-        let mut pending = Some(self.send_patch_job(0, patch, false, false)?);
+        let mut pending = Some(self.send_patch_job(0, patch, "", false, false)?);
         self.finish_patch(&mut pending)
             .expect("送った仕事には返事が 1 つある")
     }
@@ -91,7 +94,7 @@ impl BankWorkers {
         instance_index: usize,
         patch: Option<&str>,
     ) -> Result<VoicingReport, String> {
-        let (slot, job) = self.build_patch_job(instance_index, patch, true, false);
+        let (slot, job) = self.build_patch_job(instance_index, patch, "", true, false);
         let reply = self.workers[slot.bank]
             .request(BankCommand::ProbePatch(job))
             .map_err(|error| format!("{error:#}"))?;
@@ -109,10 +112,12 @@ impl BankWorkers {
         &self,
         instance_index: usize,
         patch: Option<&str>,
+        effect_chain: &str,
         reset_before: bool,
         settle: bool,
     ) -> Result<PendingPatch, String> {
-        let (slot, job) = self.build_patch_job(instance_index, patch, reset_before, settle);
+        let (slot, job) =
+            self.build_patch_job(instance_index, patch, effect_chain, reset_before, settle);
         self.workers[slot.bank]
             .send(BankCommand::PreparePatch(job))
             .map_err(|error| format!("{error:#}"))?;
@@ -124,6 +129,7 @@ impl BankWorkers {
         &self,
         instance_index: usize,
         patch: Option<&str>,
+        effect_chain: &str,
         reset_before: bool,
         settle: bool,
     ) -> (BankSlot, PatchJob) {
@@ -133,6 +139,7 @@ impl BankWorkers {
             PatchJob {
                 local_index: slot.local_index,
                 patch: patch.map(str::to_string),
+                effect_chain: effect_chain.to_string(),
                 reset_before,
                 settle,
             },

@@ -124,6 +124,10 @@ fn log_received(command: &FastMidiCommand) {
             );
         }
         FastMidiCommand::StopAll => eprintln!("cmrt-ipc-recv: kind=stop-all"),
+        FastMidiCommand::FadeOutInstances {
+            instance_ids,
+            fade_ms,
+        } => eprintln!("cmrt-ipc-recv: kind=fade-out instances={instance_ids:?} fade_ms={fade_ms}"),
         FastMidiCommand::Stop { instance_id } => {
             eprintln!("cmrt-ipc-recv: kind=stop instance={instance_id}")
         }
@@ -140,10 +144,23 @@ fn log_received(command: &FastMidiCommand) {
             request_id,
             instance_id,
             patch,
+            effect_chain,
         } => {
             eprintln!(
                 "cmrt-ipc-recv: kind=prepare-standby-patch request={request_id} \
-                 instance={instance_id} patch={patch:?}"
+                 instance={instance_id} patch={patch:?} effect_chain={effect_chain:?}"
+            )
+        }
+        FastMidiCommand::PreparePatch {
+            request_id,
+            instance_id,
+            patch,
+            effect_chain,
+            probe: false,
+        } if !effect_chain.is_empty() => {
+            eprintln!(
+                "cmrt-ipc-recv: kind=prepare-patch request={request_id} \
+                 instance={instance_id} patch={patch:?} effect_chain={effect_chain:?}"
             )
         }
         _ => {}
@@ -187,6 +204,7 @@ fn dispatch(
             request_id,
             instance_id,
             patch,
+            effect_chain,
             probe,
         } => {
             let response = if probe {
@@ -195,7 +213,7 @@ fn dispatch(
                     .and_then(|report| serde_json::to_vec(&report).map_err(Into::into))
             } else {
                 player
-                    .prepare_live_patch(instance_id, patch)
+                    .prepare_live_patch(instance_id, patch, effect_chain)
                     .map(|()| Vec::new())
             };
             respond(server, request_id, response)
@@ -204,7 +222,16 @@ fn dispatch(
             request_id,
             instance_id,
             patch,
-        } => accept_standby(server, player, standby, request_id, instance_id, patch),
+            effect_chain,
+        } => accept_standby(
+            server,
+            player,
+            standby,
+            request_id,
+            instance_id,
+            patch,
+            effect_chain,
+        ),
         FastMidiCommand::SetBufferMultiplier { multiplier } => {
             player.set_live_buffer_multiplier(multiplier)
         }
@@ -215,6 +242,10 @@ fn dispatch(
         FastMidiCommand::SetAutoGain { enabled } => player.set_live_auto_gain_enabled(enabled),
         FastMidiCommand::Stop { instance_id } => player.stop_instance(instance_id),
         FastMidiCommand::StopAll => player.stop(),
+        FastMidiCommand::FadeOutInstances {
+            instance_ids,
+            fade_ms,
+        } => player.fade_out_instances(instance_ids, fade_ms),
     };
     if let Err(error) = result {
         eprintln!("shared-memory MIDI command failed: {error:#}");
@@ -232,6 +263,7 @@ fn accept_standby(
     request_id: u32,
     instance_id: InstanceId,
     patch: Option<String>,
+    effect_chain: String,
 ) -> Result<()> {
     if let Some(active) = standby.as_ref() {
         eprintln!(
@@ -248,7 +280,7 @@ fn accept_standby(
             )),
         );
     }
-    match player.begin_standby_live_patch(instance_id, patch) {
+    match player.begin_standby_live_patch(instance_id, patch, effect_chain) {
         Ok(ticket) => {
             eprintln!(
                 "cmrt-standby-patch: request={request_id} instance={instance_id} event=accepted"

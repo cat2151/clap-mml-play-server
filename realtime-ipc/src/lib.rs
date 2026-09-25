@@ -16,6 +16,9 @@ pub const MAX_INSTANCE_COUNT: usize = 32;
 pub const INSTANCE_COUNT: usize = MAX_INSTANCE_COUNT;
 pub const MAX_MIDI_MESSAGES: usize = 128;
 pub const MAX_PATCH_BYTES: usize = 4096;
+/// 音色の準備に同梱する effect chain（MML 先頭 JSON の `"effects after instrument"` の値を
+/// JSON 文字列にしたもの）の最大バイト数。
+pub const MAX_EFFECT_CHAIN_BYTES: usize = 4096;
 pub const MAX_RESPONSE_BYTES: usize = 16 * 1024;
 /// standby 完了通知が運べるエラーメッセージの最大バイト数。
 ///
@@ -24,6 +27,9 @@ pub const MAX_RESPONSE_BYTES: usize = 16 * 1024;
 /// 落とすと先読みが永久に Loading のまま残るので、長すぎることを理由に
 /// publish を失敗させない。TUI 側の `cmrt_realtime_play` と必ず揃えること。
 pub const MAX_STANDBY_ERROR_BYTES: usize = 1024;
+
+/// [`FastMidiCommand::FadeOutInstances`] の fadeout の長さとして受け付ける最大値（ミリ秒）。
+pub const MAX_FADE_OUT_MS: u32 = 10_000;
 
 pub type InstanceId = u8;
 pub type TimelineId = u64;
@@ -125,6 +131,9 @@ pub enum FastMidiCommand {
         request_id: u32,
         instance_id: InstanceId,
         patch: Option<String>,
+        /// instance の出力に掛ける effect chain（`"effects after instrument"` の値の JSON 文字列）。
+        /// 空なら chain 無し。
+        effect_chain: String,
         probe: bool,
     },
     /// 非演奏 bank への先読みロード。
@@ -138,6 +147,8 @@ pub enum FastMidiCommand {
         request_id: u32,
         instance_id: InstanceId,
         patch: Option<String>,
+        /// [`FastMidiCommand::PreparePatch`] の `effect_chain` と同じ。
+        effect_chain: String,
     },
     SetBufferMultiplier {
         multiplier: u16,
@@ -155,6 +166,14 @@ pub enum FastMidiCommand {
         instance_id: InstanceId,
     },
     StopAll,
+    /// 指定した live instance の出力を、今の音量から 0 まで `fade_ms` ミリ秒で絞る。
+    ///
+    /// 0 に達した instance は、鳴っている voice と effect chain の余韻を捨て、次の音は
+    /// 等倍から鳴る。timeline も他の instance も触らない。
+    FadeOutInstances {
+        instance_ids: Vec<InstanceId>,
+        fade_ms: u32,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -172,6 +191,10 @@ pub enum FastIpcError {
         max: usize,
     },
     PatchTooLong {
+        bytes: usize,
+        max: usize,
+    },
+    EffectChainTooLong {
         bytes: usize,
         max: usize,
     },
@@ -209,6 +232,9 @@ impl fmt::Display for FastIpcError {
             Self::PatchTooLong { bytes, max } => {
                 write!(f, "patch path is too long ({bytes} bytes; max {max})")
             }
+            Self::EffectChainTooLong { bytes, max } => {
+                write!(f, "effect chain is too long ({bytes} bytes; max {max})")
+            }
             Self::ResponseTooLong { bytes, max } => {
                 write!(f, "response is too long ({bytes} bytes; max {max})")
             }
@@ -235,155 +261,7 @@ pub use windows::{FastMidiClient, FastMidiServer};
 mod windows_tests;
 
 #[cfg(not(windows))]
-mod unsupported {
-    use super::*;
-    use std::time::Duration;
-
-    pub struct FastMidiClient;
-
-    impl FastMidiClient {
-        pub fn connect(_port: u16) -> Result<Self, FastIpcError> {
-            Err(FastIpcError::UnsupportedPlatform)
-        }
-
-        pub fn send_events(&mut self, _events: &[FastMidiEvent]) -> Result<(), FastIpcError> {
-            Err(FastIpcError::UnsupportedPlatform)
-        }
-
-        pub fn begin_live_timeline(
-            &mut self,
-            _config: LiveTimelineConfig,
-        ) -> Result<(), FastIpcError> {
-            Err(FastIpcError::UnsupportedPlatform)
-        }
-
-        pub fn set_live_tempo(&mut self, _change: LiveTempoChange) -> Result<(), FastIpcError> {
-            Err(FastIpcError::UnsupportedPlatform)
-        }
-
-        pub fn send_timeline_events(
-            &mut self,
-            _events: &[TimelineMidiEvent],
-        ) -> Result<(), FastIpcError> {
-            Err(FastIpcError::UnsupportedPlatform)
-        }
-
-        pub fn prepare_patch(
-            &mut self,
-            _instance_id: InstanceId,
-            _patch: Option<&str>,
-        ) -> Result<(), FastIpcError> {
-            Err(FastIpcError::UnsupportedPlatform)
-        }
-
-        pub fn prepare_standby_patch(
-            &mut self,
-            _instance_id: InstanceId,
-            _patch: Option<&str>,
-        ) -> Result<(), FastIpcError> {
-            Err(FastIpcError::UnsupportedPlatform)
-        }
-
-        pub fn begin_standby_patch(
-            &mut self,
-            _instance_id: InstanceId,
-            _patch: Option<&str>,
-        ) -> Result<u32, FastIpcError> {
-            Err(FastIpcError::UnsupportedPlatform)
-        }
-
-        pub fn probe_patch(
-            &mut self,
-            _instance_id: InstanceId,
-            _patch: Option<&str>,
-        ) -> Result<Vec<u8>, FastIpcError> {
-            Err(FastIpcError::UnsupportedPlatform)
-        }
-
-        pub fn stop(&mut self, _instance_id: InstanceId) -> Result<(), FastIpcError> {
-            Err(FastIpcError::UnsupportedPlatform)
-        }
-
-        pub fn stop_all(&mut self) -> Result<(), FastIpcError> {
-            Err(FastIpcError::UnsupportedPlatform)
-        }
-
-        pub fn set_buffer_multiplier(&mut self, _multiplier: u16) -> Result<(), FastIpcError> {
-            Err(FastIpcError::UnsupportedPlatform)
-        }
-
-        pub fn set_auto_gain_enabled(&mut self, _enabled: bool) -> Result<(), FastIpcError> {
-            Err(FastIpcError::UnsupportedPlatform)
-        }
-
-        pub fn limiter_meter(&self) -> LimiterMeter {
-            LimiterMeter::default()
-        }
-
-        pub fn underrun_frames(&self) -> u64 {
-            0
-        }
-
-        pub fn auto_gain_db(&self) -> [f32; MAX_INSTANCE_COUNT] {
-            [0.0; MAX_INSTANCE_COUNT]
-        }
-
-        pub fn timing_metrics(&self) -> TimingMetrics {
-            TimingMetrics::default()
-        }
-
-        pub fn standby_watermark(&self) -> u64 {
-            0
-        }
-
-        pub fn poll_standby_completion(
-            &self,
-            _request_id: u32,
-            _since_sequence: u64,
-        ) -> Option<Result<(), FastIpcError>> {
-            Some(Err(FastIpcError::UnsupportedPlatform))
-        }
-    }
-
-    pub struct FastMidiServer;
-
-    impl FastMidiServer {
-        pub fn create(_port: u16) -> Result<Self, FastIpcError> {
-            Err(FastIpcError::UnsupportedPlatform)
-        }
-
-        pub fn recv_timeout(
-            &mut self,
-            _timeout: Duration,
-        ) -> Result<Option<FastMidiCommand>, FastIpcError> {
-            Err(FastIpcError::UnsupportedPlatform)
-        }
-
-        pub fn complete_request(
-            &self,
-            _request_id: u32,
-            _result: Result<&[u8], &str>,
-        ) -> Result<(), FastIpcError> {
-            Err(FastIpcError::UnsupportedPlatform)
-        }
-
-        pub fn publish_limiter_meter(&self, _meter: LimiterMeter) {}
-
-        pub fn publish_underrun_frames(&self, _frames: u64) {}
-
-        pub fn publish_auto_gain_db(&self, _gains_db: &[f32]) {}
-
-        pub fn publish_timing_metrics(&self, _metrics: TimingMetrics) {}
-
-        pub fn publish_standby_completion(
-            &self,
-            _request_id: u32,
-            _result: Result<(), &str>,
-        ) -> Result<u64, FastIpcError> {
-            Err(FastIpcError::UnsupportedPlatform)
-        }
-    }
-}
+mod unsupported;
 
 #[cfg(not(windows))]
 pub use unsupported::{FastMidiClient, FastMidiServer};

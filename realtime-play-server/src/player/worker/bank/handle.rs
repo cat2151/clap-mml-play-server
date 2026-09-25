@@ -22,6 +22,7 @@ use anyhow::anyhow;
 use cmrt_core::{RealtimeRenderer, RendererHandoff};
 
 use super::super::super::instances::LiveInstancesSpec;
+use super::instance_chain::ChainSource;
 use super::protocol::{BankCommand, BankReply};
 use super::state::run_bank_worker;
 
@@ -44,6 +45,7 @@ impl BankWorker {
         bank: usize,
         renderers: Vec<RealtimeRenderer>,
         spec: LiveInstancesSpec,
+        chain_source: ChainSource,
     ) -> Self {
         let (command_tx, command_rx) = std::sync::mpsc::channel();
         let (reply_tx, reply_rx) = std::sync::mpsc::channel();
@@ -56,7 +58,15 @@ impl BankWorker {
         let join = std::thread::Builder::new()
             .name(format!("realtime-play-server-bank{bank}"))
             .spawn(move || {
-                run_bank_worker(bank, handoff, spec, worker_blocks, &command_rx, &reply_tx);
+                run_bank_worker(
+                    bank,
+                    handoff,
+                    spec,
+                    chain_source,
+                    worker_blocks,
+                    &command_rx,
+                    &reply_tx,
+                );
             })
             .inspect_err(|error| {
                 // 立たなければこの bank の instance は一切鳴らない。要求は

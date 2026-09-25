@@ -7,18 +7,15 @@ mod limiter;
 mod live;
 mod live_capture;
 mod mixer;
+mod output_capture;
 mod output_stream;
 mod runtime;
+mod standby_ticket;
 mod startup;
 mod timing_diagnostics;
 mod worker;
 
-use std::{
-    sync::mpsc::{Receiver, SyncSender, TryRecvError},
-    sync::Arc,
-    sync::Mutex,
-    thread::JoinHandle,
-};
+use std::{sync::Arc, sync::Mutex, thread::JoinHandle};
 
 use self::audio_output::{new_audio_output, AudioOutputControl};
 use self::bank::BankLayout;
@@ -40,47 +37,9 @@ use cmrt_realtime_ipc::{
 use self::commands::PlayerCommand;
 
 pub(crate) use self::instances::{plugin_kinds, PluginKind};
-
-/// 先読みロードの結果。ワーカー間は `String` で運ぶ（`anyhow::Error` は Send 境界を
-/// 跨がせたくないため、既存の patch load 系と同じ形に揃えてある）。
-pub(crate) type StandbyLoadResult = std::result::Result<(), String>;
-
-/// 先読みロードの受付票。
-///
-/// [`PlayerHandle::begin_standby_live_patch`] が返す。ロードは対象 bank の worker
-/// 上で走り続けていて、この受付票を持っているスレッド（fast IPC 受信スレッド）は
-/// **待たずに他のコマンドを捌く**。
-///
-/// 完了送信路は容量 1 なので、受け取り手が poll していなくても coordinator 側の
-/// `send` が block しない。受付票を drop してもロードは止まらない。
-pub(crate) struct StandbyLoadTicket {
-    completion: Receiver<StandbyLoadResult>,
-}
-
-/// 受付票と、その完了を送る側の組を作る。
-///
-/// 容量 1 の同期チャネルであることがこの設計の要。0（rendezvous）にすると
-/// coordinator の `send` が受け取り手を待って止まり、レンダーループごと固まる。
-pub(crate) fn standby_completion_channel() -> (SyncSender<StandbyLoadResult>, StandbyLoadTicket) {
-    let (tx, rx) = std::sync::mpsc::sync_channel(1);
-    (tx, StandbyLoadTicket { completion: rx })
-}
-
-impl StandbyLoadTicket {
-    /// 完了していれば結果を返す。**まだなら `None`。決して block しない。**
-    ///
-    /// 送信側が結果を送らずに消えた場合（ワーカー停止）も `Some(Err(_))` を返す。
-    /// ここで `None` を返し続けると、クライアントが永久に「ロード中」のまま残る。
-    pub(crate) fn poll(&self) -> Option<Result<()>> {
-        match self.completion.try_recv() {
-            Ok(result) => Some(result.map_err(anyhow::Error::msg)),
-            Err(TryRecvError::Empty) => None,
-            Err(TryRecvError::Disconnected) => Some(Err(anyhow::anyhow!(
-                "realtime play worker exited while preloading a standby patch"
-            ))),
-        }
-    }
-}
+pub(crate) use self::standby_ticket::{
+    standby_completion_channel, StandbyLoadResult, StandbyLoadTicket,
+};
 
 pub(crate) trait PlayerHandle: Send + Sync + 'static {
     fn play_smf(&self, smf: Vec<u8>) -> Result<()>;
@@ -91,7 +50,16 @@ pub(crate) trait PlayerHandle: Send + Sync + 'static {
     /// `begin_live_timeline` と違い、timeline もプラグインの状態も作り直さない。
     fn set_live_tempo(&self, change: LiveTempoChange) -> Result<()>;
     fn send_timeline_midi(&self, events: Vec<TimelineMidiEvent>) -> Result<()>;
-    fn prepare_live_patch(&self, instance_id: InstanceId, patch: Option<String>) -> Result<()>;
+    /// 音色と、その instance の出力に掛ける effect chain を差し替える。
+    ///
+    /// `effect_chain` は `"effects after instrument"` の値の JSON 文字列で、空なら chain 無し。
+    /// chain を作れなければ音色も載せずに失敗する。
+    fn prepare_live_patch(
+        &self,
+        instance_id: InstanceId,
+        patch: Option<String>,
+        effect_chain: String,
+    ) -> Result<()>;
     /// 非演奏 bank への先読みロードを **受け付けるだけ**。
     ///
     /// [`PlayerHandle::prepare_live_patch`] と違い、クライアントが「この instance は
@@ -107,6 +75,7 @@ pub(crate) trait PlayerHandle: Send + Sync + 'static {
         &self,
         instance_id: InstanceId,
         patch: Option<String>,
+        effect_chain: String,
     ) -> Result<StandbyLoadTicket>;
     fn prepare_live_patch_with_voicing(
         &self,
@@ -120,6 +89,9 @@ pub(crate) trait PlayerHandle: Send + Sync + 'static {
     /// live mixのinstance別RMS auto-trimを切り替える。
     fn set_live_auto_gain_enabled(&self, enabled: bool) -> Result<()>;
     fn stop_instance(&self, instance_id: InstanceId) -> Result<()>;
+    /// live instance 群の出力を、今の音量から 0 まで `fade_ms` ミリ秒で絞る。
+    /// 0 に達した instance は鳴っている voice と effect chain の余韻を捨てる。
+    fn fade_out_instances(&self, instance_ids: Vec<InstanceId>, fade_ms: u32) -> Result<()>;
     fn stop(&self) -> Result<()>;
     fn limiter_meter(&self) -> LimiterMeter;
     fn underrun_frames(&self) -> u64;
@@ -278,13 +250,19 @@ impl PlayerHandle for RealtimePlayer {
         self.inner.submit_timeline_midi(events)
     }
 
-    fn prepare_live_patch(&self, instance_id: InstanceId, patch: Option<String>) -> Result<()> {
+    fn prepare_live_patch(
+        &self,
+        instance_id: InstanceId,
+        patch: Option<String>,
+        effect_chain: String,
+    ) -> Result<()> {
         self.validate_live_instance_id(instance_id)?;
         let patch = resolve_live_patch(patch, &self.patch_bases);
         let (completion_tx, completion_rx) = std::sync::mpsc::sync_channel(0);
         self.inner.submit_prepare_live_patch(
             instance_id,
             patch,
+            effect_chain,
             completion_tx,
             Arc::clone(&self.audio_output),
         )?;
@@ -312,9 +290,10 @@ impl PlayerHandle for RealtimePlayer {
         &self,
         instance_id: InstanceId,
         patch: Option<String>,
+        effect_chain: String,
     ) -> Result<StandbyLoadTicket> {
         let slot = self.bank_layout()?.slot_of(instance_id)?;
-        let result = self.submit_standby_live_patch(instance_id, patch);
+        let result = self.submit_standby_live_patch(instance_id, patch, effect_chain);
         let event = if result.is_ok() {
             "accepted"
         } else {
@@ -370,6 +349,15 @@ impl PlayerHandle for RealtimePlayer {
             .submit_stop_instance(instance_id, Arc::clone(&self.audio_output))
     }
 
+    fn fade_out_instances(&self, instance_ids: Vec<InstanceId>, fade_ms: u32) -> Result<()> {
+        for &instance_id in &instance_ids {
+            self.validate_live_instance_id(instance_id)?;
+        }
+        let fade_frames = fade_frames(fade_ms, self.sample_rate);
+        self.inner
+            .submit_fade_out_instances(instance_ids, fade_frames)
+    }
+
     fn stop(&self) -> Result<()> {
         self.inner.submit_stop(Arc::clone(&self.audio_output))
     }
@@ -404,12 +392,14 @@ impl RealtimePlayer {
         &self,
         instance_id: InstanceId,
         patch: Option<String>,
+        effect_chain: String,
     ) -> Result<StandbyLoadTicket> {
         let patch = resolve_live_patch(patch, &self.patch_bases);
         let (completion_tx, ticket) = standby_completion_channel();
         self.inner.submit_prepare_standby_live_patch(
             instance_id,
             patch,
+            effect_chain,
             completion_tx,
             Arc::clone(&self.audio_output),
         )?;
@@ -424,6 +414,11 @@ impl RealtimePlayer {
     fn bank_layout(&self) -> Result<BankLayout> {
         BankLayout::new(self.live_instance_count)
     }
+}
+
+/// fadeout の長さ（ミリ秒）を frame 数へ直す。0 frame にはしない（1 frame で絞り切る）。
+fn fade_frames(fade_ms: u32, sample_rate: f64) -> u32 {
+    ((f64::from(fade_ms) * sample_rate / 1000.0).round() as u32).max(1)
 }
 
 impl Drop for RealtimePlayer {

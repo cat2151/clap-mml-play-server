@@ -42,3 +42,24 @@ fn note_off_updates_the_active_note_ledger() {
 
     assert!(active.note_off_events().is_empty());
 }
+
+/// 張り直しの NoteOff は、その block の新しいイベントより前に置く。後ろに置くと、
+/// 同じ block で鳴らし直した同じ note まで離してしまう。
+#[test]
+fn pending_release_puts_note_offs_before_the_block_events() {
+    let mut active = ActiveNotes::default();
+    active.record(&[LiveMidiEvent {
+        offset_frames: 0,
+        message: [0x90, 60, 100],
+    }]);
+    let new_note = LiveMidiEvent {
+        offset_frames: 0,
+        message: [0x90, 60, 90],
+    };
+
+    let events = active.note_offs_before(&[new_note]);
+
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[0].message, [0x80, 60, 0]);
+    assert_eq!(events[1], new_note);
+}

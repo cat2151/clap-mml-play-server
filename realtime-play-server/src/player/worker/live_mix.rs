@@ -49,6 +49,10 @@ pub(super) fn render_live_mix(
     let block = BlockSpan::new(SamplePosition(chunk_start), buf_size as u32)?;
     let (scheduled, block_timing) = match timeline {
         Some(timeline) => {
+            let block = BlockSpan::new(
+                SamplePosition(chunk_start.saturating_sub(timeline.origin_samples)),
+                buf_size as u32,
+            )?;
             let scheduled = timeline
                 .scheduler
                 .take_block(block, LateEventPolicy::ClampToBlockStart);

@@ -11,6 +11,8 @@ use std::{
 use anyhow::Result;
 use cpal::{FromSample, Sample};
 
+use super::output_capture::OutputCapture;
+
 pub(super) const DEFAULT_BUFFER_MULTIPLIER: u16 = 4;
 /// リングの容量はこの倍率ぶんを起動時に一度だけ確保する
 /// （512 フレーム × 256 × 16B ≒ 2MB）。倍率を上げても再確保は起きない。
@@ -190,9 +192,15 @@ impl AudioOutputProducer {
 pub(super) struct AudioOutputConsumer {
     ring: Arc<FrameRing>,
     control: Arc<AudioOutputControl>,
+    capture: Option<OutputCapture>,
 }
 
 impl AudioOutputConsumer {
+    /// device へ出す frame を録るタップを付ける（`CMRT_OUTPUT_CAPTURE_WAV`）。
+    pub(super) fn attach_capture(&mut self, capture: Option<OutputCapture>) {
+        self.capture = capture;
+    }
+
     pub(super) fn fill_output<T>(&mut self, output: &mut [T], channels: usize)
     where
         T: Sample + FromSample<f32>,
@@ -208,6 +216,9 @@ impl AudioOutputConsumer {
                 }
                 (0.0, 0.0)
             });
+            if let Some(capture) = self.capture.as_mut() {
+                capture.record(self.control.active.load(Ordering::Acquire), left, right);
+            }
             if channels == 1 {
                 frame[0] = T::from_sample((left + right) * 0.5);
                 continue;
@@ -252,7 +263,11 @@ pub(super) fn new_audio_output(
             ring: Arc::clone(&ring),
             control: Arc::clone(&control),
         },
-        AudioOutputConsumer { ring, control },
+        AudioOutputConsumer {
+            ring,
+            control,
+            capture: None,
+        },
     )
 }
 

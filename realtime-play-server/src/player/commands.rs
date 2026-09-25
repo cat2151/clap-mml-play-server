@@ -66,6 +66,8 @@ pub(super) enum PlayerCommand {
         generation: u64,
         instance_id: InstanceId,
         patch: Option<String>,
+        /// `"effects after instrument"` の値の JSON 文字列。空なら chain 無し。
+        effect_chain: String,
         completion: std::sync::mpsc::SyncSender<std::result::Result<(), String>>,
     },
     /// 非演奏 bank への先読みロード。
@@ -83,7 +85,14 @@ pub(super) enum PlayerCommand {
         generation: u64,
         instance_id: InstanceId,
         patch: Option<String>,
+        effect_chain: String,
         completion: std::sync::mpsc::SyncSender<super::StandbyLoadResult>,
+    },
+    /// live instance 群の出力を `fade_frames` で 0 まで絞る。generation は上げない
+    /// （上げるとリングの描画済み frame が捨てられ、fade の前に段差で切れる）。
+    FadeOutInstances {
+        instance_ids: Vec<InstanceId>,
+        fade_frames: u32,
     },
     ProbeLivePatch {
         generation: u64,
@@ -178,14 +187,30 @@ impl PlayerInner {
         Ok(())
     }
 
+    /// timeline を張り直す。**live が既に走っているなら generation を上げない。**
+    ///
+    /// 上げると `start_generation()` がリング内の描画済みフレームを捨て、鳴っている音が
+    /// 段差で 0 へ落ちたうえ、次の block が届くまで無音が挟まる。据え置けば前の演奏は
+    /// ワーカー側の NoteOff の release のまま消え、新しい timeline はその続きから始まる。
     pub(super) fn submit_begin_live_timeline(
         &self,
         config: LiveTimelineConfig,
         audio_output: Arc<AudioOutputControl>,
     ) -> Result<()> {
         let mut state = self.state.lock().unwrap();
-        let generation = begin_new_generation(&mut state, &audio_output)?;
-        state.pending.clear();
+        let generation = if state.live_requested {
+            ensure_running(&state)?;
+            // 同じ generation のままでも、出力を「再生中」へ戻す必要はある
+            // （全 instance の停止で live を畳んだ後に張り直す場合）。
+            audio_output.start_generation(state.generation);
+            state.generation
+        } else {
+            begin_new_generation(&mut state, &audio_output)?
+        };
+        // 張り直しの前に届いた fadeout は、前の timeline の音に掛けるものなので残す。
+        state
+            .pending
+            .retain(|command| matches!(command, PlayerCommand::FadeOutInstances { .. }));
         state.live_requested = true;
         state.live_timeline_id = Some(config.timeline_id);
         state
@@ -217,6 +242,25 @@ impl PlayerInner {
         Ok(())
     }
 
+    /// live instance 群の fadeout を積む。live が走っていなければ絞る音が無いので何もしない。
+    pub(super) fn submit_fade_out_instances(
+        &self,
+        instance_ids: Vec<InstanceId>,
+        fade_frames: u32,
+    ) -> Result<()> {
+        let mut state = self.state.lock().unwrap();
+        ensure_running(&state)?;
+        if !state.live_requested {
+            return Ok(());
+        }
+        state.pending.push_back(PlayerCommand::FadeOutInstances {
+            instance_ids,
+            fade_frames,
+        });
+        self.command_available.notify_one();
+        Ok(())
+    }
+
     pub(super) fn submit_timeline_midi(&self, events: Vec<TimelineMidiEvent>) -> Result<()> {
         let mut state = self.state.lock().unwrap();
         ensure_running(&state)?;
@@ -238,6 +282,7 @@ impl PlayerInner {
         &self,
         instance_id: InstanceId,
         patch: Option<String>,
+        effect_chain: String,
         completion: std::sync::mpsc::SyncSender<std::result::Result<(), String>>,
         audio_output: Arc<AudioOutputControl>,
     ) -> Result<()> {
@@ -258,6 +303,7 @@ impl PlayerInner {
             generation,
             instance_id,
             patch,
+            effect_chain,
             completion,
         });
         self.command_available.notify_one();
@@ -270,6 +316,7 @@ impl PlayerInner {
         &self,
         instance_id: InstanceId,
         patch: Option<String>,
+        effect_chain: String,
         completion: std::sync::mpsc::SyncSender<super::StandbyLoadResult>,
         audio_output: Arc<AudioOutputControl>,
     ) -> Result<()> {
@@ -287,6 +334,7 @@ impl PlayerInner {
                 generation,
                 instance_id,
                 patch,
+                effect_chain,
                 completion,
             });
         self.command_available.notify_one();

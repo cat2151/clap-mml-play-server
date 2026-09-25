@@ -86,6 +86,8 @@ pub struct RealtimeRenderer {
     output_events_buf: EventBuffer,
     /// live 経路で実際に process 済みの note。停止時はこの分だけ NoteOff を送る。
     active_notes: ActiveNotes,
+    /// 次の live block の頭で、process 済みの全 note へ NoteOff を流す予約。
+    release_in_next_block: bool,
     /// CLAP `steady_time` is activation-local and never moves backwards, including across a
     /// musical transport reset or a patch probe.
     process_cursor_samples: u64,
@@ -214,6 +216,7 @@ impl RealtimeRenderer {
             output_ports: AudioPorts::with_capacity(2, 1),
             output_events_buf: EventBuffer::new(),
             active_notes: ActiveNotes::default(),
+            release_in_next_block: false,
             process_cursor_samples: 0,
             sample_rate: SampleRate::new(cfg.sample_rate)
                 .map_err(|error| anyhow::anyhow!(error))?,

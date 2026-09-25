@@ -44,7 +44,12 @@ impl PlayerHandle for FakePlayer {
         Ok(())
     }
 
-    fn prepare_live_patch(&self, _instance_id: InstanceId, _patch: Option<String>) -> Result<()> {
+    fn prepare_live_patch(
+        &self,
+        _instance_id: InstanceId,
+        _patch: Option<String>,
+        _effect_chain: String,
+    ) -> Result<()> {
         Ok(())
     }
 
@@ -54,6 +59,7 @@ impl PlayerHandle for FakePlayer {
         &self,
         _instance_id: InstanceId,
         _patch: Option<String>,
+        _effect_chain: String,
     ) -> Result<StandbyLoadTicket> {
         let (completion, ticket) = standby_completion_channel();
         completion.send(Ok(())).unwrap();
@@ -81,6 +87,10 @@ impl PlayerHandle for FakePlayer {
     }
 
     fn stop_instance(&self, _instance_id: InstanceId) -> Result<()> {
+        Ok(())
+    }
+
+    fn fade_out_instances(&self, _instance_ids: Vec<InstanceId>, _fade_ms: u32) -> Result<()> {
         Ok(())
     }
 
@@ -175,6 +185,31 @@ fn server_dispatches_play_play_mml_and_stop() {
 }
 
 #[test]
+fn server_waits_for_body_sent_after_headers() {
+    let player = Arc::new(FakePlayer::default());
+    let play_mml = run_one_request_server(Arc::clone(&player), |addr| {
+        let mut stream = TcpStream::connect(addr).unwrap();
+        stream
+            .write_all(
+                b"POST /play-mml HTTP/1.1\r\nContent-Type: text/plain\r\nContent-Length: 3\r\n\r\n",
+            )
+            .unwrap();
+        stream.flush().unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        stream.write_all(b"cde").unwrap();
+        stream.shutdown(std::net::Shutdown::Write).unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).unwrap();
+        response
+    });
+    assert!(
+        play_mml.starts_with("HTTP/1.1 202 Accepted"),
+        "unexpected response: {play_mml}"
+    );
+    assert_eq!(player.mml_plays.lock().unwrap().as_slice(), &["cde"]);
+}
+
+#[test]
 fn content_types_are_case_insensitive_and_allow_parameters() {
     assert!(content_type_is_midi("Audio/Midi"));
     assert!(content_type_is_midi("audio/x-midi; charset=binary"));
@@ -205,7 +240,8 @@ where
     });
     let response = request(addr);
     shutdown.store(true, Ordering::SeqCst);
-    TcpStream::connect(addr).unwrap();
+    // accept loop は shutdown を poll して自分で抜けるので、起こしの接続は拒否されてもよい。
+    let _ = TcpStream::connect(addr);
     server.join().unwrap().unwrap();
     response
 }

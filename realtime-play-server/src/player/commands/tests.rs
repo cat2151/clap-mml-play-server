@@ -98,6 +98,7 @@ fn prepare_patch_targets_one_instance_and_returns_completion() {
         .submit_prepare_live_patch(
             12,
             Some("keys.fxp".to_string()),
+            String::new(),
             completion_tx,
             Arc::clone(&audio_output),
         )
@@ -108,11 +109,13 @@ fn prepare_patch_targets_one_instance_and_returns_completion() {
             generation,
             instance_id,
             patch,
+            effect_chain,
             completion,
         }) => {
             assert_eq!(generation, 1);
             assert_eq!(instance_id, 12);
             assert_eq!(patch.as_deref(), Some("keys.fxp"));
+            assert_eq!(effect_chain, "");
             completion.send(Ok(())).unwrap();
         }
         other => panic!("expected patch command, got {other:?}"),
@@ -141,6 +144,7 @@ fn preparing_a_patch_while_live_keeps_the_generation() {
         .submit_prepare_live_patch(
             9,
             Some("shadow.fxp".to_string()),
+            String::new(),
             completion_tx,
             Arc::clone(&audio_output),
         )
@@ -171,6 +175,7 @@ fn preparing_a_patch_before_going_live_starts_a_new_generation() {
         .submit_prepare_live_patch(
             0,
             Some("keys.fxp".to_string()),
+            String::new(),
             completion_tx,
             Arc::clone(&audio_output),
         )
@@ -280,4 +285,81 @@ fn commands_fail_after_shutdown() {
         )
         .is_err());
     assert!(inner.wait_for_command().is_none());
+}
+
+/// live が走っている間の timeline の張り直しで generation を上げないこと。上げると
+/// `start_generation()` が描画済みフレームを捨て、鳴っている音が段差で 0 へ落ちて、
+/// 次の block が届くまで無音が挟まる。
+#[test]
+fn rebeginning_the_timeline_while_live_keeps_the_rendered_ring() {
+    let (audio_output, producer, mut consumer) = new_audio_output(2);
+    let inner = PlayerInner::default();
+    inner
+        .submit_begin_live_timeline(timeline_config(1), Arc::clone(&audio_output))
+        .unwrap();
+    assert!(producer.push_chunk(1, vec![0.5, 0.5]));
+
+    inner
+        .submit_begin_live_timeline(timeline_config(2), Arc::clone(&audio_output))
+        .unwrap();
+
+    assert_eq!(audio_output.generation(), 1);
+    let mut output = [0.0f32; 2];
+    consumer.fill_output(&mut output, 2);
+    assert_eq!(output, [0.5, 0.5], "前の timeline の音がそのまま出る");
+}
+
+/// 停止の後に張り直すなら従来どおり新しい generation で始める（前の演奏は捨ててよい）。
+#[test]
+fn beginning_a_timeline_after_a_stop_starts_a_new_generation() {
+    let inner = PlayerInner::default();
+    let audio_output = audio_control();
+    inner
+        .submit_begin_live_timeline(timeline_config(1), Arc::clone(&audio_output))
+        .unwrap();
+    inner.submit_stop(Arc::clone(&audio_output)).unwrap();
+
+    inner
+        .submit_begin_live_timeline(timeline_config(2), Arc::clone(&audio_output))
+        .unwrap();
+
+    assert_eq!(audio_output.generation(), 3);
+}
+
+/// 張り直しの直前に届いた fadeout は、張り直しで捨てずに前の timeline の音へ掛ける。
+/// generation も上げない（上げるとリングの描画済み frame が段差で捨てられる）。
+#[test]
+fn a_fade_out_survives_the_next_timeline_and_keeps_the_generation() {
+    let inner = PlayerInner::default();
+    let audio_output = audio_control();
+    inner
+        .submit_begin_live_timeline(timeline_config(1), Arc::clone(&audio_output))
+        .unwrap();
+    inner.wait_for_command().unwrap();
+
+    inner.submit_fade_out_instances(vec![0, 1], 2400).unwrap();
+    inner
+        .submit_begin_live_timeline(timeline_config(2), Arc::clone(&audio_output))
+        .unwrap();
+
+    assert_eq!(audio_output.generation(), 1);
+    assert!(matches!(
+        inner.wait_for_command(),
+        Some(PlayerCommand::FadeOutInstances { instance_ids, fade_frames: 2400 })
+            if instance_ids == vec![0, 1]
+    ));
+    assert!(matches!(
+        inner.wait_for_command(),
+        Some(PlayerCommand::BeginLiveTimeline { .. })
+    ));
+}
+
+/// live が走っていなければ絞る音が無いので、fadeout は積まない。
+#[test]
+fn a_fade_out_before_going_live_is_ignored() {
+    let inner = PlayerInner::default();
+
+    inner.submit_fade_out_instances(vec![0], 2400).unwrap();
+
+    assert!(inner.pop_pending_command().is_none());
 }

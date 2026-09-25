@@ -4,12 +4,13 @@ use cpal::{
     FromSample, Sample, SampleFormat, SizedSample, Stream, StreamConfig,
 };
 
-use super::audio_output::AudioOutputConsumer;
+use super::{audio_output::AudioOutputConsumer, output_capture::OutputCapture};
 
 pub(super) fn build_output_stream(
-    audio_output: AudioOutputConsumer,
+    mut audio_output: AudioOutputConsumer,
     sample_rate: f64,
 ) -> Result<Stream> {
+    audio_output.attach_capture(OutputCapture::from_env(sample_rate));
     let host = cpal::default_host();
     let device = host
         .default_output_device()

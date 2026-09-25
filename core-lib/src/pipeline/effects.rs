@@ -81,23 +81,7 @@ impl<'a> RenderEffects<'a> {
         if spec.is_empty() {
             return Ok(());
         }
-        let Some(support) = self.support else {
-            bail!("この render 経路は '{EFFECT_CHAIN_JSON_KEY}' に対応していない");
-        };
-        let mut stages = Vec::with_capacity(spec.len());
-        for stage in spec.stages() {
-            let plugin = support.catalog.plugin(&stage.plugin)?;
-            let entry = (support.load_entry)(plugin)
-                .with_context(|| format!("effect plugin '{}' のロード", plugin.name))?;
-            let mut renderer =
-                EffectRenderer::new(&entry, &plugin.plugin_id, cfg.sample_rate, cfg.buffer_size)
-                    .with_context(|| format!("effect '{}' の生成", plugin.name))?;
-            renderer
-                .load_preset_file(&stage.preset.path)
-                .with_context(|| format!("effect preset '{}' の適用", stage.preset.display))?;
-            stages.push(renderer);
-        }
-        let mut chain = EffectChain::new(stages)?;
+        let mut chain = self.build_chain(spec, cfg.sample_rate, cfg.buffer_size)?;
         chain
             .process_all(
                 samples,
@@ -107,5 +91,31 @@ impl<'a> RenderEffects<'a> {
                 },
             )
             .with_context(|| format!("effect chain {spec} の適用"))
+    }
+
+    /// 返した chain を通す block の長さは `buf_size` ちょうどにすること（[`EffectChain`] の制約）。
+    pub fn build_chain(
+        &self,
+        spec: &EffectChainSpec,
+        sample_rate: f64,
+        buf_size: usize,
+    ) -> Result<EffectChain> {
+        let Some(support) = self.support else {
+            bail!("この render 経路は '{EFFECT_CHAIN_JSON_KEY}' に対応していない");
+        };
+        let mut stages = Vec::with_capacity(spec.len());
+        for stage in spec.stages() {
+            let plugin = support.catalog.plugin(&stage.plugin)?;
+            let entry = (support.load_entry)(plugin)
+                .with_context(|| format!("effect plugin '{}' のロード", plugin.name))?;
+            let mut renderer =
+                EffectRenderer::new(&entry, &plugin.plugin_id, sample_rate, buf_size)
+                    .with_context(|| format!("effect '{}' の生成", plugin.name))?;
+            renderer
+                .load_preset_file(&stage.preset.path)
+                .with_context(|| format!("effect preset '{}' の適用", stage.preset.display))?;
+            stages.push(renderer);
+        }
+        EffectChain::new(stages)
     }
 }

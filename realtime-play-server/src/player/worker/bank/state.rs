@@ -22,6 +22,8 @@ use cmrt_clack_timeline::ProcessBlockTiming;
 use cmrt_core::{RealtimePlaybackSchedule, RealtimeRenderer, RendererHandoff, VoicingReport};
 
 use super::super::super::instances::{LiveInstances, LiveInstancesSpec};
+use super::fade::{finish_instance_output, InstanceFades};
+use super::instance_chain::{ChainSource, InstanceChains};
 use super::protocol::{
     BankCommand, BankRenderInstance, BankRendered, BankReply, PatchJob, PatchOutcome,
 };
@@ -53,6 +55,10 @@ struct BankState {
     renderers: Vec<RealtimeRenderer>,
     /// この bank の「論理スロット → 物理インスタンスの種別」台帳と予備の袋。
     instances: LiveInstances,
+    /// instance ごとの effect chain。render の直後に通す。
+    chains: InstanceChains,
+    /// instance ごとの fadeout。chain の後に掛ける。
+    fades: InstanceFades,
     /// この bank が render したブロック数。**coordinator が演奏中に読む**ので共有する
     /// （先読み中に演奏 bank が何ブロック進んだかを数える）。
     blocks: Arc<AtomicU64>,
@@ -63,16 +69,25 @@ pub(super) fn run_bank_worker(
     bank: usize,
     renderers: Vec<RendererHandoff>,
     spec: LiveInstancesSpec,
+    chain_source: ChainSource,
     blocks: Arc<AtomicU64>,
     commands: &Receiver<BankCommand>,
     replies: &Sender<BankReply>,
 ) {
+    let renderers: Vec<RealtimeRenderer> = renderers
+        .into_iter()
+        .map(RendererHandoff::into_inner)
+        .collect();
     let mut state = BankState {
         bank,
-        renderers: renderers
-            .into_iter()
-            .map(RendererHandoff::into_inner)
-            .collect(),
+        chains: InstanceChains::new(
+            bank,
+            chain_source,
+            renderers.first().map_or(0, RealtimeRenderer::buf_size),
+            renderers.len(),
+        ),
+        fades: InstanceFades::new(renderers.len()),
+        renderers,
         // 予備の袋は `!Send` な物理インスタンスを持つので、**このスレッドの上で作る**。
         instances: LiveInstances::new(spec),
         blocks,
@@ -94,6 +109,17 @@ pub(super) fn run_bank_worker(
             }
             BankCommand::ReleaseAll => {
                 state.release_all();
+                continue;
+            }
+            BankCommand::ReleaseAllInNextBlock => {
+                state.release_all_in_next_block();
+                continue;
+            }
+            BankCommand::FadeOut {
+                local_index,
+                fade_frames,
+            } => {
+                state.fades.start(local_index, fade_frames);
                 continue;
             }
             BankCommand::ReleaseInstance { local_index } => {
@@ -119,6 +145,27 @@ pub(super) fn run_bank_worker(
     );
 }
 
+/// instrument の音色を差し替える（必要ならプラグイン種別の差し替えを含む）。
+fn load_patch(
+    instances: &mut LiveInstances,
+    renderers: &mut [RealtimeRenderer],
+    job: &PatchJob,
+) -> PatchOutcome<()> {
+    match instances.prepare_slot_for_patch(renderers, job.local_index, job.patch.as_deref()) {
+        Ok(swapped) => {
+            let settle_blocks = if job.settle { PATCH_SETTLE_BLOCKS } else { 0 };
+            let result = renderers[job.local_index]
+                .switch_patch(job.patch.as_deref(), job.reset_before, settle_blocks)
+                .map_err(|error| format!("{error:#}"));
+            PatchOutcome { swapped, result }
+        }
+        Err(error) => PatchOutcome {
+            swapped: false,
+            result: Err(error),
+        },
+    }
+}
+
 /// テスト用の人工ロード遅延。壊れた値は 0 として扱う（本番で誤設定されても素通し）。
 fn patch_load_delay() -> Duration {
     std::env::var(PATCH_LOAD_DELAY_ENV)
@@ -132,18 +179,29 @@ impl BankState {
         for renderer in &mut self.renderers {
             renderer.reset();
         }
+        self.chains.reset_all();
+        self.fades.clear_all();
     }
 
     fn release_all(&mut self) {
         for renderer in &mut self.renderers {
             renderer.release_all_notes();
         }
+        self.fades.clear_all();
+    }
+
+    fn release_all_in_next_block(&mut self) {
+        for renderer in &mut self.renderers {
+            renderer.release_all_notes_in_next_block();
+        }
+        self.fades.begin_new_line_all();
     }
 
     fn release_instance(&mut self, local_index: usize) {
         if let Some(renderer) = self.renderers.get_mut(local_index) {
             renderer.release_all_notes();
         }
+        self.fades.clear(local_index);
     }
 
     fn blocks(&self) -> u64 {
@@ -163,16 +221,23 @@ impl BankState {
         let blocks = self.count_block();
         self.log_render_progress(blocks);
         let mut rendered = Vec::with_capacity(instances.len());
+        let Self {
+            renderers,
+            chains,
+            fades,
+            ..
+        } = self;
         for instance in instances {
-            let renderer = &mut self.renderers[instance.local_index];
-            let samples = match renderer.render_live_chunk_with_timing(&instance.events, timing) {
-                Ok(samples) => Ok(samples),
-                Err(error) => {
-                    // 壊れた instance だけを止める。同じ bank の他の instance は鳴り続ける。
-                    renderer.reset();
-                    Err(format!("{error:#}"))
-                }
-            };
+            let local_index = instance.local_index;
+            let renderer = &mut renderers[local_index];
+            let events = fades.block_events(local_index, &instance.events);
+            let output = renderer
+                .render_live_chunk_with_timing(events, timing)
+                .map_err(|error| format!("{error:#}"));
+            let samples =
+                finish_instance_output(chains, fades, local_index, output, &timing, || {
+                    renderer.reset()
+                });
             rendered.push(BankRendered {
                 local_index: instance.local_index,
                 samples,
@@ -196,20 +261,14 @@ impl BankState {
     fn prepare_patch(&mut self, job: PatchJob) -> PatchOutcome<()> {
         let started = Instant::now();
         self.delay_for_test();
-        let outcome = match self.swap_in(&job) {
-            Ok(swapped) => {
-                let renderer = &mut self.renderers[job.local_index];
-                let settle_blocks = if job.settle { PATCH_SETTLE_BLOCKS } else { 0 };
-                let result = renderer
-                    .switch_patch(job.patch.as_deref(), job.reset_before, settle_blocks)
-                    .map_err(|error| format!("{error:#}"));
-                PatchOutcome { swapped, result }
-            }
-            Err(error) => PatchOutcome {
-                swapped: false,
-                result: Err(error),
-            },
-        };
+        let Self {
+            chains,
+            renderers,
+            instances,
+            ..
+        } = self;
+        let outcome = chains.prepare(&job, || load_patch(instances, renderers, &job));
+        self.fades.begin_new_line(job.local_index);
         self.log_patch("prepare", job.local_index, started, &outcome);
         outcome
     }
@@ -231,6 +290,8 @@ impl BankState {
                 result: Err(error),
             },
         };
+        self.chains.forget_patch(job.local_index);
+        self.fades.begin_new_line(job.local_index);
         self.log_patch("probe", job.local_index, started, &outcome);
         outcome
     }

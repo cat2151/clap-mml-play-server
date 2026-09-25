@@ -55,6 +55,8 @@ impl RealtimeRenderer {
         events: &[LiveMidiEvent],
         mut timing: ProcessBlockTiming,
     ) -> Result<Vec<f32>> {
+        let events = self.take_pending_release(events);
+        let events = events.as_ref();
         let last_frame = self.buf_size.saturating_sub(1) as u32;
         let mut input_events_raw = EventBuffer::new();
         for event in events {

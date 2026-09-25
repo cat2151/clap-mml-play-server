@@ -35,9 +35,9 @@ mod standby;
 use self::bank::BankWorkers;
 use self::live_mix::{render_live_mix, LiveMixControls};
 use self::standby::{StandbyContext, StandbyLoad};
-#[cfg(test)]
-use command::apply_live_tempo;
 use command::{apply_command, CommandContext};
+#[cfg(test)]
+use command::{apply_live_tempo, begin_live_timeline};
 
 pub(super) struct WorkerOutput {
     pub(super) control: Arc<AudioOutputControl>,
@@ -78,7 +78,7 @@ pub(super) fn run_player_worker(
     // coordinator は `process()` も `set_patch()` も直接呼ばない。
     // 予備プールはここから背景でインスタンスを作り始める。起動時のインスタンス生成が
     // 終わってから起こすことで、起動時間を取り合わない。
-    let mut banks = BankWorkers::start(renderers, kinds);
+    let mut banks = BankWorkers::start(renderers, kinds, core_cfg.sample_rate);
 
     let audio_stream_started = Instant::now();
     let output_stream = match build_output_stream(output_consumer, core_cfg.sample_rate) {

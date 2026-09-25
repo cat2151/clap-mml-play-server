@@ -155,6 +155,11 @@ fn join_play_workers(worker_handles: &mut Vec<JoinHandle<()>>) -> Result<()> {
 }
 
 fn handle_connection(stream: &mut TcpStream, player: &dyn PlayerHandle) -> Result<()> {
+    // Windows では accept した socket が listener の non-blocking を引き継ぐ。
+    // そのままだと本文の到着前に読むと WouldBlock で切ってしまうので、blocking に戻す。
+    stream
+        .set_nonblocking(false)
+        .context("failed to set request stream blocking")?;
     stream
         .set_read_timeout(Some(REQUEST_READ_TIMEOUT))
         .context("failed to set request read timeout")?;

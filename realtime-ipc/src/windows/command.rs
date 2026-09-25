@@ -2,13 +2,14 @@ use std::{ptr, sync::atomic::Ordering};
 
 use super::{
     protocol::{
-        CommandSlot, SharedRing, KIND_BEGIN_LIVE_TIMELINE, KIND_MIDI, KIND_PREPARE_PATCH,
-        KIND_PREPARE_STANDBY_PATCH, KIND_PROBE_PATCH, KIND_SET_AUTO_GAIN,
+        CommandSlot, SharedRing, KIND_BEGIN_LIVE_TIMELINE, KIND_FADE_OUT_INSTANCES, KIND_MIDI,
+        KIND_PREPARE_PATCH, KIND_PREPARE_STANDBY_PATCH, KIND_PROBE_PATCH, KIND_SET_AUTO_GAIN,
         KIND_SET_BUFFER_MULTIPLIER, KIND_SET_INSTANCE_GAIN, KIND_SET_LIVE_TEMPO, KIND_STOP,
         KIND_STOP_ALL, KIND_TIMELINE_MIDI, SLOT_COUNT,
     },
     validate_instance_id, validate_ring, FastIpcError, FastMidiCommand, FastMidiEvent, InstanceId,
-    LiveTempoChange, LiveTimelineConfig, TimelineMidiEvent, MAX_MIDI_MESSAGES, MAX_PATCH_BYTES,
+    LiveTempoChange, LiveTimelineConfig, TimelineMidiEvent, MAX_EFFECT_CHAIN_BYTES,
+    MAX_FADE_OUT_MS, MAX_INSTANCE_COUNT, MAX_MIDI_MESSAGES, MAX_PATCH_BYTES,
 };
 
 /// instance ゲインの上限（千分率）。+12dB 相当までを許す。
@@ -34,6 +35,16 @@ fn decode_slot(slot: CommandSlot) -> Result<FastMidiCommand, FastIpcError> {
             instance_id: decode_instance(slot.instance_id)?,
         }),
         KIND_STOP_ALL => Ok(FastMidiCommand::StopAll),
+        KIND_FADE_OUT_INSTANCES => {
+            let count = (slot.message_count as usize).min(MAX_MIDI_MESSAGES);
+            let instance_ids = slot.instance_ids[..count].to_vec();
+            let fade_ms = slot.buffer_multiplier;
+            validate_fade_out(&instance_ids, fade_ms)?;
+            Ok(FastMidiCommand::FadeOutInstances {
+                instance_ids,
+                fade_ms,
+            })
+        }
         KIND_SET_BUFFER_MULTIPLIER => {
             let multiplier = u16::try_from(slot.buffer_multiplier)
                 .map_err(|_| FastIpcError::InvalidPayload("invalid buffer multiplier".into()))?;
@@ -68,12 +79,14 @@ fn decode_slot(slot: CommandSlot) -> Result<FastMidiCommand, FastIpcError> {
             request_id: slot.request_id,
             instance_id: decode_instance(slot.instance_id)?,
             patch: decode_patch(&slot)?,
+            effect_chain: decode_effect_chain(&slot)?,
             probe: slot.kind == KIND_PROBE_PATCH,
         }),
         KIND_PREPARE_STANDBY_PATCH => Ok(FastMidiCommand::PrepareStandbyPatch {
             request_id: slot.request_id,
             instance_id: decode_instance(slot.instance_id)?,
             patch: decode_patch(&slot)?,
+            effect_chain: decode_effect_chain(&slot)?,
         }),
         KIND_BEGIN_LIVE_TIMELINE => {
             let config = LiveTimelineConfig {
@@ -150,6 +163,27 @@ fn decode_slot(slot: CommandSlot) -> Result<FastMidiCommand, FastIpcError> {
     }
 }
 
+/// fadeout 要求の検証。送信側（`FastMidiClient::fade_out_instances`）と受信側で同じものを通す。
+pub(super) fn validate_fade_out(
+    instance_ids: &[InstanceId],
+    fade_ms: u32,
+) -> Result<(), FastIpcError> {
+    if instance_ids.is_empty() || instance_ids.len() > MAX_INSTANCE_COUNT {
+        return Err(FastIpcError::InvalidPayload(format!(
+            "fade out needs 1..={MAX_INSTANCE_COUNT} instances"
+        )));
+    }
+    for &instance_id in instance_ids {
+        validate_instance_id(instance_id)?;
+    }
+    if fade_ms == 0 || fade_ms > MAX_FADE_OUT_MS {
+        return Err(FastIpcError::InvalidPayload(format!(
+            "fade out length must be 1..={MAX_FADE_OUT_MS} ms"
+        )));
+    }
+    Ok(())
+}
+
 /// テンポ変化点の検証。[`validate_timeline_config`] と同じ条件に「変化点の絶対秒が
 /// 有限・非負」を足したもの。送信側 ([`super::timeline`]) と受信側で同じものを通す。
 pub(super) fn validate_tempo_change(change: LiveTempoChange) -> Result<(), FastIpcError> {
@@ -201,6 +235,18 @@ fn decode_patch(slot: &CommandSlot) -> Result<Option<String>, FastIpcError> {
             .map_err(|_| FastIpcError::InvalidPayload("patch is not UTF-8".into()))?
             .to_string(),
     ))
+}
+
+fn decode_effect_chain(slot: &CommandSlot) -> Result<String, FastIpcError> {
+    let len = slot.effect_chain_len as usize;
+    if len > MAX_EFFECT_CHAIN_BYTES {
+        return Err(FastIpcError::InvalidPayload(
+            "effect chain payload length is invalid".into(),
+        ));
+    }
+    Ok(std::str::from_utf8(&slot.effect_chain[..len])
+        .map_err(|_| FastIpcError::InvalidPayload("effect chain is not UTF-8".into()))?
+        .to_string())
 }
 
 fn decode_instance(raw: u32) -> Result<InstanceId, FastIpcError> {

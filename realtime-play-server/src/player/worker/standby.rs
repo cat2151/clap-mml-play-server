@@ -33,6 +33,7 @@ pub(super) struct StandbyRequest {
     pub(super) generation: u64,
     pub(super) instance_id: InstanceId,
     pub(super) patch: Option<String>,
+    pub(super) effect_chain: String,
     pub(super) completion: SyncSender<Result<(), String>>,
 }
 
@@ -93,7 +94,10 @@ pub(super) fn begin(
     let blocks_elsewhere_at_start = ctx.banks.blocks_rendered_elsewhere(bank);
     let underrun_at_start = ctx.audio_output.underrun_frames();
     let render_skips_at_start = ctx.banks.render_skips(bank);
-    match ctx.banks.start_patch(index, request.patch.as_deref()) {
+    match ctx
+        .banks
+        .start_patch(index, request.patch.as_deref(), &request.effect_chain)
+    {
         Ok(pending) => {
             // `clock` は「このスロットを書き換えた瞬間の再生位置」。**note on の
             // 予約位置（クライアント側の `at_frames`）と突き合わせるためにある。**

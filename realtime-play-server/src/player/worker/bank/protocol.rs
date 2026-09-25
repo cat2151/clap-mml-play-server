@@ -27,6 +27,13 @@ pub(super) enum BankCommand {
         local_index: usize,
     },
     ReleaseAll,
+    /// 1 instance の出力を `fade_frames` で 0 まで絞り、0 に達したら voice と chain を reset する。
+    FadeOut {
+        local_index: usize,
+        fade_frames: u32,
+    },
+    /// 全 instance の note を、次の render の頭で離す（音声を捨てる block を挟まない）。
+    ReleaseAllInNextBlock,
     Shutdown,
 }
 
@@ -44,6 +51,9 @@ pub(super) struct BankRenderInstance {
 pub(super) struct PatchJob {
     pub(super) local_index: usize,
     pub(super) patch: Option<String>,
+    /// instance の出力に掛ける effect chain（`"effects after instrument"` の値の JSON 文字列）。
+    /// 空なら chain を外す。voicing probe では使わない。
+    pub(super) effect_chain: String,
     /// `set_patch` の前に鳴っている音を止めるか。
     pub(super) reset_before: bool,
     /// `set_patch` のあと反映のために空回しするか。

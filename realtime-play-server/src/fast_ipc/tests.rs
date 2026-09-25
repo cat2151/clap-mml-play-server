@@ -106,7 +106,12 @@ impl PlayerHandle for FakePlayer {
         Ok(())
     }
 
-    fn prepare_live_patch(&self, _instance_id: InstanceId, _patch: Option<String>) -> Result<()> {
+    fn prepare_live_patch(
+        &self,
+        _instance_id: InstanceId,
+        _patch: Option<String>,
+        _effect_chain: String,
+    ) -> Result<()> {
         Ok(())
     }
 
@@ -114,6 +119,7 @@ impl PlayerHandle for FakePlayer {
         &self,
         instance_id: InstanceId,
         _patch: Option<String>,
+        _effect_chain: String,
     ) -> Result<StandbyLoadTicket> {
         let (gate, ticket) = standby_completion_channel();
         let mut state = self.state.lock().unwrap();
@@ -144,6 +150,10 @@ impl PlayerHandle for FakePlayer {
     }
 
     fn stop_instance(&self, _instance_id: InstanceId) -> Result<()> {
+        Ok(())
+    }
+
+    fn fade_out_instances(&self, _instance_ids: Vec<InstanceId>, _fade_ms: u32) -> Result<()> {
         Ok(())
     }
 

@@ -35,6 +35,9 @@ pub(super) struct LiveTimelineState {
     /// テンポを変えるのに timeline を作り直す必要はない（[`Self::set_tempo`]）。
     pub(super) transport: TempoMapTimeline,
     pub(super) started: bool,
+    /// timeline の 0 秒に当たる live の sample clock。張り直しても clock は巻き戻さない
+    /// （前の演奏の release を続けて描くため）ので、timeline の位置は clock からこれを引いて求める。
+    pub(super) origin_samples: u64,
 }
 
 impl LiveTimelineState {
@@ -51,7 +54,14 @@ impl LiveTimelineState {
             scheduler: BlockScheduler::new(sample_rate),
             transport,
             started: false,
+            origin_samples: 0,
         })
+    }
+
+    /// clock の `origin_samples` を timeline の 0 秒に置く。
+    pub(super) fn starting_at(mut self, origin_samples: u64) -> Self {
+        self.origin_samples = origin_samples;
+        self
     }
 
     /// tempo map へ変化点を積む。イベントのスケジュールは絶対秒でテンポ非依存なので、

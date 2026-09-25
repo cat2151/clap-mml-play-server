@@ -35,15 +35,23 @@
 //! player worker へ渡していた従来と同じ 1 回の移送で、`docs/adr/0009-unsafe-thread-handoff.md`
 //! の賭けを新しく増やしてはいない。**通常の bank 切替では renderer を動かさない。**
 
+mod fade;
 mod handle;
+mod instance_chain;
+mod live_chain;
 mod patch;
+mod post_process;
 mod protocol;
 mod state;
 
 use cmrt_clack_timeline::ProcessBlockTiming;
 use cmrt_core::{LiveMidiEvent, RealtimePlaybackSchedule, RealtimeRenderer};
 
+use std::sync::Arc;
+
 use self::handle::BankWorker;
+use self::instance_chain::ChainSource;
+use self::live_chain::EffectPluginsChainFactory;
 use self::protocol::{BankCommand, BankRenderInstance, BankReply, RenderedInstances};
 use super::super::bank::{BankLayout, BankSlot, BANK_COUNT};
 use super::super::instances::{plan_bank_instances, PluginKind};
@@ -65,7 +73,13 @@ impl BankWorkers {
     ///
     /// `kinds` は予備プールの材料。袋そのものは各 worker が自分のスレッドで作る
     /// （`!Send` な物理インスタンスを持つため）。
-    pub(super) fn start(renderers: Vec<RealtimeRenderer>, kinds: Vec<PluginKind>) -> Self {
+    ///
+    /// `sample_rate` は live instance に掛ける effect chain を作るときに使う。
+    pub(super) fn start(
+        renderers: Vec<RealtimeRenderer>,
+        kinds: Vec<PluginKind>,
+        sample_rate: f64,
+    ) -> Self {
         let layout = BankLayout::split_any(renderers.len());
         let buf_size = renderers.first().map_or(0, RealtimeRenderer::buf_size);
         let mut first = renderers;
@@ -75,9 +89,24 @@ impl BankWorkers {
         // bank ごとに直列に起こす。プラグインによっては複数インスタンスの同時生成で
         // 落ちる（Vaporizer2）ので、生成そのものは呼び出し側が 1 回で済ませ、
         // ここでは出来上がったものを配るだけにしてある。
+        // effect の catalog は両 bank で共有し、最初に chain 付きの要求が来るまで走査しない。
+        let chain_source = ChainSource {
+            factory: Arc::new(EffectPluginsChainFactory::discover()),
+            sample_rate,
+        };
         let workers = vec![
-            BankWorker::spawn(0, first, specs.next().expect("bank の数だけ作ってある")),
-            BankWorker::spawn(1, second, specs.next().expect("bank の数だけ作ってある")),
+            BankWorker::spawn(
+                0,
+                first,
+                specs.next().expect("bank の数だけ作ってある"),
+                chain_source.clone(),
+            ),
+            BankWorker::spawn(
+                1,
+                second,
+                specs.next().expect("bank の数だけ作ってある"),
+                chain_source,
+            ),
         ];
         Self {
             layout,
@@ -148,11 +177,32 @@ impl BankWorkers {
         }
     }
 
+    /// process 済みの全 note を、各 instance の次の render の頭で離す。
+    ///
+    /// 演奏を続けたまま前の note を release させるときに使う。[`Self::release_all_notes`] は
+    /// 離すために音声を捨てる block を 1 つ描くので、続けて鳴らすと波形が飛ぶ。
+    pub(super) fn release_all_notes_in_next_block(&self) {
+        for worker in &self.workers {
+            worker.notify(BankCommand::ReleaseAllInNextBlock);
+        }
+    }
+
     /// 1 instance の process 済み note だけを離す。
     pub(super) fn release_instance_notes(&self, instance_index: usize) {
         let slot = self.layout.slot_of_index(instance_index);
         self.workers[slot.bank].notify(BankCommand::ReleaseInstance {
             local_index: slot.local_index,
+        });
+    }
+
+    /// 1 instance の出力を、今の音量から 0 まで `fade_frames` で絞る。返事は待たない。
+    ///
+    /// 0 に達したらその instance の voice と effect chain を reset する（[`fade`] 参照）。
+    pub(super) fn fade_out_instance(&self, instance_index: usize, fade_frames: u32) {
+        let slot = self.layout.slot_of_index(instance_index);
+        self.workers[slot.bank].notify(BankCommand::FadeOut {
+            local_index: slot.local_index,
+            fade_frames,
         });
     }
 

@@ -135,25 +135,48 @@ pub(super) fn apply_command(context: CommandContext<'_>, command: PlayerCommand)
             }
         }
         PlayerCommand::BeginLiveTimeline { generation, config } => {
-            banks.release_all_notes();
-            limiter.reset();
-            limiter_meter.reset();
-            auto_gain.clear_gains();
             *timing_window = LiveTimingWindow::new(config.sample_rate_hz);
             timing_metrics.update(cmrt_realtime_ipc::TimingMetrics::default());
             match LiveTimelineState::new(config) {
                 Ok(timeline) => {
-                    let mut mode = new_live_mode(generation, banks.instance_count());
-                    if let PlaybackMode::Live { timeline: slot, .. } = &mut mode {
-                        *slot = Some(timeline);
+                    let continued = begin_live_timeline(
+                        playback_mode,
+                        generation,
+                        timeline,
+                        banks.instance_count(),
+                    );
+                    if continued {
+                        banks.release_all_notes_in_next_block();
+                    } else {
+                        banks.release_all_notes();
+                        limiter.reset();
+                        limiter_meter.reset();
+                        auto_gain.clear_gains();
                     }
-                    *playback_mode = Some(mode);
                 }
                 Err(error) => {
                     eprintln!("realtime live timeline failed: {error:#}");
+                    banks.release_all_notes();
+                    limiter.reset();
+                    limiter_meter.reset();
+                    auto_gain.clear_gains();
                     audio_output.finish();
                     *playback_mode = None;
                 }
+            }
+        }
+        PlayerCommand::FadeOutInstances {
+            instance_ids,
+            fade_frames,
+        } => {
+            if !matches!(playback_mode, Some(PlaybackMode::Live { .. })) {
+                return;
+            }
+            eprintln!(
+                "cmrt-live: event=apply-fade-out instances={instance_ids:?} frames={fade_frames}"
+            );
+            for instance_id in instance_ids {
+                banks.fade_out_instance(usize::from(instance_id), fade_frames);
             }
         }
         PlayerCommand::SetLiveTempo { generation, change } => {
@@ -191,6 +214,7 @@ pub(super) fn apply_command(context: CommandContext<'_>, command: PlayerCommand)
             generation,
             instance_id,
             patch,
+            effect_chain,
             completion,
         } => {
             ensure_live_mode(playback_mode, generation, banks.instance_count());
@@ -208,7 +232,7 @@ pub(super) fn apply_command(context: CommandContext<'_>, command: PlayerCommand)
                 patch.as_deref().unwrap_or("-")
             );
             // 差し替えと settle は instance を所有している bank worker 上で走る。
-            let result = banks.prepare_patch(index, patch.as_deref(), true);
+            let result = banks.prepare_patch(index, patch.as_deref(), &effect_chain, true);
             if let Some(PlaybackMode::Live {
                 generation: live_generation,
                 instances,
@@ -235,6 +259,7 @@ pub(super) fn apply_command(context: CommandContext<'_>, command: PlayerCommand)
             generation,
             instance_id,
             patch,
+            effect_chain,
             completion,
         } => {
             // **ここで待たない。** 送るだけで戻り、演奏 bank の render を続ける。
@@ -254,6 +279,7 @@ pub(super) fn apply_command(context: CommandContext<'_>, command: PlayerCommand)
                     generation,
                     instance_id,
                     patch,
+                    effect_chain,
                     completion,
                 },
             );
@@ -288,6 +314,41 @@ pub(super) fn apply_command(context: CommandContext<'_>, command: PlayerCommand)
             let _ = completion.send(result);
         }
     }
+}
+
+/// 新しい timeline を live へ据える。前の演奏をそのまま続けて描いたら `true`。
+///
+/// 同じ generation の live が走っていれば、**sample clock・instance・auto gain を保ったまま**
+/// timeline だけ差し替え、その 0 秒を今の clock に置く。前の演奏の note は呼び出し側が
+/// NoteOff 済みで、その release が新しい timeline の頭の前に描かれる。未消化の生 MIDI は捨てる。
+/// generation が変わっていれば（リングは既に捨てられている）live を作り直す。
+pub(super) fn begin_live_timeline(
+    playback_mode: &mut Option<PlaybackMode>,
+    generation: u64,
+    timeline: LiveTimelineState,
+    instance_count: usize,
+) -> bool {
+    if let Some(PlaybackMode::Live {
+        generation: live_generation,
+        clock_samples,
+        instances,
+        timeline: slot,
+    }) = playback_mode
+    {
+        if *live_generation == generation {
+            for instance in instances.iter_mut() {
+                instance.queue.clear();
+            }
+            *slot = Some(timeline.starting_at(*clock_samples));
+            return true;
+        }
+    }
+    let mut mode = new_live_mode(generation, instance_count);
+    if let PlaybackMode::Live { timeline: slot, .. } = &mut mode {
+        *slot = Some(timeline);
+    }
+    *playback_mode = Some(mode);
+    false
 }
 
 /// 走っている timeline の tempo map へテンポ変化点を積む。

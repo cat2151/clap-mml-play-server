@@ -1,6 +1,9 @@
 use super::*;
 use std::time::Duration;
 
+mod fade_out;
+mod patch_requests;
+
 fn test_port(offset: u16) -> u16 {
     30_000 + ((std::process::id() as u16).wrapping_add(offset) % 20_000)
 }
@@ -55,129 +58,6 @@ fn round_trip_preserves_multi_instance_events_and_controls() {
         server.recv_timeout(Duration::from_secs(1)).unwrap(),
         Some(FastMidiCommand::StopAll)
     );
-}
-
-#[test]
-fn prepare_patch_waits_for_success_response() {
-    let port = test_port(1);
-    let mut server = FastMidiServer::create(port).unwrap();
-    let server_thread = std::thread::spawn(move || {
-        let command = server
-            .recv_timeout(Duration::from_secs(1))
-            .unwrap()
-            .unwrap();
-        let FastMidiCommand::PreparePatch {
-            request_id,
-            instance_id,
-            patch,
-            probe,
-        } = command
-        else {
-            panic!("unexpected command");
-        };
-        assert_eq!(instance_id, 7);
-        assert_eq!(patch.as_deref(), Some("Keys/Piano.fxp"));
-        assert!(!probe);
-        server.complete_request(request_id, Ok(&[])).unwrap();
-    });
-    let mut client = FastMidiClient::connect(port).unwrap();
-
-    client.prepare_patch(7, Some("Keys/Piano.fxp")).unwrap();
-    server_thread.join().unwrap();
-}
-
-/// 先読みは `PreparePatch` と別のコマンドとして届くこと。
-///
-/// 「非演奏 bank への先読みだからレンダーを止めてよい」という判断は、
-/// サーバーがこの区別を受け取れて初めて成り立つ。同じ KIND に混ぜると、
-/// 現在 bank の行音色変更まで巻き込んで無音になる。
-#[test]
-fn standby_preload_arrives_as_its_own_command_kind() {
-    let port = test_port(11);
-    let mut server = FastMidiServer::create(port).unwrap();
-    let server_thread = std::thread::spawn(move || {
-        let command = server
-            .recv_timeout(Duration::from_secs(1))
-            .unwrap()
-            .unwrap();
-        let FastMidiCommand::PrepareStandbyPatch {
-            request_id,
-            instance_id,
-            patch,
-        } = command
-        else {
-            panic!("unexpected command: {command:?}");
-        };
-        assert_eq!(instance_id, 9);
-        assert_eq!(patch.as_deref(), Some("Keys/Piano.fxp"));
-        server.complete_request(request_id, Ok(&[])).unwrap();
-
-        // 続く1件は失敗応答。呼び出し側へそのまま伝わること。
-        let FastMidiCommand::PrepareStandbyPatch { request_id, .. } = server
-            .recv_timeout(Duration::from_secs(1))
-            .unwrap()
-            .unwrap()
-        else {
-            panic!("unexpected command");
-        };
-        server
-            .complete_request(request_id, Err("standby load failed"))
-            .unwrap();
-    });
-    let mut client = FastMidiClient::connect(port).unwrap();
-
-    client
-        .prepare_standby_patch(9, Some("Keys/Piano.fxp"))
-        .unwrap();
-    assert!(matches!(
-        client.prepare_standby_patch(9, None),
-        Err(FastIpcError::RequestFailed(message)) if message == "standby load failed"
-    ));
-    server_thread.join().unwrap();
-}
-
-/// 範囲外の instance は送信前に弾くこと（`prepare_patch` と同じ扱い）。
-#[test]
-fn standby_preload_rejects_out_of_range_instances_before_enqueue() {
-    let port = test_port(12);
-    let mut server = FastMidiServer::create(port).unwrap();
-    let mut client = FastMidiClient::connect(port).unwrap();
-
-    let out_of_range = u8::try_from(crate::MAX_INSTANCE_COUNT).unwrap();
-    assert!(matches!(
-        client.prepare_standby_patch(out_of_range, None),
-        Err(FastIpcError::InvalidInstance { .. })
-    ));
-    assert_eq!(server.recv_timeout(Duration::from_millis(1)).unwrap(), None);
-}
-
-#[test]
-fn probe_and_error_responses_are_returned_to_the_client() {
-    let port = test_port(2);
-    let mut server = FastMidiServer::create(port).unwrap();
-    let server_thread = std::thread::spawn(move || {
-        for result in [Ok(br#"{"decision":"poly"}"#.as_slice()), Err("load failed")] {
-            let FastMidiCommand::PreparePatch { request_id, .. } = server
-                .recv_timeout(Duration::from_secs(1))
-                .unwrap()
-                .unwrap()
-            else {
-                panic!("unexpected command");
-            };
-            server.complete_request(request_id, result).unwrap();
-        }
-    });
-    let mut client = FastMidiClient::connect(port).unwrap();
-
-    assert_eq!(
-        client.probe_patch(0, None).unwrap(),
-        br#"{"decision":"poly"}"#
-    );
-    assert!(matches!(
-        client.prepare_patch(0, None),
-        Err(FastIpcError::RequestFailed(message)) if message == "load failed"
-    ));
-    server_thread.join().unwrap();
 }
 
 #[test]

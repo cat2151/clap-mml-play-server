@@ -12,6 +12,8 @@
 //! そこで「止める」の最後の砦を renderer に置く。キューの取りこぼしから独立して、
 //! NoteOff は所有 bank 上の CLAP process へサンプルオフセット 0 で渡る。
 
+use std::borrow::Cow;
+
 use super::{LiveMidiEvent, RealtimeRenderer};
 use crate::logging::emit_diagnostic;
 
@@ -86,6 +88,13 @@ impl ActiveNotes {
             .collect()
     }
 
+    /// 台帳にある全 note の NoteOff を先頭に置き、その後ろへ `events` を続けた列。
+    fn note_offs_before(&self, events: &[LiveMidiEvent]) -> Vec<LiveMidiEvent> {
+        let mut combined = self.note_off_events();
+        combined.extend_from_slice(events);
+        combined
+    }
+
     pub(super) fn clear(&mut self) {
         self.depths.fill([0; KEY_COUNT]);
     }
@@ -101,6 +110,7 @@ impl RealtimeRenderer {
     /// NoteOff を見ない（voice は WAV の最後まで鳴る契約）ので、NoteOff だけの停止では
     /// voice が render の止まった位置で残り、次の演奏の頭で続きから鳴る。
     pub fn release_all_notes(&mut self) {
+        self.release_in_next_block = false;
         if self.processor.is_none() {
             return;
         }
@@ -118,6 +128,33 @@ impl RealtimeRenderer {
         if let Err(error) = self.render_live_chunk_with_offsets(&events) {
             emit_diagnostic(format!("release all notes failed: {error:#}"));
         }
+    }
+
+    /// process 済みの全 note へ、**次の live block の頭で** NoteOff を流す。
+    ///
+    /// [`Self::release_all_notes`] と違い、音声を捨てる block を挟まない。演奏を続けたまま
+    /// 前の note を離すとき（timeline の張り直し）に使う。捨てる block を挟むと、その
+    /// 1 block ぶん波形が飛んで段差になる。cache-player は NoteOff を見ないので従来どおり切る。
+    pub fn release_all_notes_in_next_block(&mut self) {
+        if self.processor.is_none() {
+            return;
+        }
+        if self.keeps_voices_across_patch_load() {
+            self.release_all_notes();
+            return;
+        }
+        self.release_in_next_block = true;
+    }
+
+    /// 予約された NoteOff を、この block のイベントの前へ足す。予約が無ければそのまま返す。
+    pub(super) fn take_pending_release<'a>(
+        &mut self,
+        events: &'a [LiveMidiEvent],
+    ) -> Cow<'a, [LiveMidiEvent]> {
+        if !std::mem::take(&mut self.release_in_next_block) {
+            return Cow::Borrowed(events);
+        }
+        Cow::Owned(self.active_notes.note_offs_before(events))
     }
 }
 
