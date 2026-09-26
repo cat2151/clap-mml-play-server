@@ -428,3 +428,5 @@ fn collect_srgfx_files(dir: &std::path::Path, out: &mut Vec<PathBuf>) {
         }
     }
 }
+
+mod dragonfly;

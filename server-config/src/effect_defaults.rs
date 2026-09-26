@@ -1,4 +1,4 @@
-//! audio effect plugin（TONE3000 / Surge XT Effects）の標準インストール先と factory preset 置き場。
+//! audio effect plugin（TONE3000 / Surge XT Effects / Dragonfly Reverb）の標準インストール先と factory preset 置き場。
 //!
 //! instrument と違い config.toml には項目を持たず、組み込みの既定値だけで探す。
 //! 実在しなければ effect catalog に載らない（[`crate::default_vaporizer2_plugin_path`] と
@@ -83,4 +83,27 @@ pub fn default_surge_fx_preset_root() -> Option<PathBuf> {
 #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
 pub fn default_surge_fx_preset_root() -> Option<PathBuf> {
     None
+}
+
+/// Dragonfly Reverb の plugin 1 つのパス。`file_stem` は `DragonflyHallReverb` など。
+/// preset は plugin 本体に組み込まれていて、置き場は無い。
+#[cfg(target_os = "windows")]
+pub fn default_dragonfly_plugin_path(file_stem: &str) -> PathBuf {
+    PathBuf::from(r"C:\Program Files\Common Files\CLAP\dragonfly-reverb")
+        .join(format!("{file_stem}.clap"))
+}
+
+#[cfg(target_os = "macos")]
+pub fn default_dragonfly_plugin_path(file_stem: &str) -> PathBuf {
+    PathBuf::from("/Library/Audio/Plug-Ins/CLAP").join(format!("{file_stem}.clap"))
+}
+
+#[cfg(target_os = "linux")]
+pub fn default_dragonfly_plugin_path(file_stem: &str) -> PathBuf {
+    PathBuf::from("/usr/lib/clap").join(format!("{file_stem}.clap"))
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+pub fn default_dragonfly_plugin_path(_file_stem: &str) -> PathBuf {
+    PathBuf::new()
 }

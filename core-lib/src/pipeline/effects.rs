@@ -112,7 +112,7 @@ impl<'a> RenderEffects<'a> {
                 EffectRenderer::new(&entry, &plugin.plugin_id, sample_rate, buf_size)
                     .with_context(|| format!("effect '{}' の生成", plugin.name))?;
             renderer
-                .load_preset_file(&stage.preset.path)
+                .load_preset(&stage.preset)
                 .with_context(|| format!("effect preset '{}' の適用", stage.preset.display))?;
             stages.push(renderer);
         }

@@ -22,8 +22,8 @@ mod sforzando_programs;
 mod vaporizer2_categories;
 
 pub use effect_defaults::{
-    default_surge_fx_plugin_path, default_surge_fx_preset_root, default_tone3000_plugin_path,
-    default_tone3000_preset_root,
+    default_dragonfly_plugin_path, default_surge_fx_plugin_path, default_surge_fx_preset_root,
+    default_tone3000_plugin_path, default_tone3000_preset_root,
 };
 pub use patch_catalog::{
     resolve_patch_catalog, resolve_patch_catalog_roots, PatchCatalogResolution,

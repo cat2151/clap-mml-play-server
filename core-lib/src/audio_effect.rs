@@ -22,6 +22,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
+use crate::dragonfly_preset::DRAGONFLY_PLUGINS;
 use crate::logging::emit_diagnostic;
 use crate::surge_fx_preset::SURGE_FX_PLUGIN_ID;
 use crate::tone3000_preset::TONE3000_PLUGIN_ID;
@@ -49,7 +50,7 @@ pub struct AudioEffectPluginInfo {
     pub plugin_id: String,
     /// MML 先頭 JSON の chain 要素で、この plugin を指すキー。
     pub json_key: String,
-    /// factory preset を再帰的に走査する root。
+    /// factory preset を再帰的に走査する root。preset を本体に組み込んだ plugin では本体のパス。
     pub preset_root: PathBuf,
 }
 
@@ -242,13 +243,25 @@ pub fn builtin_effect_plugins() -> Vec<AudioEffectPluginInfo> {
             root,
         ));
     }
+    for dragonfly in &DRAGONFLY_PLUGINS {
+        let path = cmrt_server_config::default_dragonfly_plugin_path(dragonfly.file_stem);
+        plugins.push(AudioEffectPluginInfo::new(
+            dragonfly.name,
+            path.to_string_lossy().into_owned(),
+            dragonfly.plugin_id,
+            path,
+        ));
+    }
     plugins
 }
 
-/// preset ファイルの置き場。
+/// preset の置き場。
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct PresetLocation {
+    /// preset ファイル。preset を本体に組み込んだ plugin では本体。
     pub path: PathBuf,
+    /// MML 先頭 JSON の値。組み込み preset はこれで引く。
+    pub value: String,
     /// エラー文と表示のための `<plugin 名>: <value>`。
     pub display: String,
 }
@@ -361,6 +374,7 @@ fn stage_from_element(
         plugin: preset.plugin.clone(),
         preset: PresetLocation {
             path: preset.path.clone(),
+            value: preset.value.clone(),
             display: preset.display.clone(),
         },
     }))

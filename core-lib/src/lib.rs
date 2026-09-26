@@ -2,6 +2,7 @@ pub mod audio_effect;
 mod audio_plugin;
 pub mod boot_log;
 pub mod cache_wav;
+pub mod dragonfly_preset;
 pub mod dx7;
 pub mod effect;
 pub mod effect_plugins;

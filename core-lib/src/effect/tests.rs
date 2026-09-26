@@ -7,6 +7,7 @@
 //! CMRT_TEST_SURGEFX_PRESETS=%ProgramData%\Surge XT\fx_presets
 //! CMRT_TEST_TONE3000_CLAP=C:\Program Files\Common Files\CLAP\TONE3000.clap
 //! CMRT_TEST_TONE3000_PRESETS=%ProgramData%\TONE3000\Presets\Factory
+//! CMRT_TEST_DRAGONFLY_DIR=C:\Program Files\Common Files\CLAP\dragonfly-reverb
 //! cargo test -p cmrt-core --release effect -- --ignored --test-threads=1
 //! ```
 //!
@@ -48,5 +49,6 @@ fn rms_dbfs_of_silence_is_negative_infinity() {
     assert!((rms_dbfs(&[1.0, -1.0, 1.0, -1.0]) - 0.0).abs() < 1e-5);
 }
 
+mod dragonfly;
 mod surge_fx;
 mod tone3000;

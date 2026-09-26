@@ -7,7 +7,7 @@
 
 ## 決定
 
-instrument の後段に直列で挿す CLAP audio effect（TONE3000 / Surge XT Effects）は、
+instrument の後段に直列で挿す CLAP audio effect（TONE3000 / Surge XT Effects / Dragonfly Reverb）は、
 **offline render の pipeline で cache WAV に焼き込む**。live instance も同じ chain を持てる（下の「live instance の chain」）。
 
 - chain を通す位置は **instrument の出力直後、preroll の trim と instance gain の前**
@@ -77,6 +77,10 @@ preset ファイルから plugin state を host が組んで `clap.state.load` �
 - TONE3000: preset も state も `T3KB` + JUCE `ValueTree`。生成直後の state を template に
   `ChainSnapshot` を差し替え、`PARAMETERS` を上書きし、`activePresetId/Name` を書く
   （`core-lib/src/tone3000_preset.rs`）。名前だけ書いても plugin は preset を読まない
+- Dragonfly Reverb（Hall / Room / Plate / Early Reflections）: preset はファイルでなく plugin 本体の数値表で、
+  GUI が param を 1 つずつ書いて適用する。表を `core-lib/src/dragonfly_preset/tables.rs` に写し、DPF state の
+  parameter 欄を上書きする。`preset` state だけ書いても decay しか変わらない。catalog の値は preset 名、
+  `path` は plugin 本体（引くのは `PresetLocation::value`）。Early Reflections は preset の代わりに `program` param の選択肢を並べる
 
 ## latency と block 境界
 
@@ -116,6 +120,7 @@ chain は各段の `clap.latency` を合計し、末尾に無音を足して回�
 | `effect::tests::surge_fx::surge_fx_chain_aligns_output_with_input`（ignored） | latency 補正か block 境界の扱いが崩れた |
 | `effect::tests::surge_fx::surge_fx_every_factory_snapshot_matches_self_report`（ignored） | 並びか正規化の範囲が plugin と食い違った |
 | `effect::tests::tone3000::tone3000_every_factory_preset_loads_by_name`（ignored） | template への書き込みが plugin に通らなくなった |
+| `effect::tests::dragonfly::dragonfly_every_builtin_preset_matches_the_plugin_self_report`（ignored） | 写した表か state の組み立てが、入っている Dragonfly の版と食い違った |
 | `pipeline::tests::effects::cache_render_with_a_reverb_chain_differs_from_dry_and_both_are_audible`（ignored） | pipeline の適用位置か transport が壊れた |
 | `bank::instance_chain::tests::the_bundled_chain_applies_to_its_instance` / `an_empty_chain_keeps_the_dry_path` | 準備に同梱した chain が live instance に掛からない、または chain 無しで出力が変わった |
 | `bank::instance_chain::tests::changing_only_the_chain_does_not_reload_the_patch` | chain だけの差し替えで instrument を読み直すようになった |

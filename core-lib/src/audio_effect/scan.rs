@@ -4,12 +4,14 @@
 //!   1 ファイル 1 件。読めないファイルと未対応の effect 種別は載せない
 //! - TONE3000: ファイル名が uuid で読めないので、preset 内の `name` を値にする。
 //!   同名が 2 件あっても両方載せ、引くときに曖昧エラーにする
+//! - Dragonfly Reverb: preset は本体に組み込み。表の preset 名を値にし、ファイルは走査しない
 
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
 use super::{AudioEffectPluginInfo, AudioEffectPreset};
+use crate::dragonfly_preset::{dragonfly_plugin, DragonflyPlugin};
 use crate::surge_fx_preset::{param_layout, parse_srgfx, SURGE_FX_PLUGIN_ID};
 use crate::tone3000_preset::{parse_t3k_preset, TONE3000_PLUGIN_ID};
 
@@ -59,6 +61,10 @@ pub(super) const SURGE_FOLDER_CLASSIFICATION: &[(&str, &str, &str)] = &[
     ("Airwindows/Clipping", "Dynamics", "Limiter / Clipper"),
 ];
 
+/// Dragonfly Reverb の preset の分類（4 plugin とも reverb）。
+pub(super) const DRAGONFLY_CATEGORY: &str = "Space / Imaging";
+pub(super) const DRAGONFLY_KIND: &str = "Reverb";
+
 /// TONE3000 preset の分類（種類は 1 つしか無い）。
 pub(super) const TONE3000_CATEGORY: &str = "Distortion / Saturation";
 pub(super) const TONE3000_KIND: &str = "Amp Simulator";
@@ -79,6 +85,10 @@ pub(super) fn scan_presets(
     presets: &mut Vec<AudioEffectPreset>,
     skipped: &mut Vec<String>,
 ) {
+    if let Some(dragonfly) = dragonfly_plugin(&plugin.plugin_id) {
+        push_builtin_presets(plugin, dragonfly, presets);
+        return;
+    }
     let (extension, describe): (&str, DescribePreset) = match plugin.plugin_id.as_str() {
         SURGE_FX_PLUGIN_ID => (SRGFX_EXTENSION, surge_fx_value),
         TONE3000_PLUGIN_ID => (T3K_PRESET_EXTENSION, tone3000_value),
@@ -113,6 +123,25 @@ pub(super) fn scan_presets(
             }),
             Err(error) => skipped.push(format!("{}: {relative}: {error:#}", plugin.name)),
         }
+    }
+}
+
+fn push_builtin_presets(
+    plugin: &AudioEffectPluginInfo,
+    dragonfly: &DragonflyPlugin,
+    presets: &mut Vec<AudioEffectPreset>,
+) {
+    for preset in dragonfly.presets {
+        presets.push(AudioEffectPreset {
+            plugin: plugin.key.clone(),
+            json_key: plugin.json_key.clone(),
+            value: preset.name.to_string(),
+            display: format!("{}: {}", plugin.name, preset.name),
+            name: preset.name.to_string(),
+            category: DRAGONFLY_CATEGORY.to_string(),
+            kind: DRAGONFLY_KIND.to_string(),
+            path: PathBuf::from(&plugin.plugin_path),
+        });
     }
 }
 

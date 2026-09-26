@@ -1,12 +1,13 @@
 //! factory preset を [`EffectRenderer`] へ載せる。plugin ごとに手順が違う。
 
-use std::path::Path;
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
 
 use super::renderer::EffectRenderer;
 use super::rms_dbfs;
+use crate::audio_effect::PresetLocation;
+use crate::dragonfly_preset::{dragonfly_plugin, dragonfly_state_blob};
 use crate::surge_fx_preset::{
     calibration_state_xml, juce_xml, param_layout, parse_srgfx, parse_state_xml,
     snapshot_state_xml, SurgeFxParamRanges, SurgeFxSnapshot, SurgeFxStateReport,
@@ -34,11 +35,19 @@ impl EffectRenderer {
         Ok(())
     }
 
-    /// factory preset ファイルを載せる。形式は載っている plugin で決まる。
+    /// factory preset を載せる。形式は載っている plugin で決まる。
     ///
     /// Surge XT Effects は `.srgfx` の先頭 snapshot、TONE3000 は `.t3kpreset`
-    /// （`activePresetId` はファイル名の uuid）。
-    pub fn load_preset_file(&mut self, path: &Path) -> Result<()> {
+    /// （`activePresetId` はファイル名の uuid）、Dragonfly Reverb は組み込みの表を `value` で引く。
+    pub fn load_preset(&mut self, location: &PresetLocation) -> Result<()> {
+        let path = location.path.as_path();
+        if let Some(dragonfly) = dragonfly_plugin(self.plugin_id()) {
+            let preset = dragonfly.preset(&location.value)?;
+            let blob = dragonfly_state_blob(self.init_state(), dragonfly, preset)?;
+            return self
+                .load_state(&blob)
+                .with_context(|| format!("{} preset '{}' の load", dragonfly.name, preset.name));
+        }
         match self.plugin_id() {
             SURGE_FX_PLUGIN_ID => {
                 let xml = std::fs::read_to_string(path)
