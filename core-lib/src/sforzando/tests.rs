@@ -76,7 +76,8 @@ fn builder_preserves_unrelated_nodes_and_escapes_program_attributes() {
     let init = codec::encode(template_xml().as_bytes()).unwrap();
     let special = "A & B <bright> \"quoted\" 'apostrophe'";
 
-    let state = sforzando_state_blob(&init, &program(special)).unwrap();
+    let state =
+        sforzando_state_blob(&init, &program(special), SfzStreaming::PluginDefault).unwrap();
     let xml = codec::decode(&state).unwrap();
     let root = Element::parse(std::io::Cursor::new(xml.as_bytes())).unwrap();
     let settings = root.get_child("Settings").unwrap();
@@ -119,16 +120,20 @@ fn builder_preserves_unrelated_nodes_and_escapes_program_attributes() {
 #[test]
 fn builder_rejects_invalid_xml_and_wrong_root() {
     let invalid = codec::encode(b"<AriaSave>").unwrap();
-    assert!(sforzando_state_blob(&invalid, &program("Piano"))
-        .unwrap_err()
-        .to_string()
-        .contains("XML"));
+    assert!(
+        sforzando_state_blob(&invalid, &program("Piano"), SfzStreaming::PluginDefault)
+            .unwrap_err()
+            .to_string()
+            .contains("XML")
+    );
 
     let wrong_root = codec::encode(b"<Other><Slot/></Other>").unwrap();
-    assert!(sforzando_state_blob(&wrong_root, &program("Piano"))
-        .unwrap_err()
-        .to_string()
-        .contains("AriaSave"));
+    assert!(
+        sforzando_state_blob(&wrong_root, &program("Piano"), SfzStreaming::PluginDefault)
+            .unwrap_err()
+            .to_string()
+            .contains("AriaSave")
+    );
 }
 
 #[test]
@@ -138,7 +143,12 @@ fn builder_inserts_minimal_slot_when_the_instance_template_has_none() {
     )
     .unwrap();
 
-    let state = sforzando_state_blob(&without_slot, &program("Piano")).unwrap();
+    let state = sforzando_state_blob(
+        &without_slot,
+        &program("Piano"),
+        SfzStreaming::PluginDefault,
+    )
+    .unwrap();
     let xml = codec::decode(&state).unwrap();
     let root = Element::parse(std::io::Cursor::new(xml.as_bytes())).unwrap();
     let slot = root.get_child("Slot").unwrap();
@@ -150,4 +160,42 @@ fn builder_inserts_minimal_slot_when_the_instance_template_has_none() {
     assert_eq!(slot.attributes["name"], "Piano");
     assert_eq!(slot.attributes["poly"], "32");
     assert!(slot.get_child("Main").is_some());
+}
+
+fn settings_after(init_xml: &[u8], streaming: SfzStreaming) -> anyhow::Result<Element> {
+    let init = codec::encode(init_xml).unwrap();
+    let state = sforzando_state_blob(&init, &program("Piano"), streaming)?;
+    let xml = codec::decode(&state).unwrap();
+    let root = Element::parse(std::io::Cursor::new(xml.as_bytes())).unwrap();
+    Ok(root.get_child("Settings").unwrap().clone())
+}
+
+const TEMPLATE_WITH_STREAMING: &[u8] =
+    b"<AriaSave><Settings quality=\"1\" streaming=\"32\" maxStreamAllocMB=\"2048\"/><Slot id=\"0\"/></AriaSave>";
+
+#[test]
+fn disabled_streaming_sets_zero_and_keeps_other_settings() {
+    let settings = settings_after(TEMPLATE_WITH_STREAMING, SfzStreaming::Disabled).unwrap();
+
+    assert_eq!(settings.attributes["streaming"], "0");
+    assert_eq!(settings.attributes["quality"], "1");
+    assert_eq!(settings.attributes["maxStreamAllocMB"], "2048");
+}
+
+#[test]
+fn plugin_default_streaming_keeps_the_template_value() {
+    let settings = settings_after(TEMPLATE_WITH_STREAMING, SfzStreaming::PluginDefault).unwrap();
+
+    assert_eq!(settings.attributes["streaming"], "32");
+}
+
+#[test]
+fn disabled_streaming_without_settings_is_an_error() {
+    let error = settings_after(
+        b"<AriaSave><Slot id=\"0\"/></AriaSave>",
+        SfzStreaming::Disabled,
+    )
+    .unwrap_err();
+
+    assert!(error.to_string().contains("streaming"), "{error}");
 }

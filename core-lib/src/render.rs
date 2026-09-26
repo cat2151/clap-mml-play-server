@@ -15,7 +15,7 @@ use cmrt_timeline::{BlockSpan, FreeRunningTimeline, SamplePosition, SampleRate};
 use crate::dx7::is_cartridge_patch_path;
 use crate::floe::is_floe_preset_path;
 use crate::host::MidiRenderHost;
-use crate::sforzando::is_sfz_patch_path;
+use crate::sforzando::{is_sfz_patch_path, SfzStreaming};
 use crate::vvp::is_vvp_patch_path;
 use crate::CoreConfig;
 
@@ -127,6 +127,20 @@ impl RealtimeRenderer {
         cfg: &CoreConfig,
         entry: &PluginEntry,
     ) -> Result<(Self, RendererInitTiming)> {
+        Self::build(cfg, entry, SfzStreaming::PluginDefault)
+    }
+
+    /// faster-than-realtime の offline render 用。`new()` との違いは、sforzando の `.sfz` を
+    /// サンプル全体を load 時に読む設定（[`SfzStreaming::Disabled`]）で読むことだけ。
+    fn new_for_offline(cfg: &CoreConfig, entry: &PluginEntry) -> Result<Self> {
+        Self::build(cfg, entry, SfzStreaming::Disabled).map(|(renderer, _)| renderer)
+    }
+
+    fn build(
+        cfg: &CoreConfig,
+        entry: &PluginEntry,
+        sfz_streaming: SfzStreaming,
+    ) -> Result<(Self, RendererInitTiming)> {
         let started = Instant::now();
         let mut timing = RendererInitTiming::default();
 
@@ -166,7 +180,13 @@ impl RealtimeRenderer {
                         descriptor.id
                     )
                 })?;
-                load_initial_sfz_state(&mut plugin_instance, template, patch, &descriptor.id)?;
+                load_initial_sfz_state(
+                    &mut plugin_instance,
+                    template,
+                    patch,
+                    &descriptor.id,
+                    sfz_streaming,
+                )?;
             } else if is_floe_preset_path(patch) {
                 ensure_floe_capable(&descriptor.id)?;
                 load_floe_state(&mut plugin_instance, patch)?;

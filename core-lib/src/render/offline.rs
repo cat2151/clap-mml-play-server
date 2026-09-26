@@ -27,7 +27,7 @@ fn create_renderer_one_at_a_time(
 ) -> Result<RealtimeRenderer> {
     // 他スレッドが生成中に panic して毒されていても、守るのは「同時に走らせない」ことだけ。
     let _guard = INSTANCE_CREATION.lock().unwrap_or_else(|e| e.into_inner());
-    RealtimeRenderer::new(cfg, entry)
+    RealtimeRenderer::new_for_offline(cfg, entry)
 }
 
 #[allow(dead_code)]

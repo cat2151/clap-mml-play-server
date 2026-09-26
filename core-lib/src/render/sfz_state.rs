@@ -9,7 +9,8 @@ use super::patch_state::load_plugin_state;
 use super::RealtimeRenderer;
 use crate::host::MidiRenderHost;
 use crate::sforzando::{
-    resolve_sforzando_program, sforzando_state_blob, SforzandoProgramRef, SFORZANDO_PLUGIN_ID,
+    resolve_sforzando_program, sforzando_state_blob, SforzandoProgramRef, SfzStreaming,
+    SFORZANDO_PLUGIN_ID,
 };
 
 impl RealtimeRenderer {
@@ -29,7 +30,13 @@ impl RealtimeRenderer {
                 program.sfz_path.display(), self.plugin_id, program.source
             )
         })?;
-        let state = state_for_program(init_state, patch_path, &self.plugin_id, &program)?;
+        let state = state_for_program(
+            init_state,
+            patch_path,
+            &self.plugin_id,
+            &program,
+            SfzStreaming::PluginDefault,
+        )?;
 
         let processor = self
             .processor
@@ -76,12 +83,13 @@ pub(super) fn load_initial_sfz_state(
     init_state: &[u8],
     patch_path: &str,
     plugin_id: &str,
+    streaming: SfzStreaming,
 ) -> Result<()> {
     ensure_sforzando_capable(plugin_id, patch_path)?;
     let program = resolve_sforzando_program(Path::new(patch_path)).with_context(|| {
         format!("SFZ program resolution に失敗 requested='{patch_path}' plugin_id='{plugin_id}'")
     })?;
-    let state = state_for_program(init_state, patch_path, plugin_id, &program)?;
+    let state = state_for_program(init_state, patch_path, plugin_id, &program, streaming)?;
     load_plugin_state(plugin_instance, &state).with_context(|| {
         program_context(
             "SFZ initial state.load に失敗",
@@ -97,8 +105,9 @@ fn state_for_program(
     requested: &str,
     plugin_id: &str,
     program: &SforzandoProgramRef,
+    streaming: SfzStreaming,
 ) -> Result<Vec<u8>> {
-    sforzando_state_blob(init_state, program).with_context(|| {
+    sforzando_state_blob(init_state, program, streaming).with_context(|| {
         program_context(
             "Sforzando init state template から state を構築できない",
             requested,

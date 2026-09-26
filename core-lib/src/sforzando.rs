@@ -26,11 +26,24 @@ pub fn is_sfz_patch_path(patch: &str) -> bool {
     })
 }
 
+/// ARIA engine がサンプルを disk から読む方式。`AriaSave/Settings@streaming` に対応する。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SfzStreaming {
+    /// init state の値のまま。load 時は各サンプルの頭だけを読み、残りは発音中に読む。
+    /// 1 倍速の realtime 演奏なら読み出しが間に合う。
+    PluginDefault,
+    /// `streaming="0"`。load 時に各サンプルを最後まで読む。faster-than-realtime の offline
+    /// render は、発音中の読み出しが追いつかないと voice が途中で止まるので、こちらを使う。
+    Disabled,
+}
+
 /// Instance creation immediately saved this template. Preserve every unrelated setting and
-/// replace only the first AriaSave/Slot program coordinate.
+/// replace only the first AriaSave/Slot program coordinate (and `Settings@streaming` when
+/// `streaming` is [`SfzStreaming::Disabled`]).
 pub(crate) fn sforzando_state_blob(
     init_state: &[u8],
     program: &SforzandoProgramRef,
+    streaming: SfzStreaming,
 ) -> anyhow::Result<Vec<u8>> {
     let xml = codec::decode(init_state).context("Sforzando CEGP init state を decode できない")?;
     let mut root =
@@ -51,6 +64,14 @@ pub(crate) fn sforzando_state_blob(
             .unwrap_or(root.children.len());
         root.children
             .insert(insert_at, XMLNode::Element(empty_program_slot()));
+    }
+    if streaming == SfzStreaming::Disabled {
+        let settings = root.get_mut_child("Settings").ok_or_else(|| {
+            anyhow::anyhow!("Sforzando init state に Settings が無く、streaming を無効にできない")
+        })?;
+        settings
+            .attributes
+            .insert("streaming".to_string(), "0".to_string());
     }
     let slot = find_program_slot(&mut root).expect("checked above");
     slot.attributes
