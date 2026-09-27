@@ -1,5 +1,8 @@
 use super::*;
-use cmrt_server_config::{DEXED_PLUGIN_ID, VAPORIZER2_PLUGIN_ID};
+use cmrt_server_config::{
+    CACHE_PLAYER_PLUGIN_ID, DEXED_PLUGIN_ID, FLOE_PLUGIN_ID, SFORZANDO_PLUGIN_ID,
+    VAPORIZER2_PLUGIN_ID,
+};
 
 fn plugin(name: &str, id: &str) -> AudioPluginInfo {
     AudioPluginInfo::new(name, format!("{name}.clap"), Some(id.to_string()), None)
@@ -81,6 +84,34 @@ fn a_lowercase_category_code_lands_in_the_same_category() {
     assert_eq!(lower.selector_category, upper.selector_category);
     assert_eq!(lower.sort.category, "Pad");
     assert_eq!(lower.sort.category, upper.sort.category);
+}
+
+#[test]
+fn only_dry_patch_forms_report_no_builtin_effects() {
+    let cases = [
+        (DEXED_PLUGIN_ID, PatchForm::Cartridge, false),
+        (SFORZANDO_PLUGIN_ID, PatchForm::Sfz, false),
+        (FLOE_PLUGIN_ID, PatchForm::FloePreset, false),
+        (VAPORIZER2_PLUGIN_ID, PatchForm::Vvp, true),
+        (SURGE_XT_PLUGIN_ID, PatchForm::StateFile, true),
+        (CACHE_PLAYER_PLUGIN_ID, PatchForm::CacheWav, true),
+    ];
+    for (id, form, expected) in cases {
+        let info = plugin("p", id);
+        assert_eq!(info.patch_form, form, "{id}");
+        assert_eq!(info.has_builtin_effects(), expected, "{id}");
+    }
+}
+
+#[test]
+fn an_unknown_plugin_is_assumed_to_have_builtin_effects() {
+    let info = AudioPluginInfo::new(
+        "Mystery",
+        "Mystery.clap",
+        Some("com.example.x".into()),
+        None,
+    );
+    assert!(info.has_builtin_effects());
 }
 
 #[test]

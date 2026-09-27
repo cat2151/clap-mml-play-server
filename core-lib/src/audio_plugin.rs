@@ -139,6 +139,18 @@ impl AudioPluginInfo {
         let sort = patch_sort_metadata(display);
         selector_category(self, display, &sort)
     }
+
+    /// 音色そのものが reverb などの effect を内蔵しているか。
+    ///
+    /// false の plugin（Dexed・sforzando・Floe）は音色が dry なので、client は試聴時に
+    /// effect を足してよい。未知の plugin は true 側へ倒す（勝手に effect を足させない）。
+    /// render 済み wav は音が完成しているので true。
+    pub fn has_builtin_effects(&self) -> bool {
+        match self.patch_form {
+            PatchForm::Cartridge | PatchForm::Sfz | PatchForm::FloePreset => false,
+            PatchForm::Vvp | PatchForm::StateFile | PatchForm::CacheWav => true,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
