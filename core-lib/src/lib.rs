@@ -66,7 +66,9 @@ pub use host::{
     builtin_plugin_path, load_builtin_entry, load_entry, PluginEntry, BUILTIN_PLUGIN_PATH_PREFIX,
 };
 pub use logging::{set_log_sink, LogSink};
-pub use patch_list::{collect_patches, to_relative};
+pub use patch_list::{
+    collect_patch_listing, collect_patches, to_relative, CollectedPatch, MergedPatches,
+};
 pub use pipeline::{
     embedded_patch_ref, encode_wav_i16, ensure_cmrt_dir, ensure_daw_dir, ensure_phrase_dir,
     mml_render, mml_render_for_cache, mml_render_for_cache_with_effects,

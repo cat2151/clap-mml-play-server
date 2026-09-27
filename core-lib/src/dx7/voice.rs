@@ -20,6 +20,8 @@ use super::cartridge::{checksum, Dx7Cartridge, PACKED_VOICE_LEN};
 pub const DX7_SINGLE_VOICE_DUMP_LEN: usize = 163;
 /// 展開後の voice データ長。
 const UNPACKED_VOICE_LEN: usize = 155;
+/// 展開後 voice の末尾にある program 名の長さ。
+const UNPACKED_NAME_LEN: usize = 10;
 const OPERATOR_COUNT: usize = 6;
 const PACKED_OPERATOR_LEN: usize = 17;
 const UNPACKED_OPERATOR_LEN: usize = 21;
@@ -50,6 +52,16 @@ pub fn single_voice_sysex(cartridge: &Dx7Cartridge, program_index: u8) -> Vec<u8
     sysex.push(SYSEX_END);
     debug_assert_eq!(sysex.len(), DX7_SINGLE_VOICE_DUMP_LEN);
     sysex
+}
+
+/// cartridge の 1 program の、名前を除いた voice パラメータ（展開後の先頭 145 bytes）。
+///
+/// 同じ音を鳴らす program を見分ける鍵。配布 cartridge には名前だけ違う同じ音色が多いので、
+/// 鳴る音に効かない名前は含めない。
+pub fn voice_params_without_name(cartridge: &Dx7Cartridge, program_index: u8) -> Vec<u8> {
+    let mut unpacked = unpack_voice(cartridge.packed_voice(program_index));
+    unpacked.truncate(UNPACKED_VOICE_LEN - UNPACKED_NAME_LEN);
+    unpacked
 }
 
 /// 128 bytes を 155 bytes へ展開する。

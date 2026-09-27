@@ -2,6 +2,7 @@ use super::*;
 use std::path::Path;
 
 mod installed;
+mod listing;
 
 #[test]
 fn to_relative_strips_base_prefix() {

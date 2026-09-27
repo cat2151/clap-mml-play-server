@@ -16,13 +16,13 @@ mod voice;
 /// 黙って無視され「操作は成功したのに音が変わらない」。`cmrt_server_config` の同名定数は profile の同定用。
 pub const DEXED_PLUGIN_ID: &str = "com.digital-suburban.dexed";
 
-#[cfg(test)]
-pub(crate) use cartridge::test_cartridge_bytes;
 pub use cartridge::{
     parse_dx7_cartridge, Dx7Cartridge, DX7_BULK_DUMP_LEN, DX7_PROGRAMS_PER_CARTRIDGE,
 };
+#[cfg(test)]
+pub(crate) use cartridge::{test_cartridge_bytes, test_cartridge_bytes_with_params};
 pub use patch_path::{
     cartridge_program_component, is_cartridge_patch_path, parse_cartridge_patch_path,
     CartridgePatchPath,
 };
-pub use voice::{single_voice_sysex, DX7_SINGLE_VOICE_DUMP_LEN};
+pub use voice::{single_voice_sysex, voice_params_without_name, DX7_SINGLE_VOICE_DUMP_LEN};

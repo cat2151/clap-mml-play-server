@@ -177,6 +177,17 @@ fn sanitize_program_name(raw: &[u8]) -> String {
 /// [`crate::patch_list`] のテストからも使う。
 #[cfg(test)]
 pub(crate) fn test_cartridge_bytes(names: &[(usize, &str)]) -> Vec<u8> {
+    let programs: Vec<(usize, &str, u8)> = names
+        .iter()
+        .map(|(index, name)| (*index, *name, 0))
+        .collect();
+    test_cartridge_bytes_with_params(&programs)
+}
+
+/// [`test_cartridge_bytes`] に加え、program ごとに voice パラメータの先頭 1 byte
+/// （OP6 の EG rate 1）を `param` にする。同じ音かどうかを作り分けるため。
+#[cfg(test)]
+pub(crate) fn test_cartridge_bytes_with_params(programs: &[(usize, &str, u8)]) -> Vec<u8> {
     let mut bytes = vec![0u8; DX7_BULK_DUMP_LEN];
     bytes[0] = SYSEX_START;
     bytes[1] = YAMAHA_MANUFACTURER_ID;
@@ -185,7 +196,8 @@ pub(crate) fn test_cartridge_bytes(names: &[(usize, &str)]) -> Vec<u8> {
     bytes[4] = BYTE_COUNT_MSB;
     bytes[5] = BYTE_COUNT_LSB;
     bytes[DX7_BULK_DUMP_LEN - 1] = SYSEX_END;
-    for (index, name) in names {
+    for (index, name, param) in programs {
+        bytes[HEADER_LEN + index * PACKED_VOICE_LEN] = *param;
         let start = HEADER_LEN + index * PACKED_VOICE_LEN + NAME_OFFSET_IN_VOICE;
         let raw = name.as_bytes();
         let len = raw.len().min(NAME_LEN);

@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     cache_wav::is_cache_wav_patch_path, is_cartridge_patch_path, is_floe_preset_path,
-    is_sfz_patch_path, is_vvp_patch_path, read_vvp_header, PatchVoicing,
+    is_sfz_patch_path, is_vvp_patch_path, patch_list::MergedPatches, read_vvp_header, PatchVoicing,
 };
 use cmrt_server_config::{patch_form_of, PatchForm, SURGE_XT_PLUGIN_ID};
 
@@ -89,6 +89,9 @@ pub struct AudioPatch {
     pub selector_category: Option<String>,
     pub sort: PatchSortMetadata,
     pub voicing: PatchVoicingHint,
+    /// 同じ音を鳴らす patch をこの 1 件へまとめたときの件数と名前。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub merged: Option<MergedPatches>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -286,6 +289,7 @@ fn describe_patch(
         selector_category: selector_category(plugin, display, &sort),
         sort,
         voicing,
+        merged: None,
     }
 }
 
