@@ -26,6 +26,21 @@ const OPERATOR_COUNT: usize = 6;
 const PACKED_OPERATOR_LEN: usize = 17;
 const UNPACKED_OPERATOR_LEN: usize = 21;
 
+/// 展開後 operator 1 個の各値の上限（DX7 の仕様値）。
+const OPERATOR_MAX: [u8; UNPACKED_OPERATOR_LEN] = [
+    99, 99, 99, 99, 99, 99, 99, 99, // EG rate 1-4 / level 1-4
+    99, 99, 99, // break point / left depth / right depth
+    3, 3, 7, 3, 7, // left curve / right curve / rate scaling / AMS / KVS
+    99, 1, 31, 99, 14, // output level / mode / coarse / fine / detune
+];
+/// 展開後 voice 共通部（名前を除く）の各値の上限（DX7 の仕様値）。
+const GLOBAL_MAX: [u8; 19] = [
+    99, 99, 99, 99, 99, 99, 99, 99, // pitch EG rate 1-4 / level 1-4
+    31, 7, 1, // algorithm / feedback / oscillator key sync
+    99, 99, 99, 99, // LFO speed / delay / pitch mod / amp mod
+    1, 5, 7, 48, // LFO key sync / waveform / pitch mod sens / transpose
+];
+
 const SYSEX_START: u8 = 0xF0;
 const SYSEX_END: u8 = 0xF7;
 const YAMAHA_MANUFACTURER_ID: u8 = 0x43;
@@ -65,6 +80,10 @@ pub fn voice_params_without_name(cartridge: &Dx7Cartridge, program_index: u8) ->
 }
 
 /// 128 bytes を 155 bytes へ展開する。
+///
+/// 各値は DX7 の仕様範囲へ頭打ちにする。配布 cartridge には範囲外の値
+/// （algorithm=99 など）を持つ program があり、Dexed はそれを受け取ると
+/// 発音時にプロセスごと落ちる。
 fn unpack_voice(packed: &[u8]) -> Vec<u8> {
     debug_assert_eq!(packed.len(), PACKED_VOICE_LEN);
     let mut out = Vec::with_capacity(UNPACKED_VOICE_LEN);
@@ -74,6 +93,14 @@ fn unpack_voice(packed: &[u8]) -> Vec<u8> {
     }
     unpack_global(&packed[OPERATOR_COUNT * PACKED_OPERATOR_LEN..], &mut out);
     debug_assert_eq!(out.len(), UNPACKED_VOICE_LEN);
+    let limits = OPERATOR_MAX
+        .iter()
+        .cycle()
+        .take(OPERATOR_COUNT * UNPACKED_OPERATOR_LEN)
+        .chain(GLOBAL_MAX.iter());
+    for (value, max) in out.iter_mut().zip(limits) {
+        *value = (*value).min(*max);
+    }
     out
 }
 
@@ -98,7 +125,7 @@ fn unpack_operator(packed: &[u8], out: &mut Vec<u8>) {
 /// voice 共通部: 26 bytes -> 29 bytes。
 fn unpack_global(packed: &[u8], out: &mut Vec<u8>) {
     out.extend_from_slice(&packed[0..8]); // pitch EG rate 1-4 / level 1-4
-    out.push(packed[8]); // algorithm
+    out.push(packed[8] & 0x1F); // algorithm
     out.push(packed[9] & 0x07); // feedback
     out.push((packed[9] >> 3) & 0x01); // oscillator key sync
     out.extend_from_slice(&packed[10..14]); // LFO speed / delay / pitch mod / amp mod
