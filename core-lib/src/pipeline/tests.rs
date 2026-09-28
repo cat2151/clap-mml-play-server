@@ -180,7 +180,7 @@ fn prepare_render_inputs_applies_configured_preroll() {
         sample_rate: 1_000.0,
         buffer_size: 512,
         patch_path: None,
-        patches_dir: None,
+        patch_base: crate::PatchBase::None,
         random_patch: false,
         ..Default::default()
     };
@@ -209,7 +209,7 @@ fn prepare_render_inputs_rejects_invalid_smf_bytes() {
         sample_rate: 48_000.0,
         buffer_size: 512,
         patch_path: None,
-        patches_dir: None,
+        patch_base: crate::PatchBase::None,
         random_patch: false,
         ..Default::default()
     };

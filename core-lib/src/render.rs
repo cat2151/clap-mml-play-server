@@ -15,7 +15,7 @@ use cmrt_timeline::{BlockSpan, FreeRunningTimeline, SamplePosition, SampleRate};
 use crate::dx7::is_cartridge_patch_path;
 use crate::floe::is_floe_preset_path;
 use crate::host::MidiRenderHost;
-use crate::sforzando::{is_sfz_patch_path, SfzStreaming};
+use crate::sforzando::{is_sforzando_patch_path, SfzStreaming};
 use crate::vvp::is_vvp_patch_path;
 use crate::CoreConfig;
 
@@ -173,7 +173,7 @@ impl RealtimeRenderer {
             // `.vvp` も state なので activate 前でよいが、**渡す前に XML を包む**必要がある。
             // `load_patch()` は `.fxp` の chunk 切り出ししか知らないので、そのまま渡すと
             // Vaporizer2 が読めない生 XML を state として押し込むことになる。
-            if is_sfz_patch_path(patch) {
+            if is_sforzando_patch_path(patch) {
                 let template = init_state.as_deref().ok_or_else(|| {
                     anyhow::anyhow!(
                         "Sforzando init state を保存できない requested='{patch}' plugin_id='{}'",

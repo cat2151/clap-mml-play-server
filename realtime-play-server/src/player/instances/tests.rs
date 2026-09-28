@@ -70,7 +70,7 @@ fn fake_kind(name: &str, patch_form: PatchForm, patches_dir: Option<&str>) -> Pl
         plugin_path: format!("{name}.clap"),
         patch_form,
         core_cfg: CoreConfig {
-            patches_dir: patches_dir.map(str::to_string),
+            patch_base: patches_dir.map(str::to_string).into(),
             ..test_core_cfg()
         },
     }
@@ -98,7 +98,7 @@ fn real_kinds() -> Vec<PluginKind> {
             patch_form: PatchForm::Cartridge,
             core_cfg: CoreConfig {
                 plugin_id: Some(DEXED_PLUGIN_ID.to_string()),
-                patches_dir: Some(env_path(DEXED_CARTRIDGES_ENV)),
+                patch_base: Some(env_path(DEXED_CARTRIDGES_ENV)).into(),
                 ..test_core_cfg()
             },
         },
@@ -128,7 +128,7 @@ fn real_kinds_with_vaporizer2() -> Vec<PluginKind> {
         patch_form: PatchForm::Vvp,
         core_cfg: CoreConfig {
             plugin_id: Some(VAPORIZER2_PLUGIN_ID.to_string()),
-            patches_dir: Some(vaporizer2_presets_dir()),
+            patch_base: Some(vaporizer2_presets_dir()).into(),
             ..test_core_cfg()
         },
     });

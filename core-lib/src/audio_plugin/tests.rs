@@ -179,3 +179,30 @@ fn an_unreadable_vvp_is_reported_as_unknown_not_poly() {
     let poly = describe_vvp_file("poly.vvp", &vvp_xml("Poly16"));
     assert_eq!(known_voicing(&poly), PatchVoicing::Poly);
 }
+
+#[test]
+fn describe_patch_finds_the_file_under_a_per_root_base() {
+    let root = std::env::temp_dir().join(format!("cmrt_test_per_root_vvp_{}", std::process::id()));
+    let dir = root.join("Presets");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("mono.vvp"), vvp_xml("Mono")).unwrap();
+    let info = AudioPluginInfo::new(
+        "Vaporizer2",
+        "Vaporizer2.clap",
+        Some(VAPORIZER2_PLUGIN_ID.to_string()),
+        PatchBase::per_root(&[dir.to_string_lossy().into_owned()]),
+    );
+    let patch = info.describe_patch("Presets/mono.vvp", None);
+    let _ = std::fs::remove_dir_all(&root);
+    assert_eq!(known_voicing(&patch), PatchVoicing::Mono);
+}
+
+#[test]
+fn ariax_presets_are_read_by_sforzando_like_sfz() {
+    assert_eq!(patch_form_of_path("Keys/Airy Bells.ariax"), PatchForm::Sfz);
+    assert_eq!(patch_form_of_path("Keys\\Airy Bells.ARIAX"), PatchForm::Sfz);
+    assert_eq!(
+        patch_form_of_path("Garritan/Glockenspiel.sfz"),
+        PatchForm::Sfz
+    );
+}

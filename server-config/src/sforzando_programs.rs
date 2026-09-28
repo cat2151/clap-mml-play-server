@@ -2,15 +2,23 @@
 //!
 //! ARIA bank IDs, manifests, and the Windows registry stay here. Generic catalog callers reach
 //! this implementation only through [`crate::resolve_patch_catalog`].
+//!
+//! Scan roots come only from ARIA's registry (user bank + installed banks); a configured
+//! `patches_dirs` is ignored. Sforzando's state names a program by bank coordinates, so a
+//! directory ARIA has not registered could be listed but not played.
 
+mod ariax;
 mod excluded;
+mod installed_bank;
 mod manifest;
 mod user_bank;
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use crate::patch_catalog::{resolve_plain_directories, PatchCatalogResolution};
+use crate::patch_catalog::PatchCatalogResolution;
+
+pub use ariax::{resolve_sforzando_preset, SforzandoPresetRef};
 
 /// A program that ARIA can resolve from a canonical SFZ path.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -80,20 +88,60 @@ pub fn resolve_sforzando_program(path: &Path) -> anyhow::Result<SforzandoProgram
     )
 }
 
-pub(super) fn resolve_catalog(
-    configured: Option<&[String]>,
-    include_registry_user_bank: bool,
-) -> PatchCatalogResolution {
+/// What ARIA has registered. Empty when the plugin itself is absent.
+pub(super) struct RegistrySources {
+    user: user_bank::UserBankLookup,
+    installed: installed_bank::InstalledBankLookup,
+}
+
+impl RegistrySources {
+    pub(super) fn read(plugin_installed: bool) -> Self {
+        if !plugin_installed {
+            return Self {
+                user: user_bank::UserBankLookup {
+                    source: None,
+                    error: None,
+                },
+                installed: installed_bank::InstalledBankLookup {
+                    products: Vec::new(),
+                    error: None,
+                },
+            };
+        }
+        Self {
+            user: user_bank::read_user_bank_source(),
+            installed: installed_bank::read_installed_banks(),
+        }
+    }
+
+    #[cfg(test)]
+    fn fixture(
+        user: Option<user_bank::UserBankSource>,
+        products: Vec<installed_bank::AriaProduct>,
+    ) -> Self {
+        Self {
+            user: user_bank::UserBankLookup {
+                source: user,
+                error: None,
+            },
+            installed: installed_bank::InstalledBankLookup {
+                products,
+                error: None,
+            },
+        }
+    }
+}
+
+pub(super) fn resolve_catalog(sources: RegistrySources) -> PatchCatalogResolution {
     let CatalogRoots {
-        plain,
         roots,
         mut notices,
         user_lookup,
-    } = catalog_roots(configured, include_registry_user_bank);
+    } = catalog_roots(sources);
     let mut programs = BTreeMap::<String, SforzandoProgramRef>::new();
     let mut conflicts = HashSet::new();
     if let Some(source) = user_lookup.source.as_ref() {
-        for path in collect_sfz_files(&source.root, &mut notices) {
+        for path in collect_patch_files(&source.root, &mut notices).sfz {
             if let Some(program) = source.program_for(&path) {
                 insert_program(&mut programs, &mut conflicts, program, &mut notices);
             }
@@ -129,9 +177,14 @@ pub(super) fn resolve_catalog(
     }
 
     let mut all_files = BTreeMap::new();
+    let mut ariax_files = BTreeMap::new();
     for root in &roots {
-        for path in collect_sfz_files(root, &mut notices) {
+        let files = collect_patch_files(root, &mut notices);
+        for path in files.sfz {
             all_files.entry(canonical_key(&path)).or_insert(path);
+        }
+        for path in files.ariax {
+            ariax_files.entry(canonical_key(&path)).or_insert(path);
         }
     }
     let excluded = all_files
@@ -154,39 +207,31 @@ pub(super) fn resolve_catalog(
     let mut resolved_patches = programs
         .values()
         .map(|program| program.sfz_path.clone())
+        .chain(ariax::listable_presets(ariax_files.into_values().collect()))
         .collect::<Vec<_>>();
     resolved_patches.sort_by_key(|path| canonical_key(path));
-    let source_error = resolved_patches
-        .is_empty()
-        .then(|| "ARIA program source からロード可能な SFZ を 1 件も解決できない".to_string());
+    let source_error = resolved_patches.is_empty().then(|| {
+        "ARIA program source からロード可能な SFZ / .ariax を 1 件も解決できない".to_string()
+    });
 
     PatchCatalogResolution {
         dirs: root_strings(roots),
         resolved_patches: Some(resolved_patches),
-        configured_missing: plain.configured_missing,
         source_error,
         notices,
+        ..PatchCatalogResolution::default()
     }
 }
 
 /// Realtime startup fallback: resolve roots and diagnostics without walking SFZ files.
-pub(super) fn resolve_roots(
-    configured: Option<&[String]>,
-    include_registry_user_bank: bool,
-) -> PatchCatalogResolution {
-    let CatalogRoots {
-        plain,
-        roots,
-        notices,
-        ..
-    } = catalog_roots(configured, include_registry_user_bank);
+pub(super) fn resolve_roots(sources: RegistrySources) -> PatchCatalogResolution {
+    let CatalogRoots { roots, notices, .. } = catalog_roots(sources);
     let dirs = root_strings(roots);
     let source_error = dirs
         .is_empty()
         .then(|| "ARIA program sourceのrootを1件も解決できない".to_string());
     PatchCatalogResolution {
         dirs,
-        configured_missing: plain.configured_missing,
         source_error,
         notices,
         ..PatchCatalogResolution::default()
@@ -194,37 +239,29 @@ pub(super) fn resolve_roots(
 }
 
 struct CatalogRoots {
-    plain: PatchCatalogResolution,
     roots: Vec<PathBuf>,
     notices: Vec<String>,
     user_lookup: user_bank::UserBankLookup,
 }
 
-fn catalog_roots(configured: Option<&[String]>, include_registry_user_bank: bool) -> CatalogRoots {
-    let plain = resolve_plain_directories(configured);
-    let mut roots = plain.dirs.iter().map(PathBuf::from).collect::<Vec<_>>();
-    let mut notices = Vec::new();
-    let user_lookup = if include_registry_user_bank {
-        user_bank::read_user_bank_source()
-    } else {
-        user_bank::UserBankLookup {
-            source: None,
-            error: None,
-        }
-    };
+fn catalog_roots(sources: RegistrySources) -> CatalogRoots {
+    let RegistrySources {
+        user: user_lookup,
+        installed,
+    } = sources;
+    let (mut roots, mut notices) = installed_bank::installed_bank_roots(&installed.products);
+    if let Some(error) = installed.error.as_ref() {
+        notices.push(format!("ARIA installed bank: {error}"));
+    }
     if let Some(error) = user_lookup.error.as_ref() {
         notices.push(format!("ARIA user bank: {error}"));
     }
     if let Some(source) = user_lookup.source.as_ref() {
-        if !roots
-            .iter()
-            .any(|root| canonical_key(root) == canonical_key(&source.root))
-        {
-            roots.push(source.root.clone());
-        }
+        roots.push(source.root.clone());
     }
+    roots.sort_by_key(|root| canonical_key(root));
+    roots.dedup_by(|left, right| canonical_key(left) == canonical_key(right));
     CatalogRoots {
-        plain,
         roots,
         notices,
         user_lookup,
@@ -271,8 +308,15 @@ fn insert_program(
     programs.insert(key, program);
 }
 
-fn collect_sfz_files(root: &Path, notices: &mut Vec<String>) -> Vec<PathBuf> {
-    fn visit(dir: &Path, files: &mut Vec<PathBuf>, notices: &mut Vec<String>) {
+/// Canonical `.sfz` and `.ariax` files under one root.
+#[derive(Default)]
+struct PatchFiles {
+    sfz: Vec<PathBuf>,
+    ariax: Vec<PathBuf>,
+}
+
+fn collect_patch_files(root: &Path, notices: &mut Vec<String>) -> PatchFiles {
+    fn visit(dir: &Path, files: &mut PatchFiles, notices: &mut Vec<String>) {
         let entries = match std::fs::read_dir(dir) {
             Ok(entries) => entries,
             Err(error) => {
@@ -287,14 +331,21 @@ fn collect_sfz_files(root: &Path, notices: &mut Vec<String>) -> Vec<PathBuf> {
             let path = entry.path();
             if path.is_dir() {
                 visit(&path, files, notices);
-            } else if is_sfz(&path) {
-                if let Ok(canonical) = std::fs::canonicalize(&path) {
-                    files.push(canonical);
-                }
+                continue;
+            }
+            let list = if is_sfz(&path) {
+                &mut files.sfz
+            } else if ariax::is_ariax(&path) {
+                &mut files.ariax
+            } else {
+                continue;
+            };
+            if let Ok(canonical) = std::fs::canonicalize(&path) {
+                list.push(canonical);
             }
         }
     }
-    let mut files = Vec::new();
+    let mut files = PatchFiles::default();
     visit(root, &mut files, notices);
     files
 }

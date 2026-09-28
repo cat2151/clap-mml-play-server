@@ -18,7 +18,7 @@ use crate::cache_wav::{cache_wav_state, is_cache_wav_patch_path};
 use crate::dx7::{is_cartridge_patch_path, parse_cartridge_patch_path, CartridgePatchPath};
 use crate::floe::is_floe_preset_path;
 use crate::host::MidiRenderHost;
-use crate::sforzando::is_sfz_patch_path;
+use crate::sforzando::is_sforzando_patch_path;
 use crate::vvp::is_vvp_patch_path;
 use cmrt_cache_player::CACHE_PLAYER_PLUGIN_ID;
 
@@ -91,7 +91,7 @@ impl RealtimeRenderer {
         };
         if is_cartridge_patch_path(path) {
             Ok(PatchTarget::Cartridge(parse_cartridge_patch_path(path)?))
-        } else if is_sfz_patch_path(path) {
+        } else if is_sforzando_patch_path(path) {
             Ok(PatchTarget::Sfz(path.to_string()))
         } else if is_floe_preset_path(path) {
             Ok(PatchTarget::FloePreset(path.to_string()))

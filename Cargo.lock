@@ -363,8 +363,6 @@ name = "cmrt-server-config"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "clack-extensions",
- "clack-host",
  "dirs",
  "serde",
  "toml",

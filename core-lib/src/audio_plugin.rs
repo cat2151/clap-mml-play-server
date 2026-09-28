@@ -5,15 +5,16 @@
 //! plugin IDs, file names, or preset extensions.
 
 use std::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 use crate::{
     cache_wav::is_cache_wav_patch_path, is_cartridge_patch_path, is_floe_preset_path,
-    is_sfz_patch_path, is_vvp_patch_path, patch_list::MergedPatches, read_vvp_header, PatchVoicing,
+    is_sforzando_patch_path, is_vvp_patch_path, patch_list::MergedPatches, read_vvp_header,
+    PatchVoicing,
 };
-use cmrt_server_config::{patch_form_of, PatchForm, SURGE_XT_PLUGIN_ID};
+use cmrt_server_config::{patch_form_of, PatchBase, PatchForm, SURGE_XT_PLUGIN_ID};
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -100,7 +101,7 @@ pub struct AudioPluginInfo {
     pub name: String,
     pub plugin_path: String,
     pub plugin_id: Option<String>,
-    pub patch_root: Option<String>,
+    pub patch_base: PatchBase,
     patch_form: PatchForm,
 }
 
@@ -109,7 +110,7 @@ impl AudioPluginInfo {
         name: impl Into<String>,
         plugin_path: impl Into<String>,
         plugin_id: Option<String>,
-        patch_root: Option<String>,
+        patch_base: impl Into<PatchBase>,
     ) -> Self {
         let plugin_path = plugin_path.into();
         Self {
@@ -118,7 +119,7 @@ impl AudioPluginInfo {
             patch_form: patch_form_of(plugin_id.as_deref(), &plugin_path),
             plugin_path,
             plugin_id,
-            patch_root,
+            patch_base: patch_base.into(),
         }
     }
 
@@ -127,10 +128,8 @@ impl AudioPluginInfo {
     }
 
     pub fn describe_patch(&self, display: &str, absolute_path: Option<&Path>) -> AudioPatch {
-        let inferred_path = self
-            .patch_root
-            .as_deref()
-            .map(|root| Path::new(root).join(display));
+        let inferred_path = (self.patch_base != PatchBase::None)
+            .then(|| PathBuf::from(self.patch_base.resolve(display)));
         describe_patch(self, display, absolute_path.or(inferred_path.as_deref()))
     }
 
@@ -329,7 +328,7 @@ fn selector_category(
 pub(crate) fn patch_form_of_path(patch: &str) -> PatchForm {
     if is_cartridge_patch_path(patch) {
         PatchForm::Cartridge
-    } else if is_sfz_patch_path(patch) {
+    } else if is_sforzando_patch_path(patch) {
         PatchForm::Sfz
     } else if is_floe_preset_path(patch) {
         PatchForm::FloePreset

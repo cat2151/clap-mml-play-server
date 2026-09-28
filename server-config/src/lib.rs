@@ -10,13 +10,13 @@
 //! ここが持つ。
 
 mod effect_defaults;
+mod patch_base;
 mod patch_catalog;
 mod patch_dirs;
 mod paths;
 mod plugin_defaults;
 mod plugin_identity;
 mod plugin_profile;
-mod preset_discovery;
 mod primary_plugin;
 mod sforzando_programs;
 mod vaporizer2_categories;
@@ -25,6 +25,7 @@ pub use effect_defaults::{
     default_dragonfly_plugin_path, default_surge_fx_plugin_path, default_surge_fx_preset_root,
     default_tone3000_plugin_path, default_tone3000_preset_root,
 };
+pub use patch_base::PatchBase;
 pub use patch_catalog::{
     resolve_patch_catalog, resolve_patch_catalog_roots, PatchCatalogResolution,
 };
@@ -43,12 +44,13 @@ pub use plugin_profile::{
     builtin_plugin_profiles, installed_plugin_profiles, merged_plugin_profiles, patch_form_of,
     PatchForm, PluginProfile,
 };
-pub use preset_discovery::{resolve_sforzando_patch_dirs, PatchDirResolution};
 pub use primary_plugin::{
     reject_retired_top_level_plugin_keys, resolve_primary_plugin_profile,
     PRIMARY_PLUGIN_PROFILE_NAME,
 };
-pub use sforzando_programs::{resolve_sforzando_program, SforzandoProgramRef};
+pub use sforzando_programs::{
+    resolve_sforzando_preset, resolve_sforzando_program, SforzandoPresetRef, SforzandoProgramRef,
+};
 pub use vaporizer2_categories::VAPORIZER2_CATEGORY_CODES;
 
 use std::collections::BTreeMap;
@@ -174,7 +176,7 @@ impl ServerConfig {
         Ok(())
     }
 
-    /// `CoreConfig.patches_dir` へ渡す 1 本のディレクトリ。
+    /// `CoreConfig.patch_base` の基点にする 1 本のディレクトリ。
     pub fn patch_root_dir(&self) -> Option<String> {
         patch_root_dir(self.patches_dirs.as_deref())
     }

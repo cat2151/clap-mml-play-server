@@ -1,4 +1,5 @@
 use super::*;
+use crate::sforzando::{is_ariax_patch_path, is_sfz_patch_path};
 
 /// パッチ文字列だけで行き先が決まること。`RealtimeRenderer` を作らずに確かめられる部分。
 #[test]
@@ -49,6 +50,18 @@ fn sfz_paths_are_told_apart_from_all_other_forms() {
     assert!(!is_sfz_patch_path("Dexed.syx/00 Init"));
     assert!(!is_sfz_patch_path("PD Emily.vvp"));
     assert!(!is_sfz_patch_path("Harp/Realistic.floe-preset"));
+    assert!(!is_sfz_patch_path("Keys/Airy Bells.ariax"));
+}
+
+#[test]
+fn ariax_paths_are_told_apart_from_all_other_forms() {
+    assert!(is_ariax_patch_path("Keys/Airy Bells.ariax"));
+    assert!(is_ariax_patch_path("Keys/Airy Bells.ARIAX"));
+    assert!(is_sforzando_patch_path("Keys/Airy Bells.ariax"));
+    assert!(!is_ariax_patch_path("Garritan/Glockenspiel.sfz"));
+    assert!(!is_cartridge_patch_path("Keys/Airy Bells.ariax"));
+    assert!(!is_floe_preset_path("Keys/Airy Bells.ariax"));
+    assert!(!is_vvp_patch_path("Keys/Airy Bells.ariax"));
 }
 
 /// 「鳴っている音を切らない」のは cache-player だけであること。

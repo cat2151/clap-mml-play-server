@@ -1,6 +1,6 @@
 //! 設定から「どのディレクトリに音色があるか」を導く。
 //!
-//! `patches_dirs` は複数書けるが、`CoreConfig.patches_dir` は 1 本しか持てない。
+//! `patches_dirs` は複数書けるが、基点（`PatchBase::Shared`）は 1 本しか持てない。
 //! 共通の親ディレクトリへ畳んで渡す。
 
 use std::path::{Path, PathBuf};
@@ -15,7 +15,7 @@ pub fn configured_patch_dirs(patches_dirs: Option<&[String]>) -> Vec<String> {
         .collect()
 }
 
-/// `CoreConfig.patches_dir` へ渡す 1 本のディレクトリ。
+/// `CoreConfig.patch_base` の基点にする 1 本のディレクトリ。
 pub fn patch_root_dir(patches_dirs: Option<&[String]>) -> Option<String> {
     shared_patch_root_dir(&configured_patch_dirs(patches_dirs))
 }

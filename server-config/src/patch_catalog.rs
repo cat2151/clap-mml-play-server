@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
-use crate::{configured_patch_dirs, patch_form_of, sforzando_programs, PatchForm};
+use crate::{configured_patch_dirs, patch_form_of, sforzando_programs, PatchBase, PatchForm};
 
 /// Plugin-neutral result consumed by catalog clients.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -21,6 +21,10 @@ pub struct PatchCatalogResolution {
     pub source_error: Option<String>,
     /// Partial failures and excluded-file counts. Usable programs remain available.
     pub notices: Vec<String>,
+    /// Converts between display strings and absolute paths for `dirs`.
+    /// Sforzando keeps one base per root because its roots are placed independently;
+    /// other plugins share the common parent of `dirs`.
+    pub base: PatchBase,
 }
 
 /// Resolve the catalog source for any plugin profile.
@@ -33,7 +37,7 @@ pub fn resolve_patch_catalog(
     configured: Option<&[String]>,
 ) -> PatchCatalogResolution {
     if patch_form_of(plugin_id, plugin_path) == PatchForm::Sfz {
-        return cached_sforzando_catalog(plugin_id, plugin_path, configured);
+        return with_per_root_base(cached_sforzando_catalog(plugin_path));
     }
     resolve_plain_directories(configured)
 }
@@ -49,23 +53,22 @@ pub fn resolve_patch_catalog_roots(
     configured: Option<&[String]>,
 ) -> PatchCatalogResolution {
     if patch_form_of(plugin_id, plugin_path) == PatchForm::Sfz {
-        return sforzando_programs::resolve_roots(configured, Path::new(plugin_path).exists());
+        return with_per_root_base(sforzando_programs::resolve_roots(
+            sforzando_programs::RegistrySources::read(Path::new(plugin_path).exists()),
+        ));
     }
     resolve_plain_directories(configured)
 }
 
-fn cached_sforzando_catalog(
-    plugin_id: Option<&str>,
-    plugin_path: &str,
-    configured: Option<&[String]>,
-) -> PatchCatalogResolution {
+fn with_per_root_base(mut resolution: PatchCatalogResolution) -> PatchCatalogResolution {
+    resolution.base = PatchBase::per_root(&resolution.dirs);
+    resolution
+}
+
+/// Sforzando ignores `configured`: its roots come only from ARIA's registry.
+fn cached_sforzando_catalog(plugin_path: &str) -> PatchCatalogResolution {
     static CACHE: OnceLock<Mutex<HashMap<String, PatchCatalogResolution>>> = OnceLock::new();
-    let key = format!(
-        "{}\u{1f}{}\u{1f}{}",
-        plugin_id.unwrap_or_default(),
-        plugin_path,
-        configured.unwrap_or_default().join("\u{1e}")
-    );
+    let key = plugin_path.to_string();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let mut cache = cache
         .lock()
@@ -73,8 +76,9 @@ fn cached_sforzando_catalog(
     if let Some(resolution) = cache.get(&key).cloned() {
         return resolution;
     }
-    let resolution =
-        sforzando_programs::resolve_catalog(configured, Path::new(plugin_path).exists());
+    let resolution = sforzando_programs::resolve_catalog(
+        sforzando_programs::RegistrySources::read(Path::new(plugin_path).exists()),
+    );
     cache.insert(key, resolution.clone());
     resolution
 }
@@ -105,6 +109,7 @@ pub(super) fn resolve_plain_directories(configured: Option<&[String]>) -> PatchC
     configured_missing.sort();
     configured_missing.dedup();
     PatchCatalogResolution {
+        base: PatchBase::shared(&dirs),
         dirs,
         configured_missing,
         ..PatchCatalogResolution::default()

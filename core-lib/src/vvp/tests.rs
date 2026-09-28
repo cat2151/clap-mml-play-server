@@ -159,3 +159,10 @@ fn a_directory_named_like_a_patch_does_not_make_every_path_a_vvp() {
     assert!(!is_vvp_patch_path("vvp/Pad 1.fxp"));
     assert!(!is_vvp_patch_path("Vaporizer2 Presets/Pad 1.fxp"));
 }
+
+#[test]
+fn multibyte_component_is_not_a_vvp_patch() {
+    assert!(!is_vvp_patch_path("sfz/あいうえ/ねこ.sfz"));
+    assert!(!is_vvp_patch_path("ねこね"));
+    assert!(is_vvp_patch_path("ねこ.vvp"));
+}

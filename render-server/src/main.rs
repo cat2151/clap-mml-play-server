@@ -280,7 +280,7 @@ fn core_config_from_server_config(cfg: &ServerConfig) -> CoreConfig {
         sample_rate: cfg.sample_rate,
         buffer_size: cfg.buffer_size,
         patch_path: None,
-        patches_dir: cfg.patch_root_dir(),
+        patch_base: cfg.patch_root_dir().into(),
         random_patch: false,
     }
 }

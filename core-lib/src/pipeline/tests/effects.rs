@@ -41,7 +41,7 @@ fn test_config() -> CoreConfig {
         sample_rate: 48_000.0,
         buffer_size: 512,
         patch_path: None,
-        patches_dir: None,
+        patch_base: crate::PatchBase::None,
         random_patch: false,
         ..Default::default()
     }

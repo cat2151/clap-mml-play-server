@@ -107,3 +107,9 @@ fn component_round_trips_through_the_parser() {
         assert_eq!(usize::from(parsed.program_index), index);
     }
 }
+
+#[test]
+fn multibyte_component_is_not_a_cartridge_patch() {
+    assert!(!is_cartridge_patch_path("sfz/あいうえ/ねこ.sfz"));
+    assert!(!is_cartridge_patch_path("ねこね"));
+}

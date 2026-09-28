@@ -46,6 +46,17 @@ fn manifest(bank_id: &str, version: &str, programs: &[(&str, &str)]) -> String {
     )
 }
 
+fn installed(product: &str, bank_paths: &[PathBuf]) -> installed_bank::AriaProduct {
+    installed_bank::AriaProduct {
+        product: product.to_string(),
+        bank_paths: bank_paths.to_vec(),
+    }
+}
+
+fn installed_only(products: Vec<installed_bank::AriaProduct>) -> PatchCatalogResolution {
+    resolve_catalog(RegistrySources::fixture(None, products))
+}
+
 #[test]
 fn user_bank_uses_canonical_containment_and_relative_program_name() {
     let root = TempRoot::new("user_bank");
@@ -71,8 +82,9 @@ fn manifest_catalog_lists_only_declared_existing_sfz() {
     let helper = programs.join("Garritan").join("Xylophone.sfz");
     write(&good, b"<region>");
     write(&helper, b"<region>");
+    let bank_path = root.0.join("Free Sounds.bank.xml");
     write(
-        &root.0.join("Free Sounds.bank.xml"),
+        &bank_path,
         manifest(
             "3102",
             "1001",
@@ -83,13 +95,81 @@ fn manifest_catalog_lists_only_declared_existing_sfz() {
         )
         .as_bytes(),
     );
-    let configured = vec![programs.to_string_lossy().into_owned()];
 
-    let resolution = resolve_catalog(Some(&configured), false);
+    let resolution = installed_only(vec![installed("Free Sounds", &[bank_path])]);
 
     let paths = resolution.resolved_patches.as_ref().unwrap();
     assert_eq!(*paths, vec![std::fs::canonicalize(good).unwrap()]);
+    assert_eq!(
+        resolution.dirs,
+        vec![std::fs::canonicalize(&root.0)
+            .unwrap()
+            .to_string_lossy()
+            .into_owned()]
+    );
     assert_no_excluded_notice(&resolution);
+    assert!(resolution.notices.is_empty(), "{:?}", resolution.notices);
+}
+
+#[test]
+fn product_without_banks_is_ignored_silently() {
+    let resolution = installed_only(vec![installed("sforzando", &[])]);
+
+    assert!(resolution.dirs.is_empty());
+    assert!(resolution.notices.is_empty(), "{:?}", resolution.notices);
+}
+
+#[test]
+fn registered_bank_path_that_is_gone_becomes_a_notice() {
+    let root = TempRoot::new("missing_bank");
+    let bank_path = root.0.join("Gone").join("Gone.bank.xml");
+
+    let resolution = installed_only(vec![installed(
+        "Gone Product",
+        std::slice::from_ref(&bank_path),
+    )]);
+
+    assert!(resolution.dirs.is_empty());
+    assert_eq!(resolution.notices.len(), 1, "{:?}", resolution.notices);
+    let notice = &resolution.notices[0];
+    assert!(notice.contains("Gone Product"), "{notice}");
+    assert!(
+        notice.contains(&bank_path.display().to_string()),
+        "{notice}"
+    );
+}
+
+#[test]
+fn user_bank_and_installed_bank_roots_are_both_scanned() {
+    let user_root = TempRoot::new("both_user");
+    let user_sfz = user_root.0.join("Mine.sfz");
+    write(&user_sfz, b"<region>");
+    let bank_root = TempRoot::new("both_bank");
+    let bank_sfz = bank_root.0.join("Programs").join("Synth.sfz");
+    write(&bank_sfz, b"<region>");
+    let bank_path = bank_root.0.join("Synth.bank.xml");
+    write(
+        &bank_path,
+        manifest("3103", "1000", &[("Synth", "Programs/Synth.sfz")]).as_bytes(),
+    );
+    let user = user_bank::UserBankSource::fixture(
+        std::fs::canonicalize(&user_root.0).unwrap(),
+        "5000",
+        "1000",
+    );
+
+    let resolution = resolve_catalog(RegistrySources::fixture(
+        Some(user),
+        vec![installed("Synth", &[bank_path])],
+    ));
+
+    assert_eq!(resolution.dirs.len(), 2, "{:?}", resolution.dirs);
+    let mut expected = vec![
+        std::fs::canonicalize(user_sfz).unwrap(),
+        std::fs::canonicalize(bank_sfz).unwrap(),
+    ];
+    expected.sort_by_key(|path| canonical_key(path));
+    assert_eq!(resolution.resolved_patches.unwrap(), expected);
 }
 
 fn assert_no_excluded_notice(resolution: &PatchCatalogResolution) {
@@ -103,14 +183,19 @@ fn assert_no_excluded_notice(resolution: &PatchCatalogResolution) {
     );
 }
 
-fn excluded_notice(resolution: &PatchCatalogResolution) -> &str {
-    let mut excluded = resolution
-        .notices
-        .iter()
-        .filter(|notice| notice.contains("catalog から除外"));
-    let notice = excluded.next().expect("one excluded notice");
-    assert_eq!(excluded.next(), None, "{:?}", resolution.notices);
-    notice
+/// Files under `root`, which no `*.bank.xml` covers, as the catalog would pass them in.
+fn loose_notice(root: &Path, names: &[&str]) -> String {
+    let files = names.iter().map(|name| root.join(name)).collect::<Vec<_>>();
+    let roots = [root.to_path_buf()];
+    excluded::notice(
+        &files,
+        &excluded::ExcludedContext {
+            roots: &roots,
+            bank_roots: &HashSet::new(),
+            user_root: None,
+        },
+    )
+    .expect("one excluded notice")
 }
 
 #[test]
@@ -126,13 +211,13 @@ fn unregistered_files_inside_an_installed_bank_are_excluded_silently() {
     );
     write(&kit.join("BD.sfz"), b"<region>");
     write(&programs.join("Xylophone.sfz"), b"<region>");
+    let bank_path = root.0.join("Free Sounds.bank.xml");
     write(
-        &root.0.join("Free Sounds.bank.xml"),
+        &bank_path,
         manifest("3102", "1001", &[("CR-909", "Programs/CR-909/main.sfz")]).as_bytes(),
     );
-    let configured = vec![programs.to_string_lossy().into_owned()];
 
-    let resolution = resolve_catalog(Some(&configured), false);
+    let resolution = installed_only(vec![installed("Free Sounds", &[bank_path])]);
 
     assert_eq!(resolution.resolved_patches.as_ref().unwrap().len(), 1);
     assert_no_excluded_notice(&resolution);
@@ -141,15 +226,8 @@ fn unregistered_files_inside_an_installed_bank_are_excluded_silently() {
 #[test]
 fn examples_are_capped_with_a_remaining_count() {
     let root = TempRoot::new("example_cap");
-    let loose = root.0.join("Loose");
-    for name in ["a", "b", "c"] {
-        write(&loose.join(format!("{name}.sfz")), b"<region>");
-    }
-    let configured = vec![loose.to_string_lossy().into_owned()];
 
-    let resolution = resolve_catalog(Some(&configured), false);
-
-    let notice = excluded_notice(&resolution);
+    let notice = loose_notice(&root.0, &["a.sfz", "b.sfz", "c.sfz"]);
     assert!(notice.contains("3 件"), "{notice}");
     assert!(notice.contains("a.sfz, b.sfz 他 1 件"), "{notice}");
 }
@@ -157,14 +235,8 @@ fn examples_are_capped_with_a_remaining_count() {
 #[test]
 fn sfz_outside_any_program_source_points_to_the_user_files_directory() {
     let root = TempRoot::new("no_source");
-    let loose = root.0.join("Loose");
-    write(&loose.join("Piano.sfz"), b"<region>");
-    let configured = vec![loose.to_string_lossy().into_owned()];
 
-    let resolution = resolve_catalog(Some(&configured), false);
-
-    assert!(resolution.resolved_patches.as_ref().unwrap().is_empty());
-    let notice = excluded_notice(&resolution);
+    let notice = loose_notice(&root.0, &["Piano.sfz"]);
     assert!(notice.contains("user files directory"), "{notice}");
     assert!(notice.contains("Piano.sfz"), "{notice}");
     assert!(notice.contains("ロードできる"), "{notice}");
@@ -229,17 +301,21 @@ fn conflicting_programs_for_one_canonical_path_are_excluded() {
     let root = TempRoot::new("conflict");
     let programs = root.0.join("Programs");
     write(&programs.join("shared.sfz"), b"<region>");
+    let first = root.0.join("a.bank.xml");
+    let second = root.0.join("b.bank.xml");
     write(
-        &root.0.join("a.bank.xml"),
+        &first,
         manifest("1", "1", &[("First", "Programs/shared.sfz")]).as_bytes(),
     );
     write(
-        &root.0.join("b.bank.xml"),
+        &second,
         manifest("2", "1", &[("Second", "Programs/shared.sfz")]).as_bytes(),
     );
-    let configured = vec![programs.to_string_lossy().into_owned()];
 
-    let resolution = resolve_catalog(Some(&configured), false);
+    let resolution = installed_only(vec![
+        installed("First", &[first]),
+        installed("Second", &[second]),
+    ]);
 
     assert!(resolution.resolved_patches.unwrap().is_empty());
     assert!(resolution
@@ -248,30 +324,7 @@ fn conflicting_programs_for_one_canonical_path_are_excluded() {
         .any(|notice| notice.contains("競合")));
 }
 
-#[test]
-#[ignore = "実機の registry user bank と Free Sounds manifest が要る"]
-fn installed_catalog_contains_583_loadable_programs() {
-    let plugin = std::env::var("CMRT_TEST_SFORZANDO_CLAP").unwrap();
-    let user = std::env::var("CMRT_TEST_SFORZANDO_PATCH_A")
-        .unwrap()
-        .parse::<PathBuf>()
-        .unwrap();
-    let free = std::env::var("CMRT_TEST_SFORZANDO_PATCH_B")
-        .unwrap()
-        .parse::<PathBuf>()
-        .unwrap();
-    assert!(user.is_file(), "{}", user.display());
-    let programs_root = free
-        .ancestors()
-        .find(|ancestor| {
-            ancestor
-                .file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.eq_ignore_ascii_case("Programs"))
-        })
-        .expect("PATCH_B must be inside an installed bank Programs directory");
-    let roots = vec![programs_root.to_string_lossy().into_owned()];
-    let resolution =
-        crate::resolve_patch_catalog(Some(crate::SFORZANDO_PLUGIN_ID), &plugin, Some(&roots));
-    assert_eq!(resolution.resolved_patches.unwrap().len(), 583);
-}
+#[cfg(windows)]
+mod installed;
+
+mod ariax;

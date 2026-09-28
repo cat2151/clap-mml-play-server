@@ -2,7 +2,6 @@
 
 use anyhow::Result;
 
-use crate::patch_list::to_relative;
 use crate::CoreConfig;
 
 use mmlabc_to_smf::mml_preprocessor;
@@ -10,13 +9,7 @@ use mmlabc_to_smf::mml_preprocessor;
 /// patch_history.txt に「JSON、MML」形式で追記する。
 pub(super) fn append_history(mml: &str, patch: &Option<String>, cfg: &CoreConfig) -> Result<()> {
     let patch_rel = match patch {
-        Some(abs) => {
-            if let Some(ref base) = cfg.patches_dir {
-                to_relative(base, std::path::Path::new(abs))
-            } else {
-                abs.clone()
-            }
-        }
+        Some(abs) => cfg.patch_base.display(std::path::Path::new(abs)),
         None => "(none)".to_string(),
     };
 

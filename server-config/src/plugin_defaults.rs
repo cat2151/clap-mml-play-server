@@ -108,8 +108,8 @@ pub fn default_floe_plugin_path() -> &'static str {
 
 /// OS ごとのデフォルト sforzando パスを返す。
 ///
-/// 音色置き場は組み込みで決め打ちせず、CLAP preset-discovery と
-/// `[plugins.Sforzando].patches_dirs` の和集合から得る。
+/// 音色置き場は ARIA の registry（user bank と installed bank）だけで決まり、
+/// `[plugins.Sforzando].patches_dirs` は使わない。
 #[cfg(target_os = "windows")]
 pub fn default_sforzando_plugin_path() -> &'static str {
     r"C:\Program Files\Common Files\CLAP\Plogue\sforzando_x64.clap"

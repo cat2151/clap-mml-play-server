@@ -40,7 +40,8 @@ pub struct CoreConfig {
     pub sample_rate: f64,
     pub buffer_size: usize,
     pub patch_path: Option<String>,
-    pub patches_dir: Option<String>,
+    /// display（相対の patch 文字列）と絶対パスを行き来する基点。
+    pub patch_base: PatchBase,
     pub random_patch: bool,
 }
 
@@ -55,6 +56,7 @@ pub use audio_plugin::{
     PluginVoicingSource, RouteError,
 };
 pub use boot_log::{log_boot, log_boot_fatal};
+pub use cmrt_server_config::PatchBase;
 pub use dx7::{
     cartridge_program_component, is_cartridge_patch_path, parse_cartridge_patch_path,
     parse_dx7_cartridge, CartridgePatchPath, Dx7Cartridge, DEXED_PLUGIN_ID, DX7_BULK_DUMP_LEN,
@@ -86,7 +88,9 @@ pub use render::{
     RendererHandoff, RendererInitTiming, RendererSpec, SelectedDescriptor,
 };
 pub use render::{PluginProbeReport, ProbedDescriptor};
-pub use sforzando::{is_sfz_patch_path, SFORZANDO_PLUGIN_ID};
+pub use sforzando::{
+    is_ariax_patch_path, is_sforzando_patch_path, is_sfz_patch_path, SFORZANDO_PLUGIN_ID,
+};
 pub use surge_data::{
     apply_minimal_surge_data_home, plugin_is_surge, MinimalSurgeDataHome, SURGE_XT_PLUGIN_ID,
 };

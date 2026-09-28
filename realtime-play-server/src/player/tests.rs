@@ -57,3 +57,43 @@ fn configured_live_instance_count_rejects_higher_ids() {
 fn live_instance_state_matches_configured_count() {
     assert_eq!(runtime::new_live_instances(4).len(), 4);
 }
+
+/// Sforzando の音色置き場は別ドライブにまたがりうるので、置き場ごとの基点で解決する。
+#[test]
+fn resolve_live_patch_resolves_sforzando_patch_under_its_own_root() {
+    let (table_warp, sfz) = if cfg!(windows) {
+        (r"C:\Plogue\TableWarp2", r"D:\libs\sfz")
+    } else {
+        ("/c/Plogue/TableWarp2", "/d/libs/sfz")
+    };
+    let sforzando = cmrt_core::PluginKind {
+        key: cmrt_core::PluginKey::from_identity(None, "sforzando.clap"),
+        name: "Sforzando".to_string(),
+        plugin_path: "sforzando.clap".to_string(),
+        patch_form: cmrt_server_config::PatchForm::Sfz,
+        core_cfg: cmrt_core::CoreConfig {
+            patch_base: cmrt_core::PatchBase::per_root(&[table_warp.to_string(), sfz.to_string()]),
+            ..Default::default()
+        },
+    };
+    let bases = PatchBases::from_kinds(&[sforzando]);
+
+    let resolved =
+        resolve_live_patch(Some("TableWarp2/Programs/TableWarp2.sfz".into()), &bases).unwrap();
+    let user_bank = resolve_live_patch(Some("sfz/VSCO/Harp.sfz".into()), &bases).unwrap();
+
+    assert_eq!(
+        resolved,
+        Path::new(table_warp)
+            .join("Programs")
+            .join("TableWarp2.sfz")
+            .to_string_lossy()
+    );
+    assert_eq!(
+        user_bank,
+        Path::new(sfz)
+            .join("VSCO")
+            .join("Harp.sfz")
+            .to_string_lossy()
+    );
+}

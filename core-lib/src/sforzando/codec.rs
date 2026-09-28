@@ -7,7 +7,7 @@ use flate2::Compression;
 const MAGIC: &[u8; 4] = b"CEGP";
 const HEADER_LEN: usize = 8;
 
-pub(super) fn decode(state: &[u8]) -> anyhow::Result<String> {
+pub(crate) fn decode(state: &[u8]) -> anyhow::Result<String> {
     if state.len() < HEADER_LEN {
         anyhow::bail!(
             "Sforzando CEGP header が短い: {} bytes (最低 {HEADER_LEN})",
@@ -36,7 +36,7 @@ pub(super) fn decode(state: &[u8]) -> anyhow::Result<String> {
         .map_err(|error| anyhow::anyhow!("Sforzando AriaSave XML が UTF-8 ではない: {error}"))
 }
 
-pub(super) fn encode(xml: &[u8]) -> anyhow::Result<Vec<u8>> {
+pub(crate) fn encode(xml: &[u8]) -> anyhow::Result<Vec<u8>> {
     let xml_len = u32::try_from(xml.len())
         .map_err(|_| anyhow::anyhow!("Sforzando AriaSave XML が u32 length を超えた"))?;
     let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());

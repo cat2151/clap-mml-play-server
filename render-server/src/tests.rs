@@ -86,7 +86,7 @@ fn core_config_from_server_config_uses_the_shared_patch_root() {
     assert_eq!(core_cfg.output_wav, "output.wav");
     assert_eq!(core_cfg.sample_rate, REQUIRED_SAMPLE_RATE);
     assert_eq!(core_cfg.buffer_size, 512);
-    assert_eq!(core_cfg.patches_dir.as_deref(), Some("/tmp/surge-data"));
+    assert_eq!(core_cfg.patch_base.scan_dir(), Some("/tmp/surge-data"));
     assert!(!core_cfg.random_patch);
 }
 
@@ -145,7 +145,7 @@ patches_dirs = ["{presets}"]
         floe.core_cfg.plugin_id.as_deref(),
         Some(cmrt_server_config::FLOE_PLUGIN_ID)
     );
-    assert_eq!(floe.core_cfg.patches_dir.as_deref(), Some(presets.as_str()));
+    assert_eq!(floe.core_cfg.patch_base.scan_dir(), Some(presets.as_str()));
     let _ = std::fs::remove_dir_all(&root);
 }
 

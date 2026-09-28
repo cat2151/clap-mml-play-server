@@ -13,7 +13,7 @@
 
 use std::{path::Path, time::Instant};
 
-use crate::{audio_plugin::patch_form_of_path, CoreConfig, PluginKey};
+use crate::{audio_plugin::patch_form_of_path, CoreConfig, PatchBase, PluginKey};
 use cmrt_server_config::{
     patch_form_of, PatchForm, ServerConfig, CACHE_PLAYER_PLUGIN_ID, PRIMARY_PLUGIN_PROFILE_NAME,
 };
@@ -30,7 +30,7 @@ pub struct PluginKind {
     pub plugin_path: String,
     /// この種別の音色が patch 文字列としてどう書かれるか。
     pub patch_form: PatchForm,
-    /// この種別のインスタンスを作るときの設定。`plugin_id` と `patches_dir` が種別ごとに違う。
+    /// この種別のインスタンスを作るときの設定。`plugin_id` と `patch_base` が種別ごとに違う。
     pub core_cfg: CoreConfig,
 }
 
@@ -43,7 +43,7 @@ pub fn plugin_kinds(cfg: &ServerConfig, core_cfg: &CoreConfig) -> Vec<PluginKind
     let default_form = patch_form_of(cfg.plugin_id.as_deref(), &cfg.plugin_path);
     let mut default_core_cfg = core_cfg.clone();
     if default_form == PatchForm::Sfz {
-        default_core_cfg.patches_dir = sforzando_patch_root(
+        default_core_cfg.patch_base = sforzando_patch_base(
             &cfg.plugin_path,
             cfg.patches_dirs.as_deref(),
             PRIMARY_PLUGIN_PROFILE_NAME,
@@ -62,10 +62,12 @@ pub fn plugin_kinds(cfg: &ServerConfig, core_cfg: &CoreConfig) -> Vec<PluginKind
             continue;
         }
         let patch_form = patch_form_of(profile.plugin_id.as_deref(), &profile.plugin_path);
-        let patches_dir = if patch_form == PatchForm::Sfz {
-            sforzando_patch_root(&profile.plugin_path, profile.patches_dirs.as_deref(), &name)
+        let patch_base = if patch_form == PatchForm::Sfz {
+            sforzando_patch_base(&profile.plugin_path, profile.patches_dirs.as_deref(), &name)
         } else {
-            cmrt_server_config::patch_root_dir(profile.patches_dirs.as_deref())
+            PatchBase::from(cmrt_server_config::patch_root_dir(
+                profile.patches_dirs.as_deref(),
+            ))
         };
         kinds.push(PluginKind {
             key: PluginKey::from_identity(profile.plugin_id.as_deref(), &profile.plugin_path),
@@ -77,7 +79,7 @@ pub fn plugin_kinds(cfg: &ServerConfig, core_cfg: &CoreConfig) -> Vec<PluginKind
                 // 起動時の音色（config の `patch_path`）は既定プラグイン向けの指定なので、
                 // 他の種別へ持ち込まない。持ち込むと形の違う音色を読もうとして失敗する。
                 patch_path: None,
-                patches_dir,
+                patch_base,
                 ..core_cfg.clone()
             },
         });
@@ -115,7 +117,7 @@ fn push_builtin_kinds(kinds: &mut Vec<PluginKind>, core_cfg: &CoreConfig) {
             // 起動時の音色は既定プラグイン向けの指定なので持ち込まない。
             patch_path: None,
             // 音源は DAW が絶対パスで指すので基点を持たない。
-            patches_dir: None,
+            patch_base: PatchBase::None,
             ..core_cfg.clone()
         },
     });
@@ -178,12 +180,12 @@ pub fn kind_for_patch(
 /// 音色置き場はプラグインごとに別の場所なので、基点も形ごとに分かれる。
 #[derive(Clone, Debug, Default)]
 pub struct PatchBases {
-    state_file: Option<String>,
-    cartridge: Option<String>,
-    vvp: Option<String>,
-    floe_preset: Option<String>,
-    sfz: Option<String>,
-    cache_wav: Option<String>,
+    state_file: PatchBase,
+    cartridge: PatchBase,
+    vvp: PatchBase,
+    floe_preset: PatchBase,
+    sfz: PatchBase,
+    cache_wav: PatchBase,
 }
 
 impl PatchBases {
@@ -192,8 +194,8 @@ impl PatchBases {
         for kind in kinds {
             let slot = bases.slot_mut(kind.patch_form);
             // 先頭（既定プラグイン）の基点を優先する。
-            if slot.is_none() {
-                slot.clone_from(&kind.core_cfg.patches_dir);
+            if *slot == PatchBase::None {
+                slot.clone_from(&kind.core_cfg.patch_base);
             }
         }
         bases
@@ -216,30 +218,36 @@ impl PatchBases {
         floe_preset: Option<&str>,
         sfz: Option<&str>,
     ) -> Self {
+        let shared = |dir: Option<&str>| PatchBase::from(dir.map(str::to_string));
         Self {
-            state_file: state_file.map(str::to_string),
-            cartridge: cartridge.map(str::to_string),
-            vvp: vvp.map(str::to_string),
-            floe_preset: floe_preset.map(str::to_string),
-            sfz: sfz.map(str::to_string),
+            state_file: shared(state_file),
+            cartridge: shared(cartridge),
+            vvp: shared(vvp),
+            floe_preset: shared(floe_preset),
+            sfz: shared(sfz),
             // 組み込み cache-player は基点を持たない（DAW が絶対パスを渡す）。
-            cache_wav: None,
+            cache_wav: PatchBase::None,
         }
     }
 
     /// この patch 文字列に対応する基点。
-    pub fn base_for(&self, patch: &str) -> Option<&str> {
+    pub fn base_for(&self, patch: &str) -> &PatchBase {
         match patch_form_of_path(patch) {
-            PatchForm::StateFile => self.state_file.as_deref(),
-            PatchForm::Cartridge => self.cartridge.as_deref(),
-            PatchForm::Vvp => self.vvp.as_deref(),
-            PatchForm::FloePreset => self.floe_preset.as_deref(),
-            PatchForm::Sfz => self.sfz.as_deref(),
-            PatchForm::CacheWav => self.cache_wav.as_deref(),
+            PatchForm::StateFile => &self.state_file,
+            PatchForm::Cartridge => &self.cartridge,
+            PatchForm::Vvp => &self.vvp,
+            PatchForm::FloePreset => &self.floe_preset,
+            PatchForm::Sfz => &self.sfz,
+            PatchForm::CacheWav => &self.cache_wav,
         }
     }
 
-    fn slot_mut(&mut self, form: PatchForm) -> &mut Option<String> {
+    /// patch 文字列を、その形の基点で絶対パスへ直す。絶対パスはそのまま。
+    pub fn resolve(&self, patch: &str) -> String {
+        self.base_for(patch).resolve(patch)
+    }
+
+    fn slot_mut(&mut self, form: PatchForm) -> &mut PatchBase {
         match form {
             PatchForm::StateFile => &mut self.state_file,
             PatchForm::Cartridge => &mut self.cartridge,
@@ -251,11 +259,11 @@ impl PatchBases {
     }
 }
 
-fn sforzando_patch_root(
+fn sforzando_patch_base(
     plugin_path: &str,
     configured: Option<&[String]>,
     plugin_name: &str,
-) -> Option<String> {
+) -> PatchBase {
     let started = Instant::now();
     let current = cmrt_server_config::resolve_patch_catalog_roots(
         Some(cmrt_server_config::SFORZANDO_PLUGIN_ID),
@@ -293,7 +301,7 @@ fn sforzando_patch_root(
             "cmrt-catalog: plugin={plugin_name} source-error: {error}"
         ));
     }
-    cmrt_server_config::shared_patch_root_dir(&resolved.dirs)
+    resolved.base
 }
 
 /// 同じプラグイン本体を指しているか。既定プラグインとプロファイルの重複を避けるための比較。

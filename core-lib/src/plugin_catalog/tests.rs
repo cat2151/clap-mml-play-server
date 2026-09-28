@@ -7,7 +7,7 @@ fn fake_kind(name: &str, patch_form: PatchForm, patches_dir: Option<&str>) -> Pl
         plugin_path: format!("{name}.clap"),
         patch_form,
         core_cfg: CoreConfig {
-            patches_dir: patches_dir.map(str::to_string),
+            patch_base: crate::PatchBase::from(patches_dir.map(str::to_string)),
             ..Default::default()
         },
     }
@@ -80,8 +80,11 @@ fn patch_bases_keep_one_root_per_patch_form() {
 
     let bases = PatchBases::from_kinds(&kinds);
 
-    assert_eq!(bases.base_for("Keys/Piano.fxp"), Some("/surge"));
-    assert_eq!(bases.base_for("Dexed_01.syx/00 Say."), Some("/dexed"));
+    assert_eq!(bases.base_for("Keys/Piano.fxp").scan_dir(), Some("/surge"));
+    assert_eq!(
+        bases.base_for("Dexed_01.syx/00 Say.").scan_dir(),
+        Some("/dexed")
+    );
 }
 
 /// Vaporizer2 を足した瞬間、`StateFile` が「Surge の `.fxp`」と同義でなくなる。
@@ -145,9 +148,15 @@ fn patch_bases_keep_a_separate_root_for_vvp() {
 
     let bases = PatchBases::from_kinds(&kinds);
 
-    assert_eq!(bases.base_for("Keys/Piano.fxp"), Some("/surge"));
-    assert_eq!(bases.base_for("Dexed_01.syx/00 Say."), Some("/dexed"));
-    assert_eq!(bases.base_for("AR Accent Arp.vvp"), Some("/vaporizer2"));
+    assert_eq!(bases.base_for("Keys/Piano.fxp").scan_dir(), Some("/surge"));
+    assert_eq!(
+        bases.base_for("Dexed_01.syx/00 Say.").scan_dir(),
+        Some("/dexed")
+    );
+    assert_eq!(
+        bases.base_for("AR Accent Arp.vvp").scan_dir(),
+        Some("/vaporizer2")
+    );
 }
 
 #[test]
@@ -192,6 +201,14 @@ fn five_plugins_route_sfz_only_to_sforzando() {
         kind_for_patch(&kinds, 0, Some("Garritan/Glockenspiel.SFZ")).unwrap(),
         4
     );
+    assert_eq!(
+        kind_for_patch(&kinds, 0, Some("TableWarp2/Presets/Keys/Airy Bells.ariax")).unwrap(),
+        4
+    );
+    assert_eq!(
+        kind_for_patch(&kinds, 0, Some("Keys\\Airy Bells.ARIAX")).unwrap(),
+        4
+    );
 }
 
 #[test]
@@ -214,10 +231,19 @@ fn patch_bases_keep_a_separate_root_for_floe() {
         None,
     );
 
-    assert_eq!(bases.base_for("Keys/Piano.fxp"), Some("/surge"));
-    assert_eq!(bases.base_for("Dexed.syx/00 Init"), Some("/dexed"));
-    assert_eq!(bases.base_for("PD Emily.vvp"), Some("/vaporizer2"));
-    assert_eq!(bases.base_for("Harp/Realistic.floe-preset"), Some("/floe"));
+    assert_eq!(bases.base_for("Keys/Piano.fxp").scan_dir(), Some("/surge"));
+    assert_eq!(
+        bases.base_for("Dexed.syx/00 Init").scan_dir(),
+        Some("/dexed")
+    );
+    assert_eq!(
+        bases.base_for("PD Emily.vvp").scan_dir(),
+        Some("/vaporizer2")
+    );
+    assert_eq!(
+        bases.base_for("Harp/Realistic.floe-preset").scan_dir(),
+        Some("/floe")
+    );
 }
 
 #[test]
@@ -230,18 +256,33 @@ fn patch_bases_keep_a_separate_root_for_sfz() {
         Some("/sfz"),
     );
 
-    assert_eq!(bases.base_for("Keys/Piano.fxp"), Some("/surge"));
-    assert_eq!(bases.base_for("Dexed.syx/00 Init"), Some("/dexed"));
-    assert_eq!(bases.base_for("PD Emily.vvp"), Some("/vaporizer2"));
-    assert_eq!(bases.base_for("Harp/Realistic.floe-preset"), Some("/floe"));
-    assert_eq!(bases.base_for("Garritan/Glockenspiel.sfz"), Some("/sfz"));
+    assert_eq!(bases.base_for("Keys/Piano.fxp").scan_dir(), Some("/surge"));
+    assert_eq!(
+        bases.base_for("Dexed.syx/00 Init").scan_dir(),
+        Some("/dexed")
+    );
+    assert_eq!(
+        bases.base_for("PD Emily.vvp").scan_dir(),
+        Some("/vaporizer2")
+    );
+    assert_eq!(
+        bases.base_for("Harp/Realistic.floe-preset").scan_dir(),
+        Some("/floe")
+    );
+    assert_eq!(
+        bases.base_for("Garritan/Glockenspiel.sfz").scan_dir(),
+        Some("/sfz")
+    );
 }
 
 #[test]
 fn legacy_patch_bases_constructor_leaves_floe_unconfigured() {
     let bases = PatchBases::from_bases(Some("/surge"), Some("/dexed"), Some("/vaporizer2"));
 
-    assert_eq!(bases.base_for("Harp/Realistic.floe-preset"), None);
+    assert_eq!(
+        bases.base_for("Harp/Realistic.floe-preset").scan_dir(),
+        None
+    );
 }
 
 /// gate（かつての `CMRT_CACHE_PLAYER=1`）を撤去したことの回帰テスト。
@@ -278,7 +319,7 @@ buffer_size = 512
         crate::builtin_plugin_path(CACHE_PLAYER_PLUGIN_ID)
     );
     // 音源は DAW が絶対パスで指すので基点を持たない。
-    assert!(cache_player.core_cfg.patches_dir.is_none());
+    assert_eq!(cache_player.core_cfg.patch_base, crate::PatchBase::None);
     // 起動時の音色は既定プラグイン向けの指定なので持ち込まない。
     assert!(cache_player.core_cfg.patch_path.is_none());
 }

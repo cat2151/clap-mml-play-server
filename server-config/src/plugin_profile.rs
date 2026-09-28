@@ -100,7 +100,7 @@ pub fn builtin_plugin_profiles() -> BTreeMap<String, PluginProfile> {
             PluginProfile {
                 plugin_path: default_sforzando_plugin_path().to_string(),
                 plugin_id: Some(SFORZANDO_PLUGIN_ID.to_string()),
-                // preset-discovery と config の和集合はカタログを組む時点で解決する。
+                // 音色置き場は ARIA の registry だけから決まる。config の値は使わない。
                 patches_dirs: None,
             },
         ),

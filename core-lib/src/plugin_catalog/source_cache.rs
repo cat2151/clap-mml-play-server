@@ -73,6 +73,7 @@ fn load_sforzando_from(
         .is_empty()
         .then(|| "ARIA program sourceのrootを1件も解決できない".to_string());
     Ok(PatchCatalogResolution {
+        base: cmrt_server_config::PatchBase::per_root(&source.dirs),
         dirs: source.dirs,
         source_error,
         notices: source.source_notices,

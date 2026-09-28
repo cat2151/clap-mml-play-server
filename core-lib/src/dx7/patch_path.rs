@@ -77,7 +77,9 @@ fn last_component(path: &str) -> Option<&str> {
 
 fn has_syx_extension(component: &str) -> bool {
     component.len() > SYX_EXTENSION.len()
-        && component[component.len() - SYX_EXTENSION.len()..].eq_ignore_ascii_case(SYX_EXTENSION)
+        && component
+            .get(component.len() - SYX_EXTENSION.len()..)
+            .is_some_and(|extension| extension.eq_ignore_ascii_case(SYX_EXTENSION))
 }
 
 /// 先頭 2 桁だけを見る。名前部分は読み飛ばす。

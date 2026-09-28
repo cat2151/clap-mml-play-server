@@ -29,7 +29,7 @@ pub fn is_vvp_patch_path(patch: &str) -> bool {
 | `Cartridge` | `.syx` | 1 ファイル = 32 program | packed voice を single voice SysEx で送る（[0003](0003-dexed-program-change-guard.md)） |
 | `Vvp` | `.vvp` | 1 ファイル = 1 音色 | XML に 9 バイト被せて `clap.state` へ（[0014](0014-vvp-as-clap-state.md)） |
 | `FloePreset` | `.floe-preset` | 1 ファイル = 1 音色 | Floe 固有 extension へ |
-| `Sfz` | `.sfz` | 1 ファイル = 1 音色 | ARIA program 解決 + vendor state（[0015](0015-sforzando-sfz-preset-load.md)） |
+| `Sfz` | `.sfz` / `.ariax` | 1 ファイル = 1 音色 | ARIA program 解決 + vendor state。`.ariax` は preset の `Slot` ごと載せる（[0015](0015-sforzando-sfz-preset-load.md)） |
 
 `Vvp` の単位は `StateFile` と同じだが、**別の形として数える**。一緒にすると
 Surge XT と Vaporizer2 のどちらへ送るべき patch かが決まらず、片方の音色が
@@ -38,7 +38,7 @@ Surge XT と Vaporizer2 のどちらへ送るべき patch かが決まらず、�
 **判別規則は `patch_form_of_path()`（`core-lib/src/audio_plugin.rs`）へ 1 本化してある。**
 `kind_for_patch()` と `PatchBases::base_for()` が別々に書いていると、
 **片方だけ直したときに「選ばれたプラグインと基点が食い違う」**という静かな間違いになる。
-順序は cartridge → sfz → floe-preset → vvp → state_file（`StateFile` が「どれでもない」の受け皿）。
+順序は cartridge → sfz / ariax → floe-preset → vvp → state_file（`StateFile` が「どれでもない」の受け皿）。
 
 ## 帰結: IPC に足す情報は 0
 
@@ -90,5 +90,5 @@ clap-mml-render-tui `docs/adr/0010-two-repo-layout.md` と整合する）。
 - 判別材料は patch 文字列の形だけなので、**同じ形を扱うプラグインが 2 つ載ると区別できない**。
   `.fxp` と `.vvp` は固有拡張子があったので永続 ID を変えずに解けたが、
   拡張子まで同じプラグインが 2 つ載る日には解けない（TUI 側 ADR 0001 の「未解決の論点」）
-- **`.sfz` は Sforzando が無ければ既定プラグインへ fallback しない。** `kind_for_patch()` が
+- **`.sfz` / `.ariax` は Sforzando が無ければ既定プラグインへ fallback しない。** `kind_for_patch()` が
   Sforzando 不在をエラーにし、loader も plugin ID と ARIA program mapping を照合してから state load する

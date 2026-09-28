@@ -13,6 +13,8 @@
 //! CMRT_TEST_SFORZANDO_CLAP=C:\Program Files\Common Files\CLAP\Plogue\sforzando_x64.clap
 //! CMRT_TEST_SFORZANDO_PATCH_A=<Free Sounds の .sfz>
 //! CMRT_TEST_SFORZANDO_PATCH_B=<別 library の melodic .sfz>
+//! CMRT_TEST_SFORZANDO_TABLEWARP2=<TableWarp2 の Programs\TableWarp2.sfz>
+//! CMRT_TEST_SFORZANDO_ARIAX=<TableWarp2 の Presets 配下の .ariax（例 Keys\Airy Bells.ariax）>
 //! CMRT_TEST_DEXED_CARTRIDGES=%APPDATA%\DigitalSuburban\Dexed\Cartridges
 //! cargo test -p cmrt-core -- --ignored --test-threads=1
 //! ```
@@ -51,7 +53,7 @@ fn test_config() -> CoreConfig {
         sample_rate: SAMPLE_RATE,
         buffer_size: BUFFER_SIZE,
         patch_path: None,
-        patches_dir: None,
+        patch_base: crate::PatchBase::None,
         random_patch: false,
         ..Default::default()
     }

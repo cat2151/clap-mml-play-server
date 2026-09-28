@@ -34,16 +34,7 @@ pub(crate) fn run_voicing_probe(
     apply_surge_data_home_for(&kinds);
     let kind = &kinds[kind_for_patch(&kinds, 0, Some(patch)).map_err(|error| anyhow!(error))?];
     let bases = PatchBases::from_kinds(&kinds);
-    let resolve_patch = |patch: &str| match (
-        bases.base_for(patch),
-        std::path::Path::new(patch).is_absolute(),
-    ) {
-        (_, true) | (None, false) => patch.to_string(),
-        (Some(base), false) => std::path::Path::new(base)
-            .join(patch)
-            .to_string_lossy()
-            .into_owned(),
-    };
+    let resolve_patch = |patch: &str| bases.resolve(patch);
     let patch_path = resolve_patch(patch);
     let entry = cmrt_core::load_entry(&kind.plugin_path)?;
     // 下の `RealtimeRenderer::new` も同じ `core_cfg.plugin_id` で descriptor を選ぶ。

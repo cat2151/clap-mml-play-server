@@ -76,7 +76,9 @@ pub fn is_vvp_patch_path(patch: &str) -> bool {
 
 fn has_vvp_extension(component: &str) -> bool {
     component.len() > VVP_EXTENSION.len()
-        && component[component.len() - VVP_EXTENSION.len()..].eq_ignore_ascii_case(VVP_EXTENSION)
+        && component
+            .get(component.len() - VVP_EXTENSION.len()..)
+            .is_some_and(|extension| extension.eq_ignore_ascii_case(VVP_EXTENSION))
 }
 
 /// `.vvp` の XML を、そのまま `clap.state` へ流せるバイト列にする。
