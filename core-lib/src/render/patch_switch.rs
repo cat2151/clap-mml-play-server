@@ -12,13 +12,15 @@
 use anyhow::Result;
 use clack_host::prelude::PluginInstance;
 
-use super::patch_state::{load_patch, load_plugin_state};
+use super::patch_state::{ensure_accepts_generic_state_file, load_patch, load_plugin_state};
 use super::RealtimeRenderer;
 use crate::cache_wav::{cache_wav_state, is_cache_wav_patch_path};
 use crate::dx7::{is_cartridge_patch_path, parse_cartridge_patch_path, CartridgePatchPath};
 use crate::floe::is_floe_preset_path;
 use crate::host::MidiRenderHost;
 use crate::sforzando::is_sforzando_patch_path;
+use crate::six_sines::is_six_sines_patch_path;
+use crate::tyrelln6::is_tyrelln6_patch_path;
 use crate::vvp::is_vvp_patch_path;
 use cmrt_cache_player::CACHE_PLAYER_PLUGIN_ID;
 
@@ -54,6 +56,14 @@ impl RealtimeRenderer {
                 self.forget_cartridge_program();
                 self.load_sfz_state(&path)?;
             }
+            PatchTarget::SixSines(path) => {
+                self.forget_cartridge_program();
+                self.load_six_sines_patch(&path)?;
+            }
+            PatchTarget::TyrellN6(path) => {
+                self.forget_cartridge_program();
+                self.load_tyrelln6_patch(&path)?;
+            }
             PatchTarget::CacheWav(path) => {
                 self.forget_cartridge_program();
                 let state = cache_wav_state(&path)?;
@@ -61,6 +71,7 @@ impl RealtimeRenderer {
                     .map_err(|e| anyhow::anyhow!("キャッシュ WAV のロードに失敗 ({path}): {e}"))?;
             }
             PatchTarget::StateFile(path) => {
+                ensure_accepts_generic_state_file(&self.plugin_id, &path)?;
                 self.forget_cartridge_program();
                 let plugin_instance = self.plugin_instance_mut();
                 load_patch(plugin_instance, &path)?;
@@ -97,6 +108,10 @@ impl RealtimeRenderer {
             Ok(PatchTarget::FloePreset(path.to_string()))
         } else if is_vvp_patch_path(path) {
             Ok(PatchTarget::Vvp(path.to_string()))
+        } else if is_six_sines_patch_path(path) {
+            Ok(PatchTarget::SixSines(path.to_string()))
+        } else if is_tyrelln6_patch_path(path) {
+            Ok(PatchTarget::TyrellN6(path.to_string()))
         } else if is_cache_wav_patch_path(path) {
             Ok(PatchTarget::CacheWav(path.to_string()))
         } else {
@@ -176,6 +191,10 @@ enum PatchTarget {
     FloePreset(String),
     /// sforzando: 解決済み ARIA program を vendor state としてロード。
     Sfz(String),
+    /// Six Sines: `.sxsnp` の XML をそのまま CLAP state としてロード。
+    SixSines(String),
+    /// TyrellN6: `.h2p` をそのまま CLAP state としてロード。
+    TyrellN6(String),
     /// 組み込み cache-player: `.wav` の**パス**を CLAP state としてロード。
     ///
     /// ここだけ「ファイルの中身」ではなく「ファイルの場所」を state にする

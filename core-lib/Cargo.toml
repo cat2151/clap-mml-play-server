@@ -35,6 +35,8 @@ dirs = "6"
 
 # Error handling
 anyhow = "1"
+# Six Sines の factory 音色を GitHub から取得する
+ureq = { version = "3", features = ["json"] }
 flate2 = "1"
 xmltree = "0.11"
 

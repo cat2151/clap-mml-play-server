@@ -11,6 +11,7 @@ mod ariax;
 mod excluded;
 mod installed_bank;
 mod manifest;
+mod sample_weight;
 mod user_bank;
 
 use std::collections::{BTreeMap, HashSet};
@@ -19,6 +20,7 @@ use std::path::{Path, PathBuf};
 use crate::patch_catalog::PatchCatalogResolution;
 
 pub use ariax::{resolve_sforzando_preset, SforzandoPresetRef};
+pub use sample_weight::{sfz_sample_weight, SfzSampleWeight};
 
 /// A program that ARIA can resolve from a canonical SFZ path.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -204,6 +206,8 @@ pub(super) fn resolve_catalog(sources: RegistrySources) -> PatchCatalogResolutio
         },
     ));
 
+    drop_unplayable_parts(&mut programs);
+
     let mut resolved_patches = programs
         .values()
         .map(|program| program.sfz_path.clone())
@@ -266,6 +270,33 @@ fn catalog_roots(sources: RegistrySources) -> CatalogRoots {
         notices,
         user_lookup,
     }
+}
+
+/// 単体で開いても鳴らない program を一覧から外す。user 側に対処がないので通知しない。
+///
+/// - 他の program に `#include` される部品。親の `<control>` の `set_ccN` や `sw_default` が
+///   前提で、単体では CC が 0 のまま（`locc` 条件）や key switch 待ちになり、
+///   どの note を送っても鳴らないことがある。音はどれも親から出せる
+/// - sample がどれも見つからない sfz
+fn drop_unplayable_parts(programs: &mut BTreeMap<String, SforzandoProgramRef>) {
+    let mut included = HashSet::new();
+    let mut all_samples_missing = HashSet::new();
+    for (key, program) in programs.iter() {
+        let Ok(scan) = sample_weight::scan_sfz(&program.sfz_path) else {
+            continue;
+        };
+        if scan.weight.all_samples_missing() {
+            all_samples_missing.insert(key.clone());
+        }
+        included.extend(
+            scan.includes
+                .iter()
+                .filter_map(|path| std::fs::canonicalize(path).ok())
+                .map(|path| canonical_key(&path))
+                .filter(|include| include != key),
+        );
+    }
+    programs.retain(|key, _| !included.contains(key) && !all_samples_missing.contains(key));
 }
 
 fn root_strings(roots: Vec<PathBuf>) -> Vec<String> {

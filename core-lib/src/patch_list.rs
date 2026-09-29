@@ -9,6 +9,8 @@
 //!   （中身は XML だが、ここでは開かない。460 ファイル 681MB を読むことになるため）。
 //! - Floe: `.floe-preset` 1 ファイル = 1 音色。`.floe-pkg` などは列挙しない。
 //! - sforzando: `.sfz` 1 ファイル = 1 音色。
+//! - Six Sines: `.sxsnp` 1 ファイル = 1 音色。
+//! - TyrellN6: `.h2p` 1 ファイル = 1 音色。
 //!
 //! どれも同じ `Vec<PathBuf>` で返すので、呼び出し側（TUI の一覧・検索・カテゴリ分け）は
 //! プラグインの違いを知らないまま動く。
@@ -124,7 +126,7 @@ fn visit_dir(dir: &Path, list: &mut Vec<FoundPatch>) -> Result<()> {
             continue;
         }
         match extension_lowercase(&path).as_deref() {
-            Some("fxp") | Some("vvp") | Some("floe-preset") | Some("sfz") => {
+            Some("fxp" | "vvp" | "floe-preset" | "sfz" | "sxsnp" | "h2p") => {
                 list.push(FoundPatch { path, voice: None })
             }
             Some("syx") => push_cartridge_programs(&path, list),

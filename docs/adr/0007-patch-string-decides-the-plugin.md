@@ -21,7 +21,7 @@ pub fn is_vvp_patch_path(patch: &str) -> bool {
 
 `core-lib/src/render.rs` のロード経路はこれで分岐し、`plugin_id` を見ない。
 
-## `PatchForm` は 5 値
+## `PatchForm` の形
 
 | 形 | 拡張子 | 単位 | ロードのしかた |
 |---|---|---|---|
@@ -30,6 +30,7 @@ pub fn is_vvp_patch_path(patch: &str) -> bool {
 | `Vvp` | `.vvp` | 1 ファイル = 1 音色 | XML に 9 バイト被せて `clap.state` へ（[0014](0014-vvp-as-clap-state.md)） |
 | `FloePreset` | `.floe-preset` | 1 ファイル = 1 音色 | Floe 固有 extension へ |
 | `Sfz` | `.sfz` / `.ariax` | 1 ファイル = 1 音色 | ARIA program 解決 + vendor state。`.ariax` は preset の `Slot` ごと載せる（[0015](0015-sforzando-sfz-preset-load.md)） |
+| `SixSines` | `.sxsnp` | 1 ファイル = 1 音色 | バイト列をそのまま `clap.state` へ（[0022](0022-six-sines-sxsnp-state-and-github-factory.md)） |
 
 `Vvp` の単位は `StateFile` と同じだが、**別の形として数える**。一緒にすると
 Surge XT と Vaporizer2 のどちらへ送るべき patch かが決まらず、片方の音色が
@@ -38,7 +39,7 @@ Surge XT と Vaporizer2 のどちらへ送るべき patch かが決まらず、�
 **判別規則は `patch_form_of_path()`（`core-lib/src/audio_plugin.rs`）へ 1 本化してある。**
 `kind_for_patch()` と `PatchBases::base_for()` が別々に書いていると、
 **片方だけ直したときに「選ばれたプラグインと基点が食い違う」**という静かな間違いになる。
-順序は cartridge → sfz / ariax → floe-preset → vvp → state_file（`StateFile` が「どれでもない」の受け皿）。
+順序は cartridge → sfz / ariax → floe-preset → vvp → sxsnp → cache wav → state_file（`StateFile` が「どれでもない」の受け皿）。
 
 ## 帰結: IPC に足す情報は 0
 

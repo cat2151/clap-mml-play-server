@@ -2,6 +2,7 @@ pub mod audio_effect;
 mod audio_plugin;
 pub mod boot_log;
 pub mod cache_wav;
+pub mod downloaded_patches;
 pub mod dragonfly_preset;
 pub mod dx7;
 pub mod effect;
@@ -16,9 +17,12 @@ pub mod pipeline;
 pub mod plugin_catalog;
 pub mod render;
 pub mod sforzando;
+pub mod six_sines;
+pub mod six_sines_factory;
 pub mod surge_data;
 pub mod surge_fx_preset;
 pub mod tone3000_preset;
+pub mod tyrelln6;
 pub mod voicing;
 pub mod vvp;
 mod workspace_update;
@@ -57,6 +61,7 @@ pub use audio_plugin::{
 };
 pub use boot_log::{log_boot, log_boot_fatal};
 pub use cmrt_server_config::PatchBase;
+pub use downloaded_patches::{prepare_downloaded_patches, PatchDownload};
 pub use dx7::{
     cartridge_program_component, is_cartridge_patch_path, parse_cartridge_patch_path,
     parse_dx7_cartridge, CartridgePatchPath, Dx7Cartridge, DEXED_PLUGIN_ID, DX7_BULK_DUMP_LEN,
@@ -89,11 +94,14 @@ pub use render::{
 };
 pub use render::{PluginProbeReport, ProbedDescriptor};
 pub use sforzando::{
-    is_ariax_patch_path, is_sforzando_patch_path, is_sfz_patch_path, SFORZANDO_PLUGIN_ID,
+    is_ariax_patch_path, is_sforzando_patch_path, is_sfz_patch_path, sfz_sample_weight,
+    SfzSampleWeight, SFORZANDO_PLUGIN_ID,
 };
+pub use six_sines::{is_six_sines_patch_path, SIX_SINES_PLUGIN_ID};
 pub use surge_data::{
     apply_minimal_surge_data_home, plugin_is_surge, MinimalSurgeDataHome, SURGE_XT_PLUGIN_ID,
 };
+pub use tyrelln6::{is_tyrelln6_patch_path, TYRELLN6_PLUGIN_ID};
 pub use voicing::{PatchVoicing, VoicingReport};
 pub use vvp::{
     is_vvp_patch_path, parse_vvp_header, read_vvp_header, vvp_state_blob, VvpHeader,

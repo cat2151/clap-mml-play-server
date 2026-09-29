@@ -20,3 +20,9 @@ pub fn config_app_dir() -> Option<PathBuf> {
 pub fn config_file_path() -> Option<PathBuf> {
     config_app_dir().map(|d| d.join("config.toml"))
 }
+
+/// GitHub から取得した Six Sines の factory 音色の置き場。置き場からの相対パスが音色の永続 ID なので、
+/// パスに plugin の commit を含めない（含めると plugin 更新で保存済みの patch 文字列が解決しなくなる）。
+pub fn six_sines_factory_dir() -> Option<PathBuf> {
+    config_app_dir().map(|d| d.join("vendor-patches").join("six-sines-factory"))
+}

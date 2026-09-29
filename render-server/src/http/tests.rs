@@ -123,8 +123,36 @@ fn run_render_server_reports_worker_initialization_error() {
     assert!(error.to_string().contains("worker 0"));
 }
 
+#[test]
+fn run_render_server_waits_for_request_sent_after_connect() {
+    let listener =
+        TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0))).expect("bind test listener");
+    let addr = listener.local_addr().expect("read test listener address");
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let server_shutdown = Arc::clone(&shutdown);
+    let server = std::thread::spawn(move || {
+        run_render_server_on_listener(listener, 1, server_shutdown, || {
+            Ok(|_: &str| Ok(b"wav".to_vec()))
+        })
+    });
+
+    let response = send_delayed_render_request(addr, "c", Duration::from_millis(200));
+    shutdown.store(true, Ordering::SeqCst);
+    server.join().expect("join test server").unwrap();
+
+    assert!(
+        response.starts_with("HTTP/1.1 200 OK"),
+        "unexpected response: {response}"
+    );
+}
+
 fn send_render_request(addr: SocketAddr, body: &str) -> String {
+    send_delayed_render_request(addr, body, Duration::ZERO)
+}
+
+fn send_delayed_render_request(addr: SocketAddr, body: &str, delay: Duration) -> String {
     let mut stream = TcpStream::connect(addr).expect("connect to test server");
+    std::thread::sleep(delay);
     stream
         .set_read_timeout(Some(Duration::from_secs(5)))
         .expect("set read timeout");

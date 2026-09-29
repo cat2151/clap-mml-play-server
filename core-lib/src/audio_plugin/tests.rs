@@ -1,7 +1,7 @@
 use super::*;
 use cmrt_server_config::{
     CACHE_PLAYER_PLUGIN_ID, DEXED_PLUGIN_ID, FLOE_PLUGIN_ID, SFORZANDO_PLUGIN_ID,
-    VAPORIZER2_PLUGIN_ID,
+    SIX_SINES_PLUGIN_ID, TYRELLN6_PLUGIN_ID, VAPORIZER2_PLUGIN_ID,
 };
 
 fn plugin(name: &str, id: &str) -> AudioPluginInfo {
@@ -92,6 +92,8 @@ fn only_dry_patch_forms_report_no_builtin_effects() {
         (DEXED_PLUGIN_ID, PatchForm::Cartridge, false),
         (SFORZANDO_PLUGIN_ID, PatchForm::Sfz, false),
         (FLOE_PLUGIN_ID, PatchForm::FloePreset, false),
+        (SIX_SINES_PLUGIN_ID, PatchForm::SixSines, false),
+        (TYRELLN6_PLUGIN_ID, PatchForm::TyrellN6, false),
         (VAPORIZER2_PLUGIN_ID, PatchForm::Vvp, true),
         (SURGE_XT_PLUGIN_ID, PatchForm::StateFile, true),
         (CACHE_PLAYER_PLUGIN_ID, PatchForm::CacheWav, true),
@@ -122,6 +124,10 @@ fn voicing_strategy_is_plugin_neutral_to_callers() {
     );
     assert_eq!(
         plugin_voicing_source(Some(VAPORIZER2_PLUGIN_ID), "ignored"),
+        PluginVoicingSource::CatalogMetadata
+    );
+    assert_eq!(
+        plugin_voicing_source(Some(SIX_SINES_PLUGIN_ID), "ignored"),
         PluginVoicingSource::CatalogMetadata
     );
     assert_eq!(
@@ -205,4 +211,80 @@ fn ariax_presets_are_read_by_sforzando_like_sfz() {
         patch_form_of_path("Garritan/Glockenspiel.sfz"),
         PatchForm::Sfz
     );
+}
+
+#[test]
+fn six_sines_patches_route_to_six_sines_only() {
+    let catalog = AudioPluginCatalog::new(vec![
+        plugin("Surge XT", SURGE_XT_PLUGIN_ID),
+        plugin("Six Sines", SIX_SINES_PLUGIN_ID),
+    ]);
+    assert_eq!(
+        catalog.route_patch("Bass/Bass 1.sxsnp").unwrap().name,
+        "Six Sines"
+    );
+    assert_eq!(
+        catalog
+            .route_patch("patches_factory/Keys/EP.fxp")
+            .unwrap()
+            .name,
+        "Surge XT"
+    );
+}
+
+/// `.h2p` は TyrellN6 だけへ、`.fxp` は TyrellN6 へは行かない。mono/poly は読まない。
+#[test]
+fn tyrelln6_patches_route_to_tyrelln6_only() {
+    let catalog = AudioPluginCatalog::new(vec![
+        plugin("Surge XT", SURGE_XT_PLUGIN_ID),
+        plugin("TyrellN6", TYRELLN6_PLUGIN_ID),
+    ]);
+    assert_eq!(
+        catalog.route_patch("01 Basses/Abgrund.h2p").unwrap().name,
+        "TyrellN6"
+    );
+    assert_eq!(
+        catalog
+            .route_patch("patches_factory/Keys/EP.fxp")
+            .unwrap()
+            .name,
+        "Surge XT"
+    );
+    assert_eq!(
+        patch_form_of_path("01 Basses\\Abgrund.H2P"),
+        PatchForm::TyrellN6
+    );
+    assert_eq!(
+        plugin_voicing_source(Some(TYRELLN6_PLUGIN_ID), "TyrellN6.clap"),
+        PluginVoicingSource::AssumePoly
+    );
+}
+
+/// voicing は再生モード（param 523）から読む。読めないときは Poly にせず Unknown。
+#[test]
+fn six_sines_voicing_comes_from_the_play_mode_param() {
+    let dir = std::env::temp_dir().join(format!("cmrt_test_six_sines_{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("Bass")).unwrap();
+    let xml = |mode: &str| {
+        format!(
+            r#"<patch id="org.baconpaul.six-sines" version="6" name="X"><params><p id="500" v="0.75" /><p id="523" v="{mode}" /></params></patch>"#
+        )
+    };
+    std::fs::write(dir.join("Bass").join("mono.sxsnp"), xml("1.000000")).unwrap();
+    std::fs::write(dir.join("Bass").join("poly.sxsnp"), xml("0.000000")).unwrap();
+    let info = AudioPluginInfo::new(
+        "Six Sines",
+        "Six Sines.clap",
+        Some(SIX_SINES_PLUGIN_ID.to_string()),
+        Some(dir.to_string_lossy().into_owned()),
+    );
+    let mono = info.describe_patch("Bass/mono.sxsnp", None);
+    let poly = info.describe_patch("Bass/poly.sxsnp", None);
+    let missing = info.describe_patch("Bass/missing.sxsnp", None);
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert_eq!(known_voicing(&mono), PatchVoicing::Mono);
+    assert_eq!(known_voicing(&poly), PatchVoicing::Poly);
+    assert_eq!(known_voicing(&missing), PatchVoicing::Unknown);
+    assert_eq!(mono.sort.category, "Bass");
 }

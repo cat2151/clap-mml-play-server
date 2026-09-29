@@ -172,6 +172,10 @@ fn handle_connection(
     render: &mut impl FnMut(&str) -> Result<Vec<u8>>,
     log: &ConnectionLog,
 ) -> Result<()> {
+    // Windows では accept したソケットが listener の nonblocking を継承し、read timeout が効かない。
+    stream
+        .set_nonblocking(false)
+        .context("failed to make accepted connection blocking")?;
     stream
         .set_read_timeout(Some(REQUEST_READ_TIMEOUT))
         .context("failed to set request read timeout")?;

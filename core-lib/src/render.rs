@@ -16,6 +16,8 @@ use crate::dx7::is_cartridge_patch_path;
 use crate::floe::is_floe_preset_path;
 use crate::host::MidiRenderHost;
 use crate::sforzando::{is_sforzando_patch_path, SfzStreaming};
+use crate::six_sines::is_six_sines_patch_path;
+use crate::tyrelln6::is_tyrelln6_patch_path;
 use crate::vvp::is_vvp_patch_path;
 use crate::CoreConfig;
 
@@ -33,16 +35,20 @@ mod playback;
 mod process_inputs;
 mod serial_instantiation;
 mod sfz_state;
+mod six_sines_patch;
+mod tyrelln6_patch;
 mod voicing_probe;
 mod vvp_patch;
 use descriptor::{probe_capabilities, resolve_note_dialect, NoteEventDialect, PluginCapabilities};
 use floe_preset::{ensure_floe_capable, load_floe_state};
 pub(crate) use instance::create_plugin_instance_without_patch;
-use patch_state::load_patch;
+use patch_state::{ensure_accepts_generic_state_file, load_patch};
 pub(crate) use patch_state::{load_plugin_state, save_plugin_state};
 use process_inputs::{input_buffer, push_offline_note_event};
 use sfz_state::load_initial_sfz_state;
 use silence::ActiveNotes;
+use six_sines_patch::{ensure_six_sines_capable, load_six_sines_state};
+use tyrelln6_patch::{ensure_tyrelln6_capable, load_tyrelln6_state};
 use vvp_patch::{ensure_vvp_capable, load_vvp_state};
 
 pub use capability_probe::{probe_plugin_capabilities, PluginProbeReport, ProbedDescriptor};
@@ -193,7 +199,15 @@ impl RealtimeRenderer {
             } else if is_vvp_patch_path(patch) {
                 ensure_vvp_capable(&descriptor.id)?;
                 load_vvp_state(&mut plugin_instance, patch)?;
+            } else if is_six_sines_patch_path(patch) {
+                ensure_six_sines_capable(&descriptor.id)?;
+                load_six_sines_state(&mut plugin_instance, patch)?;
+            } else if is_tyrelln6_patch_path(patch) {
+                // まだ `process()` を回していないので反映は遅れない（空回しは要らない）。
+                ensure_tyrelln6_capable(&descriptor.id)?;
+                load_tyrelln6_state(&mut plugin_instance, patch)?;
             } else {
+                ensure_accepts_generic_state_file(&descriptor.id, patch)?;
                 load_patch(&mut plugin_instance, patch)?;
             }
             timing.load_patch = step.elapsed();
@@ -245,6 +259,12 @@ impl RealtimeRenderer {
             let step = Instant::now();
             renderer.set_patch(cfg.patch_path.as_deref())?;
             timing.load_patch = step.elapsed();
+        } else if cfg
+            .patch_path
+            .as_deref()
+            .is_some_and(is_six_sines_patch_path)
+        {
+            renderer.apply_six_sines_state()?;
         }
         timing.total = started.elapsed();
         Ok((renderer, timing))

@@ -314,3 +314,27 @@ fn collect_patches_mixes_all_five_patch_forms() {
     assert!(patches.iter().any(|path| path.ends_with("orchestra.sfz")));
     let _ = std::fs::remove_dir_all(&tmp_dir);
 }
+
+/// `.h2p` は 1 ファイル = 1 音色。中身に NUL を含んでも開かずに列挙する。
+#[test]
+fn collect_patches_lists_tyrelln6_presets_under_category_dirs() {
+    let tmp_dir = std::env::temp_dir().join("cmrt_test_collect_patches_h2p");
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+    let basses = tmp_dir.join("01 Basses");
+    std::fs::create_dir_all(&basses).unwrap();
+    std::fs::write(basses.join("Abgrund.h2p"), b"#AM=TyrellN6\n\0\0").unwrap();
+    std::fs::write(basses.join("Loud.H2P"), b"#AM=TyrellN6\n\0\0").unwrap();
+    std::fs::write(tmp_dir.join("Midi.Bank.Cache.txt"), b"not a patch").unwrap();
+
+    let patches = collect_patches(tmp_dir.to_str().unwrap()).unwrap();
+
+    assert_eq!(patches.len(), 2);
+    assert!(patches
+        .iter()
+        .all(|path| crate::is_tyrelln6_patch_path(&path.to_string_lossy())));
+    assert_eq!(
+        to_relative(tmp_dir.to_str().unwrap(), &patches[0]),
+        "01 Basses/Abgrund.h2p"
+    );
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+}

@@ -185,6 +185,8 @@ pub struct PatchBases {
     vvp: PatchBase,
     floe_preset: PatchBase,
     sfz: PatchBase,
+    six_sines: PatchBase,
+    tyrelln6: PatchBase,
     cache_wav: PatchBase,
 }
 
@@ -225,6 +227,8 @@ impl PatchBases {
             vvp: shared(vvp),
             floe_preset: shared(floe_preset),
             sfz: shared(sfz),
+            six_sines: PatchBase::None,
+            tyrelln6: PatchBase::None,
             // 組み込み cache-player は基点を持たない（DAW が絶対パスを渡す）。
             cache_wav: PatchBase::None,
         }
@@ -238,6 +242,8 @@ impl PatchBases {
             PatchForm::Vvp => &self.vvp,
             PatchForm::FloePreset => &self.floe_preset,
             PatchForm::Sfz => &self.sfz,
+            PatchForm::SixSines => &self.six_sines,
+            PatchForm::TyrellN6 => &self.tyrelln6,
             PatchForm::CacheWav => &self.cache_wav,
         }
     }
@@ -254,6 +260,8 @@ impl PatchBases {
             PatchForm::Vvp => &mut self.vvp,
             PatchForm::FloePreset => &mut self.floe_preset,
             PatchForm::Sfz => &mut self.sfz,
+            PatchForm::SixSines => &mut self.six_sines,
+            PatchForm::TyrellN6 => &mut self.tyrelln6,
             PatchForm::CacheWav => &mut self.cache_wav,
         }
     }

@@ -8,6 +8,30 @@ use clack_extensions::state::PluginState;
 use clack_host::prelude::*;
 
 use crate::host::MidiRenderHost;
+use crate::six_sines::SIX_SINES_PLUGIN_ID;
+use crate::tyrelln6::TYRELLN6_PLUGIN_ID;
+
+/// 自分の形式の音色しか読まないプラグインと、その音色の拡張子。
+///
+/// どれも固有形式以外の state を受け取る契約を持たない。生のバイト列が state load へ届いたときの
+/// 挙動はプラグインごとに違う（Vaporizer2 はプロセスごと落ちた）ので、送る前に拒む。
+const OWN_FORMAT_ONLY_PLUGINS: [(&str, &str); 2] = [
+    (SIX_SINES_PLUGIN_ID, ".sxsnp"),
+    (TYRELLN6_PLUGIN_ID, ".h2p"),
+];
+
+/// `.fxp` のような汎用 state file を、そのプラグインへ流してよいか。
+pub(super) fn ensure_accepts_generic_state_file(plugin_id: &str, patch_path: &str) -> Result<()> {
+    match OWN_FORMAT_ONLY_PLUGINS
+        .iter()
+        .find(|(id, _)| *id == plugin_id)
+    {
+        None => Ok(()),
+        Some((id, extension)) => {
+            anyhow::bail!("plugin_id = '{id}' は '{extension}' の音色しか読めない: '{patch_path}'")
+        }
+    }
+}
 
 /// .fxp ファイルを clap state として plugin にロードする
 ///
@@ -92,3 +116,6 @@ pub(crate) fn load_plugin_state(
         .map_err(|_| anyhow::anyhow!("プラグイン state のロードに失敗"))?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

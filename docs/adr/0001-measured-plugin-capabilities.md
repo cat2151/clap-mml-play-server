@@ -19,16 +19,16 @@ clap-mml-realtime-play-server probe-capabilities --plugin-path "C:\Program Files
 
 ## 実測値（設計判断に効く行だけ）
 
-| | Dexed 1.0.1 | Surge XT 1.3.4 | Vaporizer2 3.5.0 | Sforzando 2.1.2.4 |
-|---|---|---|---|---|
-| plugin ID | `com.digital-suburban.dexed` | `org.surge-synth-team.surge-xt` | `com.vastdynamics.VAST2` | `com.Plogue Art et Technologie, Inc.sforzando` |
-| descriptor 数 | 1 | 1 | 1 | 1 |
-| audio input port | **0** | 1 | 1 | **0** |
-| audio output port | 1 | **3** | 1 | 1 |
-| note dialect | **MIDI のみ** | CLAP \| MIDI \| MIDI_MPE | **MIDI のみ** | **MIDI のみ** |
-| voice-info | **なし** | あり | **なし** | あり |
-| preset-discovery factory | **NULL** | `/2` あり | **NULL** | `/2` あり |
-| preset-load | **NULL** | `/2` と `.draft/2` あり | **NULL** | `/2` と `.draft/2` あり（実 `.sfz` は `false`） |
+| | Dexed 1.0.1 | Surge XT 1.3.4 | Vaporizer2 3.5.0 | Sforzando 2.1.2.4 | Six Sines 1.2.0 |
+|---|---|---|---|---|---|
+| plugin ID | `com.digital-suburban.dexed` | `org.surge-synth-team.surge-xt` | `com.vastdynamics.VAST2` | `com.Plogue Art et Technologie, Inc.sforzando` | `org.baconpaul.six-sines` |
+| descriptor 数 | 1 | 1 | 1 | 1 | **2**（`.seven-outs` 版） |
+| audio input port | **0** | 1 | 1 | **0** | 1 |
+| audio output port | 1 | **3** | 1 | 1 | 1 |
+| note dialect | **MIDI のみ** | CLAP \| MIDI \| MIDI_MPE | **MIDI のみ** | **MIDI のみ** | CLAP \| MIDI \| MIDI_MPE |
+| voice-info | **なし** | あり | **なし** | あり | **なし** |
+| preset-discovery factory | **NULL** | `/2` あり | **NULL** | `/2` あり | **NULL** |
+| preset-load | **NULL** | `/2` と `.draft/2` あり | **NULL** | `/2` と `.draft/2` あり（実 `.sfz` は `false`） | `/2` と `.draft/2` あり（使わない。[0022](0022-six-sines-sxsnp-state-and-github-factory.md)） |
 
 main output（port 0）はいずれも stereo `IS_MAIN`、note input port はいずれも 1 本。
 name / vendor / features / params 数のような判断に効かない値は `probe-capabilities` で取る。
@@ -43,8 +43,9 @@ name / vendor / features / params 数のような判断に効かない値は `pr
 - note input port 0 本 → エラー
 - dialect が CLAP でも MIDI でもない → エラー
 
-descriptor はどれも 1 件なので `plugin_id` の指定は必須ではないが、config には書く
+descriptor が 1 件のプラグインでは `plugin_id` の指定は必須ではないが、config には書く
 （将来 descriptor が増えたときに黙って別物を掴まないため）。
+**Six Sines は descriptor が 2 件あり、`plugin_id` が無いと instance を作れない。**
 
 ## note dialect が MIDI だけのプラグインは voicing probe が成立しない
 
@@ -56,6 +57,7 @@ MIDI dialect には `note_id` が無いので `NOTE_END` が返らない。**Dex
 | Surge XT | CLAP note の `NOTE_END` を数える probe（本来の方法） |
 | Dexed | インスタンス設定 `MonoMode` の既定が POLY という実測（[0005](0005-dexed-mono-mode-is-poly.md)） |
 | Vaporizer2 | **音色ファイル `.vvp` の `m_uPolyMode`**（[0014](0014-vvp-as-clap-state.md)） |
+| Six Sines | 音色ファイル `.sxsnp` の param `523`（[0022](0022-six-sines-sxsnp-state-and-github-factory.md)） |
 
 ## 残っている契約違反（承知のうえ）
 

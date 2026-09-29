@@ -232,6 +232,67 @@ fn the_builtin_sforzando_profile_has_identity() {
     assert_eq!(profile.patches_dirs, None);
 }
 
+#[test]
+fn the_builtin_six_sines_profile_uses_the_downloaded_factory_directory() {
+    let profile = resolve_builtin("Six Sines").unwrap();
+
+    assert_eq!(profile.plugin_path, default_six_sines_plugin_path());
+    assert_eq!(profile.plugin_id.as_deref(), Some(SIX_SINES_PLUGIN_ID));
+    let expected: Vec<String> = crate::six_sines_factory_dir()
+        .map(|dir| dir.to_string_lossy().into_owned())
+        .into_iter()
+        .collect();
+    assert_eq!(profile.patches_dirs, Some(expected));
+}
+
+/// config に `patches_dirs` を書いても、取得先の置き場が勝つ（display の基点を 1 つに保つ）。
+#[test]
+fn a_configured_six_sines_patches_dirs_is_replaced_by_the_factory_directory() {
+    let profile = resolve(
+        "six_sines",
+        r#"
+[plugins."Six Sines"]
+patches_dirs = ["/somewhere/else"]
+"#,
+    )
+    .unwrap();
+
+    assert_ne!(
+        profile.patches_dirs,
+        Some(vec!["/somewhere/else".to_string()])
+    );
+}
+
+#[test]
+fn the_builtin_tyrelln6_profile_reads_its_patch_directories_from_the_registry() {
+    let profile = resolve_builtin("TyrellN6").unwrap();
+
+    assert_eq!(profile.plugin_path, default_tyrelln6_plugin_path());
+    assert_eq!(profile.plugin_id.as_deref(), Some(TYRELLN6_PLUGIN_ID));
+    assert_eq!(
+        profile.patches_dirs,
+        Some(crate::vendor_patch_dirs::tyrelln6_preset_dirs())
+    );
+}
+
+/// 本体の設定と食い違わないよう、config に書かれた置き場は無視する。
+#[test]
+fn a_configured_tyrelln6_patches_dirs_is_ignored() {
+    let profile = resolve(
+        "tyrelln6",
+        r#"
+[plugins.TyrellN6]
+patches_dirs = ["/presets/TyrellN6"]
+"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        profile.patches_dirs,
+        Some(crate::vendor_patch_dirs::tyrelln6_preset_dirs())
+    );
+}
+
 /// 旧Role設定は移行期間なしで廃止し、未知キーとして明示的に拒否する。
 #[test]
 fn retired_patch_role_keys_are_rejected() {
@@ -269,6 +330,14 @@ fn the_plugin_id_decides_the_patch_form() {
         patch_form_of(Some(SFORZANDO_PLUGIN_ID), "whatever.clap"),
         PatchForm::Sfz
     );
+    assert_eq!(
+        patch_form_of(Some(SIX_SINES_PLUGIN_ID), "whatever.clap"),
+        PatchForm::SixSines
+    );
+    assert_eq!(
+        patch_form_of(Some(TYRELLN6_PLUGIN_ID), "whatever.clap"),
+        PatchForm::TyrellN6
+    );
 }
 
 /// `plugin_id` を書いていない config でも、ファイル名から拾えること。
@@ -294,6 +363,14 @@ fn the_file_name_is_the_last_resort_when_no_plugin_id_is_written() {
     assert_eq!(
         patch_form_of(None, r"C:\CLAP\sforzando_x64.clap"),
         PatchForm::Sfz
+    );
+    assert_eq!(
+        patch_form_of(None, r"C:\CLAP\BaconPaul\Six Sines.clap"),
+        PatchForm::SixSines
+    );
+    assert_eq!(
+        patch_form_of(None, r"C:\CLAP\u-he\TyrellN6.clap"),
+        PatchForm::TyrellN6
     );
 }
 

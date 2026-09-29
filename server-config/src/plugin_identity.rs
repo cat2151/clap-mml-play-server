@@ -11,6 +11,9 @@ pub const DEXED_PLUGIN_ID: &str = "com.digital-suburban.dexed";
 pub const VAPORIZER2_PLUGIN_ID: &str = "com.vastdynamics.VAST2";
 pub const FLOE_PLUGIN_ID: &str = "com.floe-audio.floe";
 pub const SFORZANDO_PLUGIN_ID: &str = "com.Plogue Art et Technologie, Inc.sforzando";
+/// Six Sines の main stereo 版。同じ `.clap` に多出力版 `org.baconpaul.six-sines.seven-outs` も入っている。
+pub const SIX_SINES_PLUGIN_ID: &str = "org.baconpaul.six-sines";
+pub const TYRELLN6_PLUGIN_ID: &str = "com.u-he.TyrellN6";
 /// DAW の cell キャッシュ WAV を鳴らす組み込みプラグイン（`cache-player` crate）の CLAP ID。
 ///
 /// **`.clap` ファイルとしてディスクに存在しない**（バイナリへ静的リンク）ので、`installed_plugin_profiles()`

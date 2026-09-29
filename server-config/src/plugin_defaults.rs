@@ -118,6 +118,40 @@ pub fn default_sforzando_plugin_path() -> &'static str {
     ""
 }
 
+/// OS ごとのデフォルト Six Sines パスを返す。
+/// 音色置き場は GitHub から取得した factory 置き場（[`crate::six_sines_factory_dir`]）で決まる。
+#[cfg(target_os = "windows")]
+pub fn default_six_sines_plugin_path() -> &'static str {
+    r"C:\Program Files\Common Files\CLAP\BaconPaul\Six Sines.clap"
+}
+
+#[cfg(target_os = "macos")]
+pub fn default_six_sines_plugin_path() -> &'static str {
+    "/Library/Audio/Plug-Ins/CLAP/BaconPaul/Six Sines.clap"
+}
+
+#[cfg(target_os = "linux")]
+pub fn default_six_sines_plugin_path() -> &'static str {
+    "/usr/lib/clap/Six Sines.clap"
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+pub fn default_six_sines_plugin_path() -> &'static str {
+    ""
+}
+
+/// OS ごとのデフォルト TyrellN6 パスを返す。Windows 以外は空。
+/// 音色置き場は registry の `DataPath` から決まる（[`crate::merged_plugin_profiles`]）。
+#[cfg(target_os = "windows")]
+pub fn default_tyrelln6_plugin_path() -> &'static str {
+    r"C:\Program Files\Common Files\CLAP\u-he\TyrellN6.clap"
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn default_tyrelln6_plugin_path() -> &'static str {
+    ""
+}
+
 /// OS ごとのデフォルト patches_dirs を返す。
 /// 既知 OS でない場合や取得できない場合は空配列を返す（ユーザーに設定を促す）。
 #[cfg(target_os = "windows")]

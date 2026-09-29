@@ -10,10 +10,10 @@ use std::io::Cursor;
 use anyhow::Context;
 use xmltree::{Element, EmitterConfig, XMLNode};
 
-pub use cmrt_server_config::SFORZANDO_PLUGIN_ID;
 pub(crate) use cmrt_server_config::{
     resolve_sforzando_preset, resolve_sforzando_program, SforzandoPresetRef, SforzandoProgramRef,
 };
+pub use cmrt_server_config::{sfz_sample_weight, SfzSampleWeight, SFORZANDO_PLUGIN_ID};
 
 const SFZ_EXTENSION: &str = ".sfz";
 const ARIAX_EXTENSION: &str = ".ariax";

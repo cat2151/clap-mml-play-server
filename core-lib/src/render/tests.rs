@@ -24,8 +24,8 @@
 //!
 //! 環境変数が無いテストは、黙って通さず panic させる（未検証を成功と誤認しないため）。
 //!
-//! Vaporizer2 の `.vvp` の置き場だけは環境変数ではなく、本番と同じ経路で registry から
-//! 読む（[`vaporizer2`] module）。
+//! Vaporizer2 の `.vvp` と TyrellN6 の `.h2p` の置き場は環境変数ではなく、本番と同じ経路で
+//! registry から読む（[`vaporizer2`] / [`tyrelln6`] module）。
 //!
 //! このファイルにはプラグインをまたいで使うヘルパだけを置く。テスト本体は
 //! プラグイン別（[`dexed`] / [`surge`] / [`vaporizer2`]）と、
@@ -98,5 +98,8 @@ mod dexed;
 mod floe;
 mod plugin_id;
 mod sforzando;
+mod six_sines;
 mod surge;
+mod tyrelln6;
+mod tyrelln6_patch_switch;
 mod vaporizer2;

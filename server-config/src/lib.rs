@@ -31,15 +31,15 @@ pub use patch_catalog::{
     resolve_patch_catalog, resolve_patch_catalog_roots, PatchCatalogResolution,
 };
 pub use patch_dirs::{configured_patch_dirs, patch_root_dir, shared_patch_root_dir};
-pub use paths::{config_app_dir, config_file_path};
+pub use paths::{config_app_dir, config_file_path, six_sines_factory_dir};
 pub use plugin_defaults::{
     default_dexed_cartridge_dirs, default_dexed_plugin_path, default_floe_plugin_path,
     default_patches_dirs, default_plugin_path, default_sforzando_plugin_path,
-    default_vaporizer2_plugin_path,
+    default_six_sines_plugin_path, default_tyrelln6_plugin_path, default_vaporizer2_plugin_path,
 };
 pub use plugin_identity::{
     plugin_file_stem, CACHE_PLAYER_PLUGIN_ID, DEXED_PLUGIN_ID, FLOE_PLUGIN_ID, SFORZANDO_PLUGIN_ID,
-    SURGE_XT_PLUGIN_ID, VAPORIZER2_PLUGIN_ID,
+    SIX_SINES_PLUGIN_ID, SURGE_XT_PLUGIN_ID, TYRELLN6_PLUGIN_ID, VAPORIZER2_PLUGIN_ID,
 };
 pub use plugin_profile::{
     builtin_plugin_profiles, installed_plugin_profiles, merged_plugin_profiles, patch_form_of,
@@ -50,7 +50,8 @@ pub use primary_plugin::{
     PRIMARY_PLUGIN_PROFILE_NAME,
 };
 pub use sforzando_programs::{
-    resolve_sforzando_preset, resolve_sforzando_program, SforzandoPresetRef, SforzandoProgramRef,
+    resolve_sforzando_preset, resolve_sforzando_program, sfz_sample_weight, SforzandoPresetRef,
+    SforzandoProgramRef, SfzSampleWeight,
 };
 pub use vaporizer2_categories::VAPORIZER2_CATEGORY_CODES;
 

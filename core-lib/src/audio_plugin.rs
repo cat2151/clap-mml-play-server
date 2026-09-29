@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     cache_wav::is_cache_wav_patch_path, is_cartridge_patch_path, is_floe_preset_path,
-    is_sforzando_patch_path, is_vvp_patch_path, patch_list::MergedPatches, read_vvp_header,
-    PatchVoicing,
+    is_sforzando_patch_path, is_six_sines_patch_path, is_tyrelln6_patch_path, is_vvp_patch_path,
+    patch_list::MergedPatches, read_vvp_header, six_sines::read_six_sines_voicing, PatchVoicing,
 };
 use cmrt_server_config::{patch_form_of, PatchBase, PatchForm, SURGE_XT_PLUGIN_ID};
 
@@ -141,12 +141,16 @@ impl AudioPluginInfo {
 
     /// 音色そのものが reverb などの effect を内蔵しているか。
     ///
-    /// false の plugin（Dexed・sforzando・Floe）は音色が dry なので、client は試聴時に
+    /// false の plugin（Dexed・sforzando・Floe・Six Sines・TyrellN6）は音色が dry なので、client は試聴時に
     /// effect を足してよい。未知の plugin は true 側へ倒す（勝手に effect を足させない）。
     /// render 済み wav は音が完成しているので true。
     pub fn has_builtin_effects(&self) -> bool {
         match self.patch_form {
-            PatchForm::Cartridge | PatchForm::Sfz | PatchForm::FloePreset => false,
+            PatchForm::Cartridge
+            | PatchForm::Sfz
+            | PatchForm::FloePreset
+            | PatchForm::SixSines
+            | PatchForm::TyrellN6 => false,
             PatchForm::Vvp | PatchForm::StateFile | PatchForm::CacheWav => true,
         }
     }
@@ -227,7 +231,10 @@ impl AudioPluginCatalog {
 pub fn plugin_voicing_source(plugin_id: Option<&str>, plugin_path: &str) -> PluginVoicingSource {
     if is_surge(plugin_id, plugin_path) {
         PluginVoicingSource::ExternalLookup
-    } else if patch_form_of(plugin_id, plugin_path) == PatchForm::Vvp {
+    } else if matches!(
+        patch_form_of(plugin_id, plugin_path),
+        PatchForm::Vvp | PatchForm::SixSines
+    ) {
         PluginVoicingSource::CatalogMetadata
     } else {
         PluginVoicingSource::AssumePoly
@@ -274,6 +281,11 @@ fn describe_patch(
         PluginVoicingSource::ExternalLookup => PatchVoicingHint::ExternalLookup {
             key: display.to_string(),
         },
+        PluginVoicingSource::CatalogMetadata if plugin.patch_form == PatchForm::SixSines => {
+            PatchVoicingHint::Known {
+                voicing: absolute_path.map_or(PatchVoicing::Unknown, read_six_sines_voicing),
+            }
+        }
         PluginVoicingSource::CatalogMetadata => {
             let voicing = absolute_path
                 .and_then(|path| read_vvp_header(path).ok())
@@ -334,6 +346,10 @@ pub(crate) fn patch_form_of_path(patch: &str) -> PatchForm {
         PatchForm::FloePreset
     } else if is_vvp_patch_path(patch) {
         PatchForm::Vvp
+    } else if is_six_sines_patch_path(patch) {
+        PatchForm::SixSines
+    } else if is_tyrelln6_patch_path(patch) {
+        PatchForm::TyrellN6
     } else if is_cache_wav_patch_path(patch) {
         PatchForm::CacheWav
     } else {

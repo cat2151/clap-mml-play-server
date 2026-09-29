@@ -328,3 +328,7 @@ fn conflicting_programs_for_one_canonical_path_are_excluded() {
 mod installed;
 
 mod ariax;
+
+mod missing_samples;
+
+mod included_parts;
