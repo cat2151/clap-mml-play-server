@@ -176,46 +176,51 @@ plugin_id = "custom.dexed"
     assert_eq!(profile.plugin_id.as_deref(), Some("custom.dexed"));
 }
 
-/// Vaporizer2 も名前 1 行で使える。**ただし音色置き場は組み込みでは埋まらない。**
-/// プリセット置き場はユーザーが決めるものなので、config に書いてもらう
-/// （書かなければ音色置き場が空のままカタログに載らない、という安全側の倒れ方をする）。
 #[test]
-fn the_builtin_vaporizer2_profile_brings_no_patch_directories() {
+fn the_builtin_vaporizer2_profile_reads_its_patch_directories_from_the_registry() {
     let profile = resolve_builtin("Vaporizer2").unwrap();
 
     assert_eq!(profile.plugin_path, default_vaporizer2_plugin_path());
     assert_eq!(profile.plugin_id.as_deref(), Some("com.vastdynamics.VAST2"));
-    assert_eq!(profile.patches_dirs, None);
-    assert!(configured_patch_dirs(profile.patches_dirs.as_deref()).is_empty());
+    assert_eq!(
+        profile.patches_dirs,
+        Some(crate::vendor_patch_dirs::vaporizer2_preset_dirs())
+    );
 }
 
-/// 標準の場所へ入れているユーザーが書くのは `patches_dirs` の 1 行だけで済む。
+/// 本体の設定と食い違わないよう、config に書かれた置き場は無視する。
 #[test]
-fn a_vaporizer2_profile_only_needs_its_patches_dirs() {
-    let profile = resolve(
-        "Vaporizer2",
-        r#"
+fn configured_vaporizer2_and_floe_patches_dirs_are_ignored() {
+    let toml = r#"
 [plugins.Vaporizer2]
 patches_dirs = ["/presets/Vaporizer2"]
-"#,
-    )
-    .unwrap();
 
-    assert_eq!(profile.plugin_path, default_vaporizer2_plugin_path());
-    assert_eq!(profile.plugin_id.as_deref(), Some("com.vastdynamics.VAST2"));
+[plugins.Floe]
+patches_dirs = ["/presets/Floe"]
+"#;
+    let vaporizer2 = resolve("Vaporizer2", toml).unwrap();
+    let floe = resolve("Floe", toml).unwrap();
+
     assert_eq!(
-        configured_patch_dirs(profile.patches_dirs.as_deref()),
-        vec!["/presets/Vaporizer2".to_string()]
+        vaporizer2.patches_dirs,
+        Some(crate::vendor_patch_dirs::vaporizer2_preset_dirs())
+    );
+    assert_eq!(
+        floe.patches_dirs,
+        Some(crate::vendor_patch_dirs::floe_preset_dirs())
     );
 }
 
 #[test]
-fn the_builtin_floe_profile_has_identity_but_no_patch_directories() {
+fn the_builtin_floe_profile_reads_its_patch_directories_from_floe_ini() {
     let profile = resolve_builtin("Floe").unwrap();
 
     assert_eq!(profile.plugin_path, default_floe_plugin_path());
     assert_eq!(profile.plugin_id.as_deref(), Some(FLOE_PLUGIN_ID));
-    assert_eq!(profile.patches_dirs, None);
+    assert_eq!(
+        profile.patches_dirs,
+        Some(crate::vendor_patch_dirs::floe_preset_dirs())
+    );
 }
 
 #[test]
@@ -225,25 +230,6 @@ fn the_builtin_sforzando_profile_has_identity() {
     assert_eq!(profile.plugin_path, default_sforzando_plugin_path());
     assert_eq!(profile.plugin_id.as_deref(), Some(SFORZANDO_PLUGIN_ID));
     assert_eq!(profile.patches_dirs, None);
-}
-
-#[test]
-fn a_floe_profile_only_needs_its_patches_dirs() {
-    let profile = resolve(
-        "Floe",
-        r#"
-[plugins.Floe]
-patches_dirs = ["/presets/Floe"]
-"#,
-    )
-    .unwrap();
-
-    assert_eq!(profile.plugin_path, default_floe_plugin_path());
-    assert_eq!(profile.plugin_id.as_deref(), Some(FLOE_PLUGIN_ID));
-    assert_eq!(
-        configured_patch_dirs(profile.patches_dirs.as_deref()),
-        vec!["/presets/Floe".to_string()]
-    );
 }
 
 /// 旧Role設定は移行期間なしで廃止し、未知キーとして明示的に拒否する。

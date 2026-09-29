@@ -79,10 +79,7 @@ pub fn builtin_plugin_profiles() -> BTreeMap<String, PluginProfile> {
             PluginProfile {
                 plugin_path: default_vaporizer2_plugin_path().to_string(),
                 plugin_id: Some(VAPORIZER2_PLUGIN_ID.to_string()),
-                // 音色置き場に既定値は無い（[`default_vaporizer2_plugin_path`] の理由）。
-                // `None` は「書かれていない」なので、config の `[plugins.Vaporizer2]` に
-                // `patches_dirs` を書けばそれがそのまま効く。書かなければ音色置き場が
-                // 空のままカタログに載らない。
+                // 音色置き場は registry から [`merged_plugin_profiles`] が埋める。
                 patches_dirs: None,
             },
         ),
@@ -91,7 +88,7 @@ pub fn builtin_plugin_profiles() -> BTreeMap<String, PluginProfile> {
             PluginProfile {
                 plugin_path: default_floe_plugin_path().to_string(),
                 plugin_id: Some(FLOE_PLUGIN_ID.to_string()),
-                // preset library は環境依存なので config の `[plugins.Floe]` で指定する。
+                // 音色置き場は floe.ini から [`merged_plugin_profiles`] が埋める。
                 patches_dirs: None,
             },
         ),
@@ -177,8 +174,10 @@ pub fn patch_form_of(plugin_id: Option<&str>, plugin_path: &str) -> PatchForm {
 
 /// 組み込みプロファイルと config の `[plugins.*]` を合わせた一覧。
 ///
-/// 同名なら config 側の「書かれている項目」が組み込みを上書きする
-/// 表記ゆれを吸収し、同名なら config 側の差分を優先する。
+/// 表記ゆれを吸収し、同名なら config 側の「書かれている項目」が組み込みを上書きする。
+///
+/// Vaporizer2 と Floe の `patches_dirs` だけは config を無視し、本体の設定から読んだ値で
+/// 置き換える（[`crate::vendor_patch_dirs`]）。
 pub fn merged_plugin_profiles(
     from_config: &BTreeMap<String, PluginProfile>,
 ) -> BTreeMap<String, PluginProfile> {
@@ -192,6 +191,17 @@ pub fn merged_plugin_profiles(
             .cloned()
             .unwrap_or_else(|| name.clone());
         merged.insert(key, base.overridden_by(configured.clone()));
+    }
+    for profile in merged.values_mut() {
+        match patch_form_of(profile.plugin_id.as_deref(), &profile.plugin_path) {
+            PatchForm::Vvp => {
+                profile.patches_dirs = Some(crate::vendor_patch_dirs::vaporizer2_preset_dirs())
+            }
+            PatchForm::FloePreset => {
+                profile.patches_dirs = Some(crate::vendor_patch_dirs::floe_preset_dirs())
+            }
+            _ => {}
+        }
     }
     merged
 }

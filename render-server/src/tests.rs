@@ -119,10 +119,9 @@ fn core_config_from_server_config_uses_the_builtin_surge_id_when_profile_omits_i
 fn render_server_plugin_kinds_retain_floe_as_a_distinct_form() {
     let root = std::env::temp_dir().join("cmrt_render_server_floe_kind");
     let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(root.join("presets")).unwrap();
+    std::fs::create_dir_all(&root).unwrap();
     std::fs::write(root.join("Floe.clap"), b"fixture").unwrap();
     let plugin = root.join("Floe.clap").to_string_lossy().replace('\\', "/");
-    let presets = root.join("presets").to_string_lossy().replace('\\', "/");
     let cfg = ServerConfig::from_toml_str(&format!(
         r#"
 output_midi = "output.mid"
@@ -132,7 +131,6 @@ buffer_size = 512
 
 [plugins.Floe]
 plugin_path = "{plugin}"
-patches_dirs = ["{presets}"]
 "#
     ))
     .unwrap();
@@ -145,7 +143,6 @@ patches_dirs = ["{presets}"]
         floe.core_cfg.plugin_id.as_deref(),
         Some(cmrt_server_config::FLOE_PLUGIN_ID)
     );
-    assert_eq!(floe.core_cfg.patch_base.scan_dir(), Some(presets.as_str()));
     let _ = std::fs::remove_dir_all(&root);
 }
 

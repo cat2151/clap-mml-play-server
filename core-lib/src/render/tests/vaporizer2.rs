@@ -1,8 +1,8 @@
 //! Vaporizer2（`com.vastdynamics.VAST2`）の実測と、`.vvp` を CLAP state として
 //! 流し込む経路。
 //!
-//! `.vvp` を読むテストは、音色置き場を本番と同じ経路で config.toml の
-//! `[plugins.Vaporizer2] patches_dirs` から読む（[`vaporizer2_presets_dir`]）。
+//! `.vvp` を読むテストは、音色置き場を本番と同じ経路で registry から読む
+//! （[`vaporizer2_presets_dir`]）。
 //! 共通のヘルパと環境変数は親モジュールにある。
 
 use super::*;
@@ -53,19 +53,13 @@ fn vaporizer2_opts_into_neither_preset_discovery_nor_preset_load() {
     assert!(report.extensions.contains(&"clap.state".to_string()));
 }
 
-/// config.toml の `[plugins.Vaporizer2] patches_dirs` の先頭。無ければ panic。
+/// registry から読んだ Vaporizer2 の音色置き場の先頭。無ければ panic。
 fn vaporizer2_presets_dir() -> String {
     let cfg = cmrt_server_config::ServerConfig::load()
         .expect("config.toml が読めること（先に clap-mml-render-tui を一度起動する）");
-    cfg.patch_dirs_of("Vaporizer2")
-        .into_iter()
-        .next()
-        .unwrap_or_else(|| {
-            panic!(
-                "{} の [plugins.Vaporizer2] patches_dirs が未設定。Vaporizer2 の .vvp の置き場を書くこと",
-                cmrt_server_config::config_file_path().unwrap().display()
-            )
-        })
+    cfg.patch_dirs_of("Vaporizer2").into_iter().next().expect(
+        "registry の Vaporizer2 InstallPath が読めない（Vaporizer2 をインストールすること）",
+    )
 }
 
 /// 音色置き場の `.vvp` を `PatchVersion` ごとに 1 つずつ拾う。

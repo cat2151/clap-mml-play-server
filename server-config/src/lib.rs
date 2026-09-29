@@ -20,6 +20,7 @@ mod plugin_profile;
 mod primary_plugin;
 mod sforzando_programs;
 mod vaporizer2_categories;
+mod vendor_patch_dirs;
 
 pub use effect_defaults::{
     default_dragonfly_plugin_path, default_surge_fx_plugin_path, default_surge_fx_preset_root,

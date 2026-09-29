@@ -186,14 +186,15 @@ chord_patch_categories = ["SynprezFM"]
 fn patch_dirs_of_reads_the_profile_and_drops_blank_entries() {
     let cfg = load(
         r#"
-[plugins.Vaporizer2]
-patches_dirs = ["/vaporizer2/presets", ""]
+[plugins.my_synth]
+plugin_path = "/clap/MySynth.clap"
+patches_dirs = ["/my_synth/presets", ""]
 "#,
     );
 
     assert_eq!(
-        cfg.patch_dirs_of("Vaporizer2"),
-        vec!["/vaporizer2/presets".to_string()]
+        cfg.patch_dirs_of("my_synth"),
+        vec!["/my_synth/presets".to_string()]
     );
 }
 
@@ -201,7 +202,6 @@ patches_dirs = ["/vaporizer2/presets", ""]
 fn patch_dirs_of_is_empty_when_neither_config_nor_builtin_has_one() {
     let cfg = load("");
 
-    assert_eq!(cfg.patch_dirs_of("Vaporizer2"), Vec::<String>::new());
     assert_eq!(cfg.patch_dirs_of("no such plugin"), Vec::<String>::new());
 }
 

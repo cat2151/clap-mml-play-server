@@ -78,18 +78,17 @@ Vaporizer2 の音色ファイル `.vvp` は、**中身の XML に 9 バイト被
 `m_uPolyMode` の**判定は「`Mono` か」であって綴りの一覧ではない**（新しい Poly 値が増えても poly 側）。
 使い道は TUI 側 `docs/adr/0008-voicing-per-patch.md` の `VvpHeader` 方針。
 
-## 音色置き場の既定値は持たない
+## 音色置き場は registry から読む
 
-Vaporizer2 のプリセット置き場は `%APPDATA%\Vaporizer2\VASTvaporizerSettings.xml` の
-`PresetRootFolder` か HKLM のグローバル設定で決まる**ユーザー固有の値**なので、
-`default_vaporizer2_plugin_path()` はあるが **`patches_dirs` の既定値は作らない**。
+置き場は `HKLM\SOFTWARE\VAST Dynamics\Vaporizer2\Settings` の `InstallPath` の下の
+`Presets`。config.toml の `[plugins.Vaporizer2] patches_dirs` は**書いてあっても無視する**。
+toml に書かせると、再インストールで置き場が変わるたびに書き直しが要り、忘れると本体と食い違う。
+読むだけで書きには行かない。Floe も同じ方針で、`%PUBLIC%\Floe\Preferences\floe.ini` の
+`extra-presets-folder` を読む（`server-config/src/vendor_patch_dirs.rs`）。
 
-結果として `[plugins.Vaporizer2]` に `patches_dirs` を書くまで**カタログに載らない**
-（音色置き場ゼロのプラグインはカタログが飛ばす）。
+registry に無ければ音色置き場ゼロでカタログに載らない。
 **「音色 0 件」で倒れるのが正しい倒れ方**で、Surge の dir を流用すると
 `.fxp` が Vaporizer2 の音色として一覧に出る。
-
-**プラグイン側の設定ファイルもレジストリも読みにも書きにも行かない**（ユーザーの DAW 環境を壊す）。
 
 ## 壊れたら気づく場所
 

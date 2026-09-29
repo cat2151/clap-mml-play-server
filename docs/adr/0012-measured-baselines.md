@@ -114,8 +114,8 @@ CMRT_TEST_VAPORIZER2_CLAP='C:\Program Files\Common Files\CLAP\VASTvaporizer2.cla
 cargo test -p clap-mml-realtime-play-server --release -- --include-ignored --test-threads=1 --nocapture instances
 ```
 
-- Vaporizer2 の `.vvp` の置き場は環境変数ではなく、本番と同じ経路で config.toml の
-  `[plugins.Vaporizer2] patches_dirs` から読む（無ければテストが落ちる）
+- Vaporizer2 の `.vvp` の置き場は環境変数ではなく、本番と同じ経路で registry から読む
+  （無ければテストが落ちる）
 - **`--test-threads=1` は必須。** Vaporizer2 のテストが 2 本同時に走ると
   [0013](0013-serial-instantiation.md) が守っていない形（別テスト由来の同時生成）になり、
   プロセスごと落ちる

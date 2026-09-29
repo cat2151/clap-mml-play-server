@@ -52,15 +52,6 @@ pub fn default_dexed_plugin_path() -> &'static str {
 /// OS ごとのデフォルト Vaporizer2 パスを返す。
 /// `[plugins.Vaporizer2]` で本体パスを省略できるようにするための組み込み値。
 /// 既知 OS でない場合は空文字を返す（ユーザーに設定を促す）。
-///
-/// **音色置き場の既定値は用意しない。** Vaporizer2 のプリセット置き場は
-/// インストーラが決める固定の場所ではなく、ユーザーが
-/// `%APPDATA%\Vaporizer2\VASTvaporizerSettings.xml` の `PresetRootFolder`
-/// （またはレジストリ）で自由に決める。そこを読みに行くと個人のディレクトリ構成に
-/// 依存するので、`patches_dirs` は config.toml に書いてもらう。
-/// 書かれていないプロファイルは音色置き場が空になり、カタログに載らない
-/// （`clap-mml-render-tui` の `docs/adr/0005-mixed-catalog-on-by-default.md` の実在チェックと
-/// 同じく、安全側に倒れる）。
 #[cfg(target_os = "windows")]
 pub fn default_vaporizer2_plugin_path() -> &'static str {
     r"C:\Program Files\Common Files\CLAP\VASTvaporizer2.clap"
@@ -83,9 +74,6 @@ pub fn default_vaporizer2_plugin_path() -> &'static str {
 
 /// OS ごとのデフォルト Floe パスを返す。
 /// `[plugins.Floe]` で本体パスを省略できるようにするための組み込み値。
-///
-/// **音色置き場の既定値は用意しない。** Floe の preset library はユーザーが任意の
-/// drive / directory へ置けるため、`patches_dirs` は config.toml で明示してもらう。
 #[cfg(target_os = "windows")]
 pub fn default_floe_plugin_path() -> &'static str {
     r"C:\Program Files\Common Files\CLAP\Floe.clap"

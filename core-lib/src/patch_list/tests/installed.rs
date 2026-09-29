@@ -1,9 +1,8 @@
 //! 実物の音色置き場を読むテスト。合成 fixture では出ない揺れ（ヘッダの書式・
 //! 実在するカテゴリコード・cartridge の仕様）を、インストール済みの実データで確かめる。
 //!
-//! Vaporizer2 の `.vvp` の置き場は、本番と同じ経路で config.toml の
-//! `[plugins.Vaporizer2] patches_dirs` から読む（[`vaporizer2_presets_dir`]）。
-//! 未設定なら黙って通さず落とす。Dexed の cartridge 置き場は環境変数で渡す（`#[ignore]`）:
+//! Vaporizer2 の `.vvp` の置き場は、本番と同じ経路で registry から読む
+//! （[`vaporizer2_presets_dir`]）。見つからなければ黙って通さず落とす。Dexed の cartridge 置き場は環境変数で渡す（`#[ignore]`）:
 //!
 //! ```text
 //! CMRT_TEST_DEXED_CARTRIDGES=%APPDATA%\DigitalSuburban\Dexed\Cartridges
@@ -14,31 +13,8 @@ use super::*;
 use crate::AudioPluginInfo;
 use cmrt_server_config::VAPORIZER2_PLUGIN_ID;
 
-/// 実ユーザーの config.toml を本番と同じ経路で読み、`[plugins.Vaporizer2] patches_dirs` の
-/// 先頭を返す。無ければ panic（skip にしない）。
+/// 本番と同じ経路（組み込みプロファイル → registry）で置き場を引く。無ければ panic（skip にしない）。
 fn vaporizer2_presets_dir() -> String {
-    let cfg = cmrt_server_config::ServerConfig::load()
-        .expect("config.toml が読めること（先に clap-mml-render-tui を一度起動する）");
-    vaporizer2_presets_dir_from(&cfg)
-}
-
-/// [`vaporizer2_presets_dir`] のうち、ファイルに触らない部分。
-fn vaporizer2_presets_dir_from(cfg: &cmrt_server_config::ServerConfig) -> String {
-    cfg.patch_dirs_of("Vaporizer2")
-        .into_iter()
-        .next()
-        .unwrap_or_else(|| {
-            panic!(
-                "{} の [plugins.Vaporizer2] patches_dirs が未設定。Vaporizer2 の .vvp の置き場を書くこと",
-                cmrt_server_config::config_file_path().unwrap().display()
-            )
-        })
-}
-
-/// 置き場が config に無い環境では、素通りせず落ちること。
-#[test]
-#[should_panic(expected = "[plugins.Vaporizer2] patches_dirs が未設定")]
-fn vaporizer2_presets_dir_panics_when_the_config_has_no_patches_dirs() {
     let cfg = cmrt_server_config::ServerConfig::from_toml_str(
         r#"
 output_midi = "output.mid"
@@ -48,8 +24,9 @@ buffer_size = 512
 "#,
     )
     .unwrap();
-
-    vaporizer2_presets_dir_from(&cfg);
+    cfg.patch_dirs_of("Vaporizer2").into_iter().next().expect(
+        "registry の Vaporizer2 InstallPath が読めない（Vaporizer2 をインストールすること）",
+    )
 }
 
 fn installed_vaporizer2_presets() -> (String, Vec<std::path::PathBuf>) {
@@ -68,18 +45,8 @@ fn installed_vaporizer2_presets() -> (String, Vec<std::path::PathBuf>) {
 fn installed_vaporizer2_presets_are_all_listed() {
     let (dir, patches) = installed_vaporizer2_presets();
 
-    // ディレクトリを走査して数えた「`.vvp` の実ファイル数」と一致すること。
-    let on_disk = std::fs::read_dir(&dir)
-        .unwrap()
-        .filter_map(Result::ok)
-        .filter(|entry| {
-            entry
-                .path()
-                .extension()
-                .and_then(|e| e.to_str())
-                .is_some_and(|e| e.eq_ignore_ascii_case("vvp"))
-        })
-        .count();
+    // ディレクトリを再帰で走査して数えた「`.vvp` の実ファイル数」と一致すること。
+    let on_disk = count_vvp_files(std::path::Path::new(&dir));
     assert_eq!(patches.len(), on_disk);
     assert!(
         patches
@@ -87,6 +54,25 @@ fn installed_vaporizer2_presets_are_all_listed() {
             .all(|path| crate::vvp::is_vvp_patch_path(&path.to_string_lossy())),
         "`.vvp` 以外が混ざっている"
     );
+}
+
+fn count_vvp_files(dir: &std::path::Path) -> usize {
+    std::fs::read_dir(dir)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .map(|path| {
+            if path.is_dir() {
+                count_vvp_files(&path)
+            } else {
+                usize::from(
+                    path.extension()
+                        .and_then(|e| e.to_str())
+                        .is_some_and(|e| e.eq_ignore_ascii_case("vvp")),
+                )
+            }
+        })
+        .sum()
 }
 
 /// 実物のプリセットが 1 件残らずヘッダを読めること。
