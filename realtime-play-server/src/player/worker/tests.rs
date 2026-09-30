@@ -284,3 +284,79 @@ fn beginning_a_timeline_in_a_new_generation_restarts_the_clock() {
         (2, 0, 0)
     );
 }
+
+fn submit_stop_after(inner: &Arc<PlayerInner>, delay: Duration) -> std::thread::JoinHandle<()> {
+    let inner = Arc::clone(inner);
+    std::thread::spawn(move || {
+        std::thread::sleep(delay);
+        let (audio_output, _, _) = super::super::audio_output::new_audio_output(512);
+        inner.submit_stop(audio_output).unwrap();
+    })
+}
+
+/// 先読みが飛んでいる間は、command が無くても一定間隔で起きて返事を拾わせる。
+/// 起きる間隔が 0 に近いと、演奏していない間ずっと CPU を食う。
+#[test]
+fn the_idle_wait_wakes_up_periodically_while_a_standby_load_is_in_flight() {
+    let inner = PlayerInner::default();
+    let started = Instant::now();
+
+    let woke = wait_while_idle(&inner, true);
+
+    let elapsed = started.elapsed();
+    assert!(matches!(woke, TimedCommand::TimedOut), "{woke:?}");
+    assert!(
+        elapsed >= STANDBY_POLL_INTERVAL && elapsed >= Duration::from_millis(10),
+        "空回りしている: {elapsed:?}"
+    );
+    assert!(elapsed < Duration::from_secs(5), "{elapsed:?}");
+}
+
+/// 先読みの完了を待たずに眠っていても、command の投入ですぐ起きる。
+#[test]
+fn a_command_wakes_the_timed_idle_wait_before_its_timeout() {
+    let inner = Arc::new(PlayerInner::default());
+    let submitter = submit_stop_after(&inner, Duration::from_millis(50));
+    let started = Instant::now();
+
+    let woke = inner.wait_for_command_timeout(Duration::from_secs(60));
+
+    let elapsed = started.elapsed();
+    submitter.join().unwrap();
+    assert!(
+        matches!(woke, TimedCommand::Command(PlayerCommand::StopAll { .. })),
+        "{woke:?}"
+    );
+    assert!(elapsed < Duration::from_secs(10), "{elapsed:?}");
+}
+
+/// 先読みが無ければ、従来どおり command が来るまで眠り続ける。
+#[test]
+fn without_a_standby_load_the_idle_wait_sleeps_until_a_command_arrives() {
+    let inner = Arc::new(PlayerInner::default());
+    let delay = STANDBY_POLL_INTERVAL * 3;
+    let submitter = submit_stop_after(&inner, delay);
+    let started = Instant::now();
+
+    let woke = wait_while_idle(&inner, false);
+
+    let elapsed = started.elapsed();
+    submitter.join().unwrap();
+    assert!(
+        matches!(woke, TimedCommand::Command(PlayerCommand::StopAll { .. })),
+        "{woke:?}"
+    );
+    assert!(elapsed >= delay, "{elapsed:?}");
+}
+
+#[test]
+fn the_timed_idle_wait_reports_shutdown() {
+    let inner = PlayerInner::default();
+    let (audio_output, _, _) = super::super::audio_output::new_audio_output(512);
+    inner.shutdown(&audio_output);
+
+    assert!(matches!(
+        wait_while_idle(&inner, true),
+        TimedCommand::Shutdown
+    ));
+}

@@ -7,6 +7,7 @@
 use std::{
     collections::VecDeque,
     sync::{Arc, Condvar, Mutex},
+    time::Duration,
 };
 
 use anyhow::Result;
@@ -100,6 +101,14 @@ pub(super) enum PlayerCommand {
         patch: Option<String>,
         completion: std::sync::mpsc::SyncSender<std::result::Result<VoicingReport, String>>,
     },
+}
+
+/// [`PlayerInner::wait_for_command_timeout`] の結果。
+#[derive(Debug)]
+pub(super) enum TimedCommand {
+    Command(PlayerCommand),
+    TimedOut,
+    Shutdown,
 }
 
 impl Default for PlayerInner {
@@ -370,6 +379,24 @@ impl PlayerInner {
             return None;
         }
         state.pending.pop_front()
+    }
+
+    /// [`Self::wait_for_command`] と同じだが、`timeout` 経っても command が来なければ戻る。
+    pub(super) fn wait_for_command_timeout(&self, timeout: Duration) -> TimedCommand {
+        let state = self.state.lock().unwrap();
+        let (mut state, _) = self
+            .command_available
+            .wait_timeout_while(state, timeout, |state| {
+                state.pending.is_empty() && !state.shutdown
+            })
+            .unwrap();
+        if state.shutdown {
+            return TimedCommand::Shutdown;
+        }
+        match state.pending.pop_front() {
+            Some(command) => TimedCommand::Command(command),
+            None => TimedCommand::TimedOut,
+        }
     }
 
     pub(super) fn pop_pending_command(&self) -> Option<PlayerCommand> {

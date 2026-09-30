@@ -27,6 +27,8 @@ use super::{
 
 const OUTPUT_WAIT_TIMEOUT: Duration = Duration::from_millis(10);
 const MAX_LIVE_QUEUE_EVENTS: usize = 8192;
+/// render するものが無く先読みだけが飛んでいる間、返事を見に起きる間隔。
+const STANDBY_POLL_INTERVAL: Duration = Duration::from_millis(100);
 mod bank;
 mod command;
 mod live_mix;
@@ -35,6 +37,7 @@ mod standby;
 use self::bank::BankWorkers;
 use self::live_mix::{render_live_mix, LiveMixControls};
 use self::standby::{StandbyContext, StandbyLoad};
+use super::commands::TimedCommand;
 use command::{apply_command, CommandContext};
 #[cfg(test)]
 use command::{apply_live_tempo, begin_live_timeline};
@@ -126,21 +129,11 @@ pub(super) fn run_player_worker(
             }) if !timeline.started
         );
         if playback_mode.is_none() || waiting_for_timeline_events {
-            // これから `wait_for_command()` で眠る。眠ると先読みの返事を誰も拾えなくなり、
-            // クライアントが timeout まで返らない。render するものが無いこの経路でだけ待つ。
-            standby::settle(
-                &mut standby_context(
-                    &banks,
-                    &mut limiter,
-                    &limiter_meter,
-                    &auto_gain,
-                    &audio_output,
-                    &mut playback_mode,
-                ),
-                &mut standby,
-            );
-            let Some(command) = inner.wait_for_command() else {
-                break;
+            let command = match wait_while_idle(&inner, standby.is_some()) {
+                TimedCommand::Command(command) => command,
+                // 先頭の `standby::poll` で返事を拾い直す。
+                TimedCommand::TimedOut => continue,
+                TimedCommand::Shutdown => break,
             };
             apply_command(
                 CommandContext {
@@ -296,6 +289,23 @@ pub(super) fn run_player_worker(
     // 両 bank へ Shutdown を送って join する。ここを通らずに落ちても
     // `BankWorkers` の Drop が同じことをする。
     banks.shutdown();
+}
+
+/// render するものが無い間の眠り方。
+///
+/// 先読みが飛んでいなければ command が来るまで眠る。飛んでいれば、眠ったままだと
+/// 先読みの返事を誰も拾えずクライアントが timeout まで返らない。かといって完了まで
+/// block すると、その間に張った行の event を受け取れず、行が読み込みの終わりまで鳴らない。
+/// そこで [`STANDBY_POLL_INTERVAL`] ごとに起きて呼び出し側に返事を拾わせる。
+/// command の投入は必ず眠りを起こすので、この上限は完了の検知だけを遅らせる。
+fn wait_while_idle(inner: &PlayerInner, standby_in_flight: bool) -> TimedCommand {
+    if standby_in_flight {
+        return inner.wait_for_command_timeout(STANDBY_POLL_INTERVAL);
+    }
+    match inner.wait_for_command() {
+        Some(command) => TimedCommand::Command(command),
+        None => TimedCommand::Shutdown,
+    }
 }
 
 /// 先読みの進行に要る持ち物をまとめ直す。レンダーループの局所変数から作る。

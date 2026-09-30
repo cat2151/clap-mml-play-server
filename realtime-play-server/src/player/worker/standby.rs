@@ -7,8 +7,9 @@
 //!
 //! 送った bank は返事を受け取るまで「塞がっている」ので render 対象から外れ
 //! （`BankWorkers::render_enabled_for`）、演奏 bank だけが毎ブロック回り続ける。
-//! 返事はレンダーループの毎周回 [`poll`] で拾う。**どこかで待つとしたら、何も
-//! render していないときだけ**（[`settle`]）。
+//! 返事はレンダーループの毎周回 [`poll`] で拾う。render するものが無い間も、
+//! レンダーループは完了まで待たずに一定間隔で起きて [`poll`] する。完了まで待つ
+//! （[`settle`]）のは、その bank へ同期の仕事を出す直前と終了時だけ。
 //!
 //! # render 対象へ戻るのはいつか
 //! ロードの返事を引き取った時点。「その bank 宛の MIDI が来たら戻す」という形にすると、
@@ -141,9 +142,8 @@ pub(super) fn poll(ctx: &mut StandbyContext<'_>, standby: &mut Option<StandbyLoa
 
 /// 返事が来るまで待って引き取る。
 ///
-/// **何も render していないときと、その bank へ同期の仕事を出す直前にだけ呼ぶこと。**
-/// レンダーループが `wait_for_command()` で眠るとロードの返事を誰も拾わなくなり、
-/// クライアントが timeout まで返らない。
+/// **その bank へ同期の仕事を出す直前と、終了時にだけ呼ぶこと。** 待つ間は新しい
+/// command を受け取れないので、張ったばかりの行も読み込みの終わりまで鳴らない。
 pub(super) fn settle(ctx: &mut StandbyContext<'_>, standby: &mut Option<StandbyLoad>) {
     let Some(load) = standby.as_mut() else {
         return;
