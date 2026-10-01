@@ -27,7 +27,7 @@ pub(super) fn installed_bank_roots(products: &[AriaProduct]) -> (Vec<PathBuf>, V
                 .is_file()
                 .then(|| bank_path.parent())
                 .flatten()
-                .and_then(|dir| std::fs::canonicalize(dir).ok());
+                .and_then(|dir| crate::lexical_absolute(dir).ok());
             match root {
                 Some(root) => roots.push(root),
                 None => notices.push(format!(

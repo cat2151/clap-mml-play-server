@@ -19,14 +19,17 @@ fn part_sfz_included_by_another_program_is_dropped_without_a_notice() {
     write(&root.0.join("Kit").join("Nested.sfz"), part_region);
     let standalone = root.0.join("Kit").join("Standalone.sfz");
     write(&standalone, br"<region> sample=..\Samples\a.wav");
-    let user =
-        user_bank::UserBankSource::fixture(std::fs::canonicalize(&root.0).unwrap(), "5000", "1000");
+    let user = user_bank::UserBankSource::fixture(
+        crate::lexical_absolute(&root.0).unwrap(),
+        "5000",
+        "1000",
+    );
 
     let resolution = resolve_catalog(RegistrySources::fixture(Some(user), Vec::new()));
 
     let mut expected = vec![
-        std::fs::canonicalize(top).unwrap(),
-        std::fs::canonicalize(standalone).unwrap(),
+        crate::lexical_absolute(top).unwrap(),
+        crate::lexical_absolute(standalone).unwrap(),
     ];
     expected.sort_by_key(|path| canonical_key(path));
     assert_eq!(resolution.resolved_patches.unwrap(), expected);
@@ -42,13 +45,16 @@ fn sfz_that_includes_itself_stays_listed() {
         &program,
         b"<region> sample=../Samples/a.wav\n#include \"Loop.sfz\"\n",
     );
-    let user =
-        user_bank::UserBankSource::fixture(std::fs::canonicalize(&root.0).unwrap(), "5000", "1000");
+    let user = user_bank::UserBankSource::fixture(
+        crate::lexical_absolute(&root.0).unwrap(),
+        "5000",
+        "1000",
+    );
 
     let resolution = resolve_catalog(RegistrySources::fixture(Some(user), Vec::new()));
 
     assert_eq!(
         resolution.resolved_patches.unwrap(),
-        vec![std::fs::canonicalize(program).unwrap()]
+        vec![crate::lexical_absolute(program).unwrap()]
     );
 }

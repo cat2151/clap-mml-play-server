@@ -67,9 +67,9 @@ pub(super) fn read_user_bank_source() -> UserBankLookup {
         let value: String = key
             .get_value(VALUE)
             .map_err(|error| anyhow::anyhow!("HKCU\\{KEY}\\{VALUE} を読めない: {error}"))?;
-        let root = std::fs::canonicalize(value.trim()).map_err(|error| {
+        let root = crate::lexical_absolute(Path::new(value.trim())).map_err(|error| {
             anyhow::anyhow!(
-                "user_files_dir '{}' を canonicalize できない: {error}",
+                "user_files_dir '{}' を絶対パスにできない: {error}",
                 value.trim()
             )
         })?;

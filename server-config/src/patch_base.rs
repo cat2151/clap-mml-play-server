@@ -58,13 +58,18 @@ impl PatchBase {
     }
 
     /// 絶対パスを display へ直す。区切りは `/`。基点の外なら絶対パスのまま返す。
+    ///
+    /// 基点と path の片方だけに `\\?\` が付いていても一致させる。保存済みの catalog cache の基点は
+    /// `\\?\` 付きのまま残っている。
     pub fn display(&self, path: &Path) -> String {
+        let path = dunce::simplified(path);
         let relative = match self {
             Self::None => None,
-            Self::Shared(base) => path.strip_prefix(base).ok(),
+            Self::Shared(base) => path.strip_prefix(dunce::simplified(Path::new(base))).ok(),
             Self::PerRoot(roots) => roots.iter().find_map(|root| {
+                let root = dunce::simplified(Path::new(root));
                 path.strip_prefix(root).ok()?;
-                path.strip_prefix(display_anchor(Path::new(root))).ok()
+                path.strip_prefix(display_anchor(root)).ok()
             }),
         };
         match relative {

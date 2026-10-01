@@ -10,6 +10,7 @@
 //! ここが持つ。
 
 mod effect_defaults;
+mod lexical_path;
 mod patch_base;
 mod patch_catalog;
 mod patch_dirs;
@@ -26,6 +27,7 @@ pub use effect_defaults::{
     default_dragonfly_plugin_path, default_surge_fx_plugin_path, default_surge_fx_preset_root,
     default_tone3000_plugin_path, default_tone3000_preset_root,
 };
+pub use lexical_path::lexical_absolute;
 pub use patch_base::PatchBase;
 pub use patch_catalog::{
     resolve_patch_catalog, resolve_patch_catalog_roots, PatchCatalogResolution,

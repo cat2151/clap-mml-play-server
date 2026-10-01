@@ -26,14 +26,14 @@ fn ariax_matching_a_manifest_program_resolves_to_that_program() {
 
     let preset = resolve_sforzando_preset(&path).unwrap();
 
-    assert_eq!(preset.ariax_path, std::fs::canonicalize(&path).unwrap());
+    assert_eq!(preset.ariax_path, crate::lexical_absolute(&path).unwrap());
     assert!(preset.xml.contains(r#"<Param id="73""#));
     assert_eq!(preset.program.bank_id, "3103");
     assert_eq!(preset.program.bank_version, "1000");
     assert_eq!(preset.program.program_name, "Synth");
     assert_eq!(
         preset.program.sfz_path,
-        std::fs::canonicalize(root.0.join("Programs").join("Synth.sfz")).unwrap()
+        crate::lexical_absolute(root.0.join("Programs").join("Synth.sfz")).unwrap()
     );
 }
 
@@ -126,7 +126,7 @@ fn catalog_lists_only_ariax_presets_whose_slot_matches_the_manifest() {
     let resolution = installed_only(vec![installed("Synth", &[root.0.join("Synth.bank.xml")])]);
 
     let mut expected = [root.0.join("Programs").join("Synth.sfz"), matching, upper]
-        .map(|path| std::fs::canonicalize(path).unwrap())
+        .map(|path| crate::lexical_absolute(path).unwrap())
         .to_vec();
     expected.sort_by_key(|path| canonical_key(path));
     assert_eq!(resolution.resolved_patches.unwrap(), expected);

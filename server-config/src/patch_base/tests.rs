@@ -137,3 +137,21 @@ fn constructors_fall_back_to_none_without_dirs() {
     );
     assert_eq!(PatchBase::per_root(&sforzando_roots()).scan_dir(), None);
 }
+
+#[cfg(windows)]
+#[test]
+fn display_matches_when_only_one_side_has_the_verbatim_prefix() {
+    let path = Path::new(r"D:\libs\sfz\UI_METAL-GTX\Programs\Full.sfz");
+    let verbatim_path = Path::new(r"\\?\D:\libs\sfz\UI_METAL-GTX\Programs\Full.sfz");
+    let expected = "sfz/UI_METAL-GTX/Programs/Full.sfz";
+
+    let verbatim_root = PatchBase::per_root(&[r"\\?\D:\libs\sfz".to_string()]);
+    let plain_root = PatchBase::per_root(&[r"D:\libs\sfz".to_string()]);
+
+    assert_eq!(verbatim_root.display(path), expected);
+    assert_eq!(plain_root.display(verbatim_path), expected);
+    assert_eq!(
+        PatchBase::Shared(r"\\?\D:\libs".to_string()).display(path),
+        expected
+    );
+}

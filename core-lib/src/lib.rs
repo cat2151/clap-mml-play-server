@@ -60,7 +60,7 @@ pub use audio_plugin::{
     PluginVoicingSource, RouteError,
 };
 pub use boot_log::{log_boot, log_boot_fatal};
-pub use cmrt_server_config::PatchBase;
+pub use cmrt_server_config::{lexical_absolute, PatchBase};
 pub use downloaded_patches::{prepare_downloaded_patches, PatchDownload};
 pub use dx7::{
     cartridge_program_component, is_cartridge_patch_path, parse_cartridge_patch_path,

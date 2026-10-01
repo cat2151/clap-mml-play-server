@@ -30,9 +30,9 @@ pub(super) fn is_ariax(path: &Path) -> bool {
 
 /// `.ariax` を読み、`Slot` の program 座標を近傍の bank manifest と照合する。
 pub fn resolve_sforzando_preset(path: &Path) -> anyhow::Result<SforzandoPresetRef> {
-    let canonical = std::fs::canonicalize(path).map_err(|error| {
+    let canonical = crate::lexical_absolute(path).map_err(|error| {
         anyhow::anyhow!(
-            ".ariax path を canonicalize できない '{}': {error}",
+            ".ariax path を絶対パスにできない '{}': {error}",
             path.display()
         )
     })?;

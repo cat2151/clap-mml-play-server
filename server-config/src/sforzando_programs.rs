@@ -35,12 +35,15 @@ pub struct SforzandoProgramRef {
 
 /// Resolve one requested SFZ without guessing a program name from its filename.
 pub fn resolve_sforzando_program(path: &Path) -> anyhow::Result<SforzandoProgramRef> {
-    let canonical = std::fs::canonicalize(path).map_err(|error| {
+    let canonical = crate::lexical_absolute(path).map_err(|error| {
         anyhow::anyhow!(
-            "SFZ path を canonicalize できない '{}': {error}",
+            "SFZ path を絶対パスにできない '{}': {error}",
             path.display()
         )
     })?;
+    if !canonical.is_file() {
+        anyhow::bail!("SFZ file が無い: '{}'", canonical.display());
+    }
     if !is_sfz(&canonical) {
         anyhow::bail!(
             "ARIA program は .sfz file でなければならない: '{}'",
@@ -291,7 +294,7 @@ fn drop_unplayable_parts(programs: &mut BTreeMap<String, SforzandoProgramRef>) {
         included.extend(
             scan.includes
                 .iter()
-                .filter_map(|path| std::fs::canonicalize(path).ok())
+                .filter_map(|path| crate::lexical_absolute(path).ok())
                 .map(|path| canonical_key(&path))
                 .filter(|include| include != key),
         );
@@ -371,7 +374,7 @@ fn collect_patch_files(root: &Path, notices: &mut Vec<String>) -> PatchFiles {
             } else {
                 continue;
             };
-            if let Ok(canonical) = std::fs::canonicalize(&path) {
+            if let Ok(canonical) = crate::lexical_absolute(&path) {
                 list.push(canonical);
             }
         }
@@ -396,8 +399,13 @@ pub(super) fn canonical_key(path: &Path) -> String {
     }
 }
 
+/// `..` が残ったパスは、root の外へ出うるので配下とみなさない。
 pub(super) fn path_is_within(path: &Path, root: &Path) -> bool {
-    strip_prefix_portable(path, root).is_some()
+    strip_prefix_portable(path, root).is_some_and(|relative| {
+        relative
+            .components()
+            .all(|component| !matches!(component, std::path::Component::ParentDir))
+    })
 }
 
 pub(super) fn strip_prefix_portable(path: &Path, root: &Path) -> Option<PathBuf> {

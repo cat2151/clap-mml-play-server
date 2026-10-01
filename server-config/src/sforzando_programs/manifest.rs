@@ -31,7 +31,7 @@ pub(super) fn manifests_near(path: &Path) -> Vec<PathBuf> {
             if !candidate.is_file() || !name.to_ascii_lowercase().ends_with(".bank.xml") {
                 continue;
             }
-            let canonical = std::fs::canonicalize(&candidate).unwrap_or(candidate);
+            let canonical = crate::lexical_absolute(&candidate).unwrap_or(candidate);
             if seen.insert(canonical_key(&canonical)) {
                 manifests.push(canonical);
             }
@@ -101,11 +101,18 @@ pub(super) fn read_manifest(path: &Path) -> anyhow::Result<ParsedManifest> {
                 continue;
             }
             let joined = bank_dir.join(relative_path);
-            let canonical = match std::fs::canonicalize(&joined) {
-                Ok(canonical) => canonical,
+            let canonical = match crate::lexical_absolute(&joined) {
+                Ok(canonical) if canonical.is_file() => canonical,
+                Ok(_) => {
+                    diagnostics.push(format!(
+                        "ARIA program '{program_name}' の SFZ が実在しない '{}'",
+                        joined.display()
+                    ));
+                    continue;
+                }
                 Err(error) => {
                     diagnostics.push(format!(
-                        "ARIA program '{program_name}' の SFZ が実在しない '{}': {error}",
+                        "ARIA program '{program_name}' の SFZ path を絶対パスにできない '{}': {error}",
                         joined.display()
                     ));
                     continue;

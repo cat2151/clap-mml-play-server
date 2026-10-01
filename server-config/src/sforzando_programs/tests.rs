@@ -62,8 +62,8 @@ fn user_bank_uses_canonical_containment_and_relative_program_name() {
     let root = TempRoot::new("user_bank");
     let sfz = root.0.join("Orchestra").join("Flute.SFZ");
     write(&sfz, b"<region>");
-    let canonical_root = std::fs::canonicalize(&root.0).unwrap();
-    let canonical_sfz = std::fs::canonicalize(&sfz).unwrap();
+    let canonical_root = crate::lexical_absolute(&root.0).unwrap();
+    let canonical_sfz = crate::lexical_absolute(&sfz).unwrap();
     let source = user_bank::UserBankSource::fixture(canonical_root, "5000", "1000");
 
     let program = source.program_for(&canonical_sfz).unwrap();
@@ -99,10 +99,10 @@ fn manifest_catalog_lists_only_declared_existing_sfz() {
     let resolution = installed_only(vec![installed("Free Sounds", &[bank_path])]);
 
     let paths = resolution.resolved_patches.as_ref().unwrap();
-    assert_eq!(*paths, vec![std::fs::canonicalize(good).unwrap()]);
+    assert_eq!(*paths, vec![crate::lexical_absolute(good).unwrap()]);
     assert_eq!(
         resolution.dirs,
-        vec![std::fs::canonicalize(&root.0)
+        vec![crate::lexical_absolute(&root.0)
             .unwrap()
             .to_string_lossy()
             .into_owned()]
@@ -153,7 +153,7 @@ fn user_bank_and_installed_bank_roots_are_both_scanned() {
         manifest("3103", "1000", &[("Synth", "Programs/Synth.sfz")]).as_bytes(),
     );
     let user = user_bank::UserBankSource::fixture(
-        std::fs::canonicalize(&user_root.0).unwrap(),
+        crate::lexical_absolute(&user_root.0).unwrap(),
         "5000",
         "1000",
     );
@@ -165,8 +165,8 @@ fn user_bank_and_installed_bank_roots_are_both_scanned() {
 
     assert_eq!(resolution.dirs.len(), 2, "{:?}", resolution.dirs);
     let mut expected = vec![
-        std::fs::canonicalize(user_sfz).unwrap(),
-        std::fs::canonicalize(bank_sfz).unwrap(),
+        crate::lexical_absolute(user_sfz).unwrap(),
+        crate::lexical_absolute(bank_sfz).unwrap(),
     ];
     expected.sort_by_key(|path| canonical_key(path));
     assert_eq!(resolution.resolved_patches.unwrap(), expected);

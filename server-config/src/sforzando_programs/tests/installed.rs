@@ -74,7 +74,7 @@ fn registered_user_bank_dir() -> PathBuf {
         .unwrap()
         .get_value("user_files_dir")
         .unwrap();
-    std::fs::canonicalize(path.trim()).unwrap()
+    crate::lexical_absolute(path.trim()).unwrap()
 }
 
 fn count_sfz_files(dir: &Path) -> usize {
@@ -155,7 +155,7 @@ fn registered_bank_dirs(product: &str) -> Vec<PathBuf> {
                 .unwrap()
                 .get_value("bank_path")
                 .unwrap();
-            std::fs::canonicalize(Path::new(path.trim()).parent().unwrap()).unwrap()
+            crate::lexical_absolute(Path::new(path.trim()).parent().unwrap()).unwrap()
         })
         .collect()
 }

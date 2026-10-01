@@ -94,7 +94,7 @@ pub(super) fn resolve_plain_directories(configured: Option<&[String]>) -> PatchC
             configured_missing.push(candidate);
             continue;
         }
-        if let Ok(canonical) = std::fs::canonicalize(path) {
+        if let Ok(canonical) = crate::lexical_absolute(path) {
             let key = canonical.to_string_lossy().into_owned();
             let key = if cfg!(windows) {
                 key.to_lowercase()
