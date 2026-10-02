@@ -24,8 +24,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::dragonfly_preset::DRAGONFLY_PLUGINS;
 use crate::logging::emit_diagnostic;
+use crate::shu_preset::SHU_PLUGIN_ID;
 use crate::surge_fx_preset::SURGE_FX_PLUGIN_ID;
 use crate::tone3000_preset::TONE3000_PLUGIN_ID;
+use crate::voyage_voyage_preset::VOYAGE_VOYAGE_PLUGIN_ID;
 use crate::PluginKey;
 
 mod scan;
@@ -250,6 +252,21 @@ pub fn builtin_effect_plugins() -> Vec<AudioEffectPluginInfo> {
             path.to_string_lossy().into_owned(),
             dragonfly.plugin_id,
             path,
+        ));
+    }
+    let shu = cmrt_server_config::default_shu_plugin_path();
+    plugins.push(AudioEffectPluginInfo::new(
+        "Shu",
+        shu.to_string_lossy().into_owned(),
+        SHU_PLUGIN_ID,
+        shu,
+    ));
+    if let Some(root) = cmrt_server_config::default_voyage_voyage_preset_root() {
+        plugins.push(AudioEffectPluginInfo::new(
+            "Voyage Voyage",
+            cmrt_server_config::default_voyage_voyage_plugin_path(),
+            VOYAGE_VOYAGE_PLUGIN_ID,
+            root,
         ));
     }
     plugins

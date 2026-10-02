@@ -47,6 +47,16 @@ template 側へ入れる）。
 - 却下: preset-load（PLUGIN location）で factory preset を読む案。plugin 主導の非同期完了で、同期の state
   経路の要件（[0006](0006-no-generic-clap-preset-api.md)）に合わない
 
+## 他の sfz から `#include` される sfz は一覧に載せない
+
+catalog のどれかの program から `#include` で辿れる sfz（入れ子を含む）は、単体で鳴るかどうかを問わず一覧から外す。
+notice は出さない（user の側で直すものではない）。
+
+- 理由: include される sfz は親の program の部品（奏法・強弱の層・key switch の 1 段）で、親を選べば鳴らせる。
+  単体で開くと親の `<control>`（`set_ccN`・`default_path`）が効かず、鳴らないか、sample の相対 path がずれる物が大半
+- 却下: 単体で開いて鳴る region があるかを文面から判定し、鳴る部品だけ残す案。key switch・CC・trigger・header の
+  継承を評価する判定が要るわりに、残るのは狭い強弱の帯や低い鍵盤でだけ鳴る部品が中心で、選んでも鳴らないように見える
+
 ## 相対 path の基点は音色置き場ごと
 
 音色置き場（user bank、installed bank ごとのディレクトリ）は registry から互いに独立に決まり、別ドライブにも
@@ -81,11 +91,12 @@ factory preset 36 件を返した。factory key（例 `3103/com.Plogue.Aria/Keys
 
 ## 番人テスト
 
-- `server-config/src/sforzando_programs/tests.rs` — user root、installed bank の registry 読み取り結果、manifest、traversal、競合、実機 catalog 件数
+- `plugin-presets/src/sforzando/tests.rs` — user root、installed bank の registry 読み取り結果、manifest、traversal、競合。実機の user bank で一覧に無い `.sfz` がどれも鳴らないので外したものであること（`tests/installed.rs`、ignored）
+- `plugin-presets/src/sforzando/tests/included_parts.rs` — include される sfz を一覧から外すこと
 - `server-config/src/patch_base/tests.rs` — 置き場ごとの基点の解決・相対化・fallback しないこと。実機の全 program の往復は `patch_catalog/tests.rs`（ignored）
 - `core-lib/src/sforzando/tests.rs` — CEGP/zlib/XML/template/escape
 - `core-lib/src/render/sfz_state/tests.rs` — plugin identity
-- `server-config/src/sforzando_programs/tests/ariax.rs` — `.ariax` の Slot 座標と manifest の照合、catalog に載る `.ariax` の選別。
+- `plugin-presets/src/sforzando/tests/ariax.rs` — `.ariax` の Slot 座標と manifest の照合、catalog に載る `.ariax` の選別。
   実機の TableWarp2（`.sfz` 1 + `.ariax` 36）は `tests/installed.rs`（ignored）
 - `core-lib/src/render/tests/sforzando.rs` — 初期ロード・runtime 切替・拒否後の復帰・offline の
   実機音声が非無音であること、`.ariax` の Param が音と保存 state に残ること、`.sfz` ↔ `.ariax` の切替で

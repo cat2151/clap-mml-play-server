@@ -3,13 +3,10 @@ mod audio_plugin;
 pub mod boot_log;
 pub mod cache_wav;
 pub mod downloaded_patches;
-pub mod dragonfly_preset;
-pub mod dx7;
 pub mod effect;
 pub mod effect_plugins;
 pub mod floe;
 pub mod host;
-pub mod juce_value_tree;
 mod logging;
 pub mod midi;
 pub mod patch_list;
@@ -20,12 +17,18 @@ pub mod sforzando;
 pub mod six_sines;
 pub mod six_sines_factory;
 pub mod surge_data;
-pub mod surge_fx_preset;
-pub mod tone3000_preset;
 pub mod tyrelln6;
 pub mod voicing;
-pub mod vvp;
 mod workspace_update;
+
+pub use plugin_presets::dexed as dx7;
+pub use plugin_presets::dragonfly as dragonfly_preset;
+pub use plugin_presets::juce_value_tree;
+pub use plugin_presets::shu as shu_preset;
+pub use plugin_presets::surge_fx as surge_fx_preset;
+pub use plugin_presets::tone3000 as tone3000_preset;
+pub use plugin_presets::vaporizer2 as vvp;
+pub use plugin_presets::voyage_voyage as voyage_voyage_preset;
 
 /// レンダリング 1 回ぶんの設定。
 ///

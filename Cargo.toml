@@ -3,6 +3,7 @@ members = [
     "cache-player",
     "clack-timeline",
     "core-lib",
+    "plugin-presets",
     "realtime-ipc",
     "render-server",
     "server-config",

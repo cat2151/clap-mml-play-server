@@ -1,0 +1,17 @@
+[package]
+name = "plugin-presets"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "plugin_presets"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow = "1"
+dunce = "1"
+serde = { version = "1", features = ["derive"] }
+xmltree = "0.11"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"

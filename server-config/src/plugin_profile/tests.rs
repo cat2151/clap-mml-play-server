@@ -184,7 +184,7 @@ fn the_builtin_vaporizer2_profile_reads_its_patch_directories_from_the_registry(
     assert_eq!(profile.plugin_id.as_deref(), Some("com.vastdynamics.VAST2"));
     assert_eq!(
         profile.patches_dirs,
-        Some(crate::vendor_patch_dirs::vaporizer2_preset_dirs())
+        Some(plugin_presets::vaporizer2::vaporizer2_preset_dirs())
     );
 }
 
@@ -203,11 +203,11 @@ patches_dirs = ["/presets/Floe"]
 
     assert_eq!(
         vaporizer2.patches_dirs,
-        Some(crate::vendor_patch_dirs::vaporizer2_preset_dirs())
+        Some(plugin_presets::vaporizer2::vaporizer2_preset_dirs())
     );
     assert_eq!(
         floe.patches_dirs,
-        Some(crate::vendor_patch_dirs::floe_preset_dirs())
+        Some(plugin_presets::floe::floe_preset_dirs())
     );
 }
 
@@ -219,7 +219,7 @@ fn the_builtin_floe_profile_reads_its_patch_directories_from_floe_ini() {
     assert_eq!(profile.plugin_id.as_deref(), Some(FLOE_PLUGIN_ID));
     assert_eq!(
         profile.patches_dirs,
-        Some(crate::vendor_patch_dirs::floe_preset_dirs())
+        Some(plugin_presets::floe::floe_preset_dirs())
     );
 }
 
@@ -271,7 +271,7 @@ fn the_builtin_tyrelln6_profile_reads_its_patch_directories_from_the_registry() 
     assert_eq!(profile.plugin_id.as_deref(), Some(TYRELLN6_PLUGIN_ID));
     assert_eq!(
         profile.patches_dirs,
-        Some(crate::vendor_patch_dirs::tyrelln6_preset_dirs())
+        Some(plugin_presets::tyrelln6::tyrelln6_preset_dirs())
     );
 }
 
@@ -289,7 +289,7 @@ patches_dirs = ["/presets/TyrellN6"]
 
     assert_eq!(
         profile.patches_dirs,
-        Some(crate::vendor_patch_dirs::tyrelln6_preset_dirs())
+        Some(plugin_presets::tyrelln6::tyrelln6_preset_dirs())
     );
 }
 

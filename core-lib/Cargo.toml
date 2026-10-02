@@ -17,6 +17,7 @@ cmrt-cache-player = { path = "../cache-player" }
 cmrt-clack-timeline = { path = "../clack-timeline" }
 cmrt-server-config = { path = "../server-config" }
 cmrt-timeline = { path = "../timeline" }
+plugin-presets = { path = "../plugin-presets" }
 
 # MML → SMF (cli feature で pass1_parser が有効になる)
 mmlabc-to-smf = { git = "https://github.com/cat2151/mmlabc-to-smf-rust.git", package = "mmlabc-to-smf", features = ["cli"] }

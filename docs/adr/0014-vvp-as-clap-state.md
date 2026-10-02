@@ -7,7 +7,7 @@
 ## 決定
 
 Vaporizer2 の音色ファイル `.vvp` は、**中身の XML に 9 バイト被せて `clap.state` へ渡す**
-（JUCE の magic 4 + 末尾 NUL を含まない長さ 4 + UTF-8 XML + NUL 1。`core-lib/src/vvp.rs`）。
+（JUCE の magic 4 + 末尾 NUL を含まない長さ 4 + UTF-8 XML + NUL 1。`plugin-presets/src/vaporizer2.rs`）。
 
 単位は Surge XT の `.fxp` と同じ「1 音色 = 1 ファイル = 1 CLAP state」。
 
@@ -84,7 +84,7 @@ Vaporizer2 の音色ファイル `.vvp` は、**中身の XML に 9 バイト被
 `Presets`。config.toml の `[plugins.Vaporizer2] patches_dirs` は**書いてあっても無視する**。
 toml に書かせると、再インストールで置き場が変わるたびに書き直しが要り、忘れると本体と食い違う。
 読むだけで書きには行かない。Floe も同じ方針で、`%PUBLIC%\Floe\Preferences\floe.ini` の
-`extra-presets-folder` を読む（`server-config/src/vendor_patch_dirs.rs`）。
+`extra-presets-folder` を読む（`plugin-presets/src/floe.rs`）。
 
 registry に無ければ音色置き場ゼロでカタログに載らない。
 **「音色 0 件」で倒れるのが正しい倒れ方**で、Surge の dir を流用すると

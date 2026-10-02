@@ -8,6 +8,7 @@ use super::renderer::EffectRenderer;
 use super::rms_dbfs;
 use crate::audio_effect::PresetLocation;
 use crate::dragonfly_preset::{dragonfly_plugin, dragonfly_state_blob};
+use crate::shu_preset::{shu_preset, shu_state_blob, SHU_PLUGIN_ID};
 use crate::surge_fx_preset::{
     calibration_state_xml, juce_xml, param_layout, parse_srgfx, parse_state_xml,
     snapshot_state_xml, SurgeFxParamRanges, SurgeFxSnapshot, SurgeFxStateReport,
@@ -16,6 +17,7 @@ use crate::surge_fx_preset::{
 use crate::tone3000_preset::{
     parse_t3k_preset, tone3000_state_blob, Tone3000Preset, TONE3000_PLUGIN_ID,
 };
+use crate::voyage_voyage_preset::{voyage_state_blob, VOYAGE_VOYAGE_PLUGIN_ID};
 
 /// TONE3000 の model が載って音が出るまでの待ち上限。
 const TONE3000_AUDIBLE_TIMEOUT: Duration = Duration::from_secs(20);
@@ -38,7 +40,8 @@ impl EffectRenderer {
     /// factory preset を載せる。形式は載っている plugin で決まる。
     ///
     /// Surge XT Effects は `.srgfx` の先頭 snapshot、TONE3000 は `.t3kpreset`
-    /// （`activePresetId` はファイル名の uuid）、Dragonfly Reverb は組み込みの表を `value` で引く。
+    /// （`activePresetId` はファイル名の uuid）、Voyage Voyage は `.pst`、Dragonfly Reverb と Shu は
+    /// 組み込みの表を `value` で引く。
     pub fn load_preset(&mut self, location: &PresetLocation) -> Result<()> {
         let path = location.path.as_path();
         if let Some(dragonfly) = dragonfly_plugin(self.plugin_id()) {
@@ -49,6 +52,12 @@ impl EffectRenderer {
                 .with_context(|| format!("{} preset '{}' の load", dragonfly.name, preset.name));
         }
         match self.plugin_id() {
+            SHU_PLUGIN_ID => {
+                let preset = shu_preset(&location.value)?;
+                let blob = shu_state_blob(self.init_state(), preset)?;
+                self.load_state(&blob)
+                    .with_context(|| format!("Shu preset '{}' の load", preset.name))
+            }
             SURGE_FX_PLUGIN_ID => {
                 let xml = std::fs::read_to_string(path)
                     .with_context(|| format!("{} が読めない", path.display()))?;
@@ -69,6 +78,14 @@ impl EffectRenderer {
                     .and_then(|stem| stem.to_str())
                     .ok_or_else(|| anyhow::anyhow!("{} の名前が取れない", path.display()))?;
                 self.load_tone3000_preset(&preset, preset_id).map(|_| ())
+            }
+            VOYAGE_VOYAGE_PLUGIN_ID => {
+                let xml = std::fs::read_to_string(path)
+                    .with_context(|| format!("{} が読めない", path.display()))?;
+                let blob = voyage_state_blob(self.init_state(), &xml)
+                    .with_context(|| path.display().to_string())?;
+                self.load_state(&blob)
+                    .with_context(|| format!("Voyage Voyage preset '{}' の load", location.value))
             }
             other => bail!("plugin '{other}' の preset 形式を知らない"),
         }

@@ -8,6 +8,9 @@
 //! CMRT_TEST_TONE3000_CLAP=C:\Program Files\Common Files\CLAP\TONE3000.clap
 //! CMRT_TEST_TONE3000_PRESETS=%ProgramData%\TONE3000\Presets\Factory
 //! CMRT_TEST_DRAGONFLY_DIR=C:\Program Files\Common Files\CLAP\dragonfly-reverb
+//! CMRT_TEST_SHU_CLAP=C:\Program Files\Common Files\CLAP\shimmer-reverb\Shu.clap
+//! CMRT_TEST_VOYAGE_CLAP=C:\Program Files\Common Files\CLAP\shimmer-reverb\Voyage Voyage.clap
+//! CMRT_TEST_VOYAGE_PRESETS=%APPDATA%\Musical Entropy\Voyage Voyage\Presets
 //! cargo test -p cmrt-core --release effect -- --ignored --test-threads=1
 //! ```
 //!
@@ -50,5 +53,7 @@ fn rms_dbfs_of_silence_is_negative_infinity() {
 }
 
 mod dragonfly;
+mod shu;
 mod surge_fx;
 mod tone3000;
+mod voyage_voyage;

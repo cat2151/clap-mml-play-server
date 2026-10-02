@@ -278,67 +278,6 @@ fn two_plugin_keys_besides_bypass_is_still_an_error() {
 }
 
 #[test]
-fn surge_classification_follows_the_folder_table() {
-    assert_eq!(
-        scan::surge_classification("Reverb 2/Cathedral.srgfx", "Surge XT Effects"),
-        ("Space / Imaging".to_string(), "Reverb".to_string())
-    );
-    assert_eq!(
-        scan::surge_classification("Airwindows/Filter/Air.srgfx", "Surge XT Effects"),
-        ("Filter / EQ".to_string(), "Filter".to_string())
-    );
-    assert_eq!(
-        scan::surge_classification("Combulator/Sparkle.srgfx", "Surge XT Effects"),
-        ("Filter / EQ".to_string(), "Filter".to_string())
-    );
-    assert_eq!(
-        scan::surge_classification("Conditioner/Limiter 1.srgfx", "Surge XT Effects"),
-        ("Dynamics".to_string(), "Limiter / Clipper".to_string())
-    );
-    assert_eq!(
-        scan::surge_classification("Reverb 1/Hall.srgfx", "Surge XT Effects"),
-        ("Space / Imaging".to_string(), "Reverb".to_string())
-    );
-}
-
-#[test]
-fn unknown_folder_becomes_its_own_category_and_kind() {
-    assert_eq!(
-        scan::surge_classification("Foo/x.srgfx", "Surge XT Effects"),
-        ("Foo".to_string(), "Foo".to_string())
-    );
-    assert_eq!(
-        scan::surge_classification("Airwindows/New/x.srgfx", "Surge XT Effects"),
-        ("Airwindows/New".to_string(), "Airwindows/New".to_string())
-    );
-    assert_eq!(
-        scan::surge_classification("x.srgfx", "Surge XT Effects"),
-        (
-            "Surge XT Effects".to_string(),
-            "Surge XT Effects".to_string()
-        )
-    );
-}
-
-#[test]
-fn folder_table_has_no_duplicate_keys() {
-    let mut folders: Vec<&str> = scan::SURGE_FOLDER_CLASSIFICATION
-        .iter()
-        .map(|(folder, _, _)| *folder)
-        .collect();
-    let original_len = folders.len();
-    folders.sort();
-    folders.dedup();
-    assert_eq!(folders.len(), original_len);
-}
-
-#[test]
-fn tone3000_is_an_amp_simulator_under_distortion() {
-    assert_eq!(scan::TONE3000_CATEGORY, "Distortion / Saturation");
-    assert_eq!(scan::TONE3000_KIND, "Amp Simulator");
-}
-
-#[test]
 fn categories_and_kinds_are_deduplicated_and_sorted() {
     let surge = plugin("Surge XT Effects", SURGE_FX_PLUGIN_ID);
     let tone = plugin("TONE3000", TONE3000_PLUGIN_ID);
@@ -371,35 +310,6 @@ fn categories_and_kinds_are_deduplicated_and_sorted() {
     );
 }
 
-/// 実 install の `fx_presets` フォルダが無い環境（Linux CI など）では何もせず通す。
-#[test]
-fn installed_surge_presets_all_hit_the_table() {
-    let root = PathBuf::from(r"C:\ProgramData\Surge XT\fx_presets");
-    if !root.is_dir() {
-        return;
-    }
-    let mut files = Vec::new();
-    collect_srgfx_files(&root, &mut files);
-    let mut unmatched = Vec::new();
-    for path in files {
-        let relative = path
-            .strip_prefix(&root)
-            .unwrap_or(&path)
-            .to_string_lossy()
-            .replace('\\', "/");
-        let Some((folder, _)) = relative.rsplit_once('/') else {
-            continue;
-        };
-        let hit = scan::SURGE_FOLDER_CLASSIFICATION
-            .iter()
-            .any(|(entry_folder, _, _)| *entry_folder == folder);
-        if !hit {
-            unmatched.push(folder.to_string());
-        }
-    }
-    assert!(unmatched.is_empty(), "表に無いフォルダ: {unmatched:?}");
-}
-
 /// 実 install が無い環境（Linux CI など）では何もせず通す。
 /// TUI の add overlay の category / kind pane の項目数を実機カタログで裏づける。
 #[test]
@@ -410,23 +320,10 @@ fn installed_surge_catalog_has_five_categories_and_eighteen_kinds() {
     }
     let catalog = AudioEffectCatalog::discover();
     assert_eq!(catalog.categories().len(), 5, "{:?}", catalog.categories());
-    let kinds = catalog.kinds_in(None);
+    let mut kinds = catalog.kinds_in(None);
+    // Shu / Voyage Voyage の install 有無で増減するので数えない。
+    kinds.retain(|kind| kind != "Shimmer Reverb");
     assert_eq!(kinds.len(), 18, "{kinds:?}");
-}
-
-#[cfg(test)]
-fn collect_srgfx_files(dir: &std::path::Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            collect_srgfx_files(&path, out);
-        } else if path.extension().and_then(|ext| ext.to_str()) == Some("srgfx") {
-            out.push(path);
-        }
-    }
 }
 
 mod dragonfly;

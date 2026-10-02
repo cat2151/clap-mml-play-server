@@ -209,8 +209,9 @@ pub fn patch_form_of(plugin_id: Option<&str>, plugin_path: &str) -> PatchForm {
 /// 表記ゆれを吸収し、同名なら config 側の「書かれている項目」が組み込みを上書きする。
 ///
 /// Vaporizer2・Floe・TyrellN6 の `patches_dirs` は config を無視し、本体の設定から読んだ値で
-/// 置き換える（[`crate::vendor_patch_dirs`]）。Six Sines は factory の取得先
-/// （[`crate::six_sines_factory_dir`]）で置き換える。
+/// 置き換える（[`plugin_presets::vaporizer2::vaporizer2_preset_dirs`]・
+/// [`plugin_presets::floe::floe_preset_dirs`]・[`plugin_presets::tyrelln6::tyrelln6_preset_dirs`]）。
+/// Six Sines は factory の取得先（[`crate::six_sines_factory_dir`]）で置き換える。
 pub fn merged_plugin_profiles(
     from_config: &BTreeMap<String, PluginProfile>,
 ) -> BTreeMap<String, PluginProfile> {
@@ -228,13 +229,13 @@ pub fn merged_plugin_profiles(
     for profile in merged.values_mut() {
         match patch_form_of(profile.plugin_id.as_deref(), &profile.plugin_path) {
             PatchForm::Vvp => {
-                profile.patches_dirs = Some(crate::vendor_patch_dirs::vaporizer2_preset_dirs())
+                profile.patches_dirs = Some(plugin_presets::vaporizer2::vaporizer2_preset_dirs())
             }
             PatchForm::FloePreset => {
-                profile.patches_dirs = Some(crate::vendor_patch_dirs::floe_preset_dirs())
+                profile.patches_dirs = Some(plugin_presets::floe::floe_preset_dirs())
             }
             PatchForm::TyrellN6 => {
-                profile.patches_dirs = Some(crate::vendor_patch_dirs::tyrelln6_preset_dirs())
+                profile.patches_dirs = Some(plugin_presets::tyrelln6::tyrelln6_preset_dirs())
             }
             PatchForm::SixSines => {
                 profile.patches_dirs = Some(

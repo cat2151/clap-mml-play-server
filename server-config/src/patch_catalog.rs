@@ -6,7 +6,9 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
-use crate::{configured_patch_dirs, patch_form_of, sforzando_programs, PatchBase, PatchForm};
+use plugin_presets::sforzando::{self, SforzandoCatalog};
+
+use crate::{configured_patch_dirs, patch_form_of, PatchBase, PatchForm};
 
 /// Plugin-neutral result consumed by catalog clients.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -53,11 +55,32 @@ pub fn resolve_patch_catalog_roots(
     configured: Option<&[String]>,
 ) -> PatchCatalogResolution {
     if patch_form_of(plugin_id, plugin_path) == PatchForm::Sfz {
-        return with_per_root_base(sforzando_programs::resolve_roots(
-            sforzando_programs::RegistrySources::read(Path::new(plugin_path).exists()),
-        ));
+        return with_per_root_base(
+            sforzando::resolve_roots(sforzando::RegistrySources::read(
+                Path::new(plugin_path).exists(),
+            ))
+            .into(),
+        );
     }
     resolve_plain_directories(configured)
+}
+
+impl From<SforzandoCatalog> for PatchCatalogResolution {
+    fn from(catalog: SforzandoCatalog) -> Self {
+        let SforzandoCatalog {
+            dirs,
+            resolved_patches,
+            source_error,
+            notices,
+        } = catalog;
+        Self {
+            dirs,
+            resolved_patches,
+            source_error,
+            notices,
+            ..Self::default()
+        }
+    }
 }
 
 fn with_per_root_base(mut resolution: PatchCatalogResolution) -> PatchCatalogResolution {
@@ -76,9 +99,10 @@ fn cached_sforzando_catalog(plugin_path: &str) -> PatchCatalogResolution {
     if let Some(resolution) = cache.get(&key).cloned() {
         return resolution;
     }
-    let resolution = sforzando_programs::resolve_catalog(
-        sforzando_programs::RegistrySources::read(Path::new(plugin_path).exists()),
-    );
+    let resolution: PatchCatalogResolution = sforzando::resolve_catalog(
+        sforzando::RegistrySources::read(Path::new(plugin_path).exists()),
+    )
+    .into();
     cache.insert(key, resolution.clone());
     resolution
 }

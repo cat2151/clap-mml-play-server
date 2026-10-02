@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Surge XT のソースから、effect ごとの parameter layout 表を生成する。
 
-生成先: core-lib/src/surge_fx_preset/param_layout.rs
+生成先: plugin-presets/src/surge_fx/param_layout.rs
 
 Surge XT Effects の plugin state は parameter を GUI の並び（`posy_offset` で決まる）
 で流す一方、`.srgfx` preset は storage の並び（enum 順）で持つ。両者の対応は
@@ -236,7 +236,7 @@ def main() -> None:
     args = parser.parse_args()
     args.cache_dir.mkdir(parents=True, exist_ok=True)
     rows = build(args.cache_dir)
-    out = pathlib.Path(__file__).resolve().parent.parent / "core-lib" / "src" / "surge_fx_preset" / "param_layout.rs"
+    out = pathlib.Path(__file__).resolve().parent.parent / "plugin-presets" / "src" / "surge_fx" / "param_layout.rs"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(rust_source(rows), encoding="utf-8", newline="\n")
     print(f"wrote {out} ({len(rows)} effects)", file=sys.stderr)

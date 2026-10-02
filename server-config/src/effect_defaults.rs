@@ -1,4 +1,4 @@
-//! audio effect plugin（TONE3000 / Surge XT Effects / Dragonfly Reverb）の標準インストール先と factory preset 置き場。
+//! audio effect plugin（TONE3000 / Surge XT Effects / Dragonfly Reverb / Shu / Voyage Voyage）の標準インストール先と factory preset 置き場。
 //!
 //! instrument と違い config.toml には項目を持たず、組み込みの既定値だけで探す。
 //! 実在しなければ effect catalog に載らない（[`crate::default_vaporizer2_plugin_path`] と
@@ -106,4 +106,64 @@ pub fn default_dragonfly_plugin_path(file_stem: &str) -> PathBuf {
 #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
 pub fn default_dragonfly_plugin_path(_file_stem: &str) -> PathBuf {
     PathBuf::new()
+}
+
+/// Shu のパス。preset は host 側の組み込み表で、置き場は無い。
+#[cfg(target_os = "windows")]
+pub fn default_shu_plugin_path() -> PathBuf {
+    PathBuf::from(r"C:\Program Files\Common Files\CLAP\shimmer-reverb\Shu.clap")
+}
+
+#[cfg(target_os = "macos")]
+pub fn default_shu_plugin_path() -> PathBuf {
+    PathBuf::from("/Library/Audio/Plug-Ins/CLAP/Shu.clap")
+}
+
+#[cfg(target_os = "linux")]
+pub fn default_shu_plugin_path() -> PathBuf {
+    PathBuf::from("/usr/lib/clap/Shu.clap")
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+pub fn default_shu_plugin_path() -> PathBuf {
+    PathBuf::new()
+}
+
+/// Voyage Voyage のパス。Shu と同じディレクトリに入る。
+#[cfg(target_os = "windows")]
+pub fn default_voyage_voyage_plugin_path() -> &'static str {
+    r"C:\Program Files\Common Files\CLAP\shimmer-reverb\Voyage Voyage.clap"
+}
+
+#[cfg(target_os = "macos")]
+pub fn default_voyage_voyage_plugin_path() -> &'static str {
+    "/Library/Audio/Plug-Ins/CLAP/Voyage Voyage.clap"
+}
+
+#[cfg(target_os = "linux")]
+pub fn default_voyage_voyage_plugin_path() -> &'static str {
+    "/usr/lib/clap/Voyage Voyage.clap"
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+pub fn default_voyage_voyage_plugin_path() -> &'static str {
+    ""
+}
+
+/// Voyage Voyage の factory preset（`.pst`）置き場。`<category>/<name>.pst` が並ぶ。
+///
+/// 置き場が確認できていない OS では `None` を返し、catalog に載せない。
+#[cfg(target_os = "windows")]
+pub fn default_voyage_voyage_preset_root() -> Option<PathBuf> {
+    std::env::var_os("APPDATA").map(|dir| {
+        PathBuf::from(dir)
+            .join("Musical Entropy")
+            .join("Voyage Voyage")
+            .join("Presets")
+    })
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn default_voyage_voyage_preset_root() -> Option<PathBuf> {
+    None
 }

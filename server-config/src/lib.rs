@@ -10,7 +10,6 @@
 //! ここが持つ。
 
 mod effect_defaults;
-mod lexical_path;
 mod patch_base;
 mod patch_catalog;
 mod patch_dirs;
@@ -19,15 +18,12 @@ mod plugin_defaults;
 mod plugin_identity;
 mod plugin_profile;
 mod primary_plugin;
-mod sforzando_programs;
-mod vaporizer2_categories;
-mod vendor_patch_dirs;
 
 pub use effect_defaults::{
-    default_dragonfly_plugin_path, default_surge_fx_plugin_path, default_surge_fx_preset_root,
-    default_tone3000_plugin_path, default_tone3000_preset_root,
+    default_dragonfly_plugin_path, default_shu_plugin_path, default_surge_fx_plugin_path,
+    default_surge_fx_preset_root, default_tone3000_plugin_path, default_tone3000_preset_root,
+    default_voyage_voyage_plugin_path, default_voyage_voyage_preset_root,
 };
-pub use lexical_path::lexical_absolute;
 pub use patch_base::PatchBase;
 pub use patch_catalog::{
     resolve_patch_catalog, resolve_patch_catalog_roots, PatchCatalogResolution,
@@ -43,6 +39,12 @@ pub use plugin_identity::{
     plugin_file_stem, CACHE_PLAYER_PLUGIN_ID, DEXED_PLUGIN_ID, FLOE_PLUGIN_ID, SFORZANDO_PLUGIN_ID,
     SIX_SINES_PLUGIN_ID, SURGE_XT_PLUGIN_ID, TYRELLN6_PLUGIN_ID, VAPORIZER2_PLUGIN_ID,
 };
+pub use plugin_presets::lexical_absolute;
+pub use plugin_presets::sforzando::{
+    resolve_sforzando_preset, resolve_sforzando_program, sfz_sample_weight, SforzandoPresetRef,
+    SforzandoProgramRef, SfzSampleWeight,
+};
+pub use plugin_presets::vaporizer2::VAPORIZER2_CATEGORY_CODES;
 pub use plugin_profile::{
     builtin_plugin_profiles, installed_plugin_profiles, merged_plugin_profiles, patch_form_of,
     PatchForm, PluginProfile,
@@ -51,11 +53,6 @@ pub use primary_plugin::{
     reject_retired_top_level_plugin_keys, resolve_primary_plugin_profile,
     PRIMARY_PLUGIN_PROFILE_NAME,
 };
-pub use sforzando_programs::{
-    resolve_sforzando_preset, resolve_sforzando_program, sfz_sample_weight, SforzandoPresetRef,
-    SforzandoProgramRef, SfzSampleWeight,
-};
-pub use vaporizer2_categories::VAPORIZER2_CATEGORY_CODES;
 
 use std::collections::BTreeMap;
 

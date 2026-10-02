@@ -73,12 +73,12 @@ preset ファイルから plugin state を host が組んで `clap.state.load` �
 - Surge XT Effects: state は JUCE XML で、parameter は **GUI 順・0..1 正規化**。`.srgfx` は
   storage 順・実値なので、並びは Surge のソースから生成した表で引き直し、正規化の範囲は
   **plugin に全 parameter 0 / 1 の state を読ませて保存させ、自己申告から測る**
-  （`core-lib/src/surge_fx_preset.rs`）。範囲は plugin にしか無い
+  （`plugin-presets/src/surge_fx.rs`）。範囲は plugin にしか無い
 - TONE3000: preset も state も `T3KB` + JUCE `ValueTree`。生成直後の state を template に
   `ChainSnapshot` を差し替え、`PARAMETERS` を上書きし、`activePresetId/Name` を書く
-  （`core-lib/src/tone3000_preset.rs`）。名前だけ書いても plugin は preset を読まない
+  （`plugin-presets/src/tone3000.rs`）。名前だけ書いても plugin は preset を読まない
 - Dragonfly Reverb（Hall / Room / Plate / Early Reflections）: preset はファイルでなく plugin 本体の数値表で、
-  GUI が param を 1 つずつ書いて適用する。表を `core-lib/src/dragonfly_preset/tables.rs` に写し、DPF state の
+  GUI が param を 1 つずつ書いて適用する。表を `plugin-presets/src/dragonfly/tables.rs` に写し、DPF state の
   parameter 欄を上書きする。`preset` state だけ書いても decay しか変わらない。catalog の値は preset 名、
   `path` は plugin 本体（引くのは `PresetLocation::value`）。Early Reflections は preset の代わりに `program` param の選択肢を並べる
 

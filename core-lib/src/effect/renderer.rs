@@ -192,6 +192,22 @@ impl EffectRenderer {
             .collect()
     }
 
+    /// `clap.params` の `(名前, 現在値)` を index 順に返す。値は plain value（正規化前）。
+    pub fn param_values(&mut self) -> Vec<(String, f64)> {
+        let handle = self.instance.plugin_handle();
+        let Some(params) = handle.get_extension::<PluginParams>() else {
+            return Vec::new();
+        };
+        (0..params.count(&handle))
+            .filter_map(|index| {
+                let mut buffer = ParamInfoBuffer::new();
+                let info = params.get_info(&handle, index, &mut buffer)?;
+                let value = params.get_value(&handle, info.id)?;
+                Some((String::from_utf8_lossy(info.name).into_owned(), value))
+            })
+            .collect()
+    }
+
     /// plugin が要求した main-thread callback を 1 回ぶん処理する。処理したら `true`。
     pub(super) fn pump_main_thread(&mut self) -> bool {
         let requested = self

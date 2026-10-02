@@ -11,7 +11,7 @@
 2. `process()` を回したあとの instance へロードしたときは、`max(4, ceil(4096 / buf_size))` ブロック
    空回ししてから返す。`activate()` 前のロードでは回さない
 3. 音色置き場は registry `HKCU\Software\u-he\TyrellN6` の `DataPath` の下の `Presets\TyrellN6` だけ
-   （`server-config/src/vendor_patch_dirs.rs`）。config の `patches_dirs` は無視し、`UserPresets` は列挙しない
+   （`plugin-presets/src/tyrelln6.rs`）。config の `patches_dirs` は無視し、`UserPresets` は列挙しない
 4. `.h2p` は拡張子で `PatchForm::TyrellN6` と決め、送り先は TyrellN6 に限る。他の u-he plugin の `.h2p` は扱わない
 5. mono/poly は読まず `AssumePoly`。`has_builtin_effects()` は `false`（auto reverb 試聴の対象）
 
@@ -49,6 +49,6 @@
 | テスト | 落ちたら |
 |---|---|
 | `render::tyrelln6_patch::tests` / `render::patch_state::tests`（plugin 不要） | 照合が外れた |
-| `server-config/src/vendor_patch_dirs/tests.rs` | `DataPath` から置き場を組み立てる規則が変わった |
+| `plugin-presets/src/tyrelln6/tests.rs` | `DataPath` から置き場を組み立てる規則が変わった |
 | `core-lib/src/render/tests/tyrelln6.rs`（`#[ignore]`・実 plugin） | descriptor・state の形式が変わった・`.h2p` をそのまま読まなくなった |
 | `core-lib/src/render/tests/tyrelln6_patch_switch.rs`（`#[ignore]`・実 plugin） | 全音色のロード失敗・切り替えで前の音色の state が残る・空回しが足りず settle 0 の 1 音目が前の音色寄りになる |

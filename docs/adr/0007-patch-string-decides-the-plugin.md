@@ -9,11 +9,11 @@
 「patch 文字列 → どのプラグインで開くか」は **patch 文字列に現れる拡張子**で決める。
 
 ```rust
-// core-lib/src/dx7/patch_path.rs
+// plugin-presets/src/dexed/patch_path.rs
 pub fn is_cartridge_patch_path(patch: &str) -> bool {
     patch.split(PATH_SEPARATORS).any(has_syx_extension)
 }
-// core-lib/src/vvp.rs
+// plugin-presets/src/vaporizer2.rs
 pub fn is_vvp_patch_path(patch: &str) -> bool {
     patch.split(PATH_SEPARATORS).any(has_vvp_extension)
 }
@@ -50,7 +50,7 @@ patch 文字列そのものがプラグインを決めるなら、サーバー�
 - **`"CLAP preset"` JSON wire 形式は不要**
 - **`PresetRef` tagged enum は不要**
 
-patch 一覧は拡張子を問わず同じ walk で拾う（`core-lib/src/patch_list.rs` の `collect_patches()`）ので、
+patch 一覧は拡張子を問わず同じ walk で拾う（`plugin-presets/src/patch_list.rs` の `collect_patches()`）ので、
 `patches_dirs` に各プラグインの dir を並べれば混在カタログになる。
 capability の差は instance 単位で吸収済み（[0002](0002-capability-driven-ports-and-dialects.md)）。
 `MAX_INSTANCE_COUNT` を増やしても SHM レイアウトは変わらない（`realtime-ipc/src/lib.rs` の doc コメント）。
