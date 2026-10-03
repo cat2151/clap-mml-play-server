@@ -71,7 +71,7 @@ pub use dx7::{
     DX7_PROGRAMS_PER_CARTRIDGE,
 };
 pub use effect_plugins::EffectPlugins;
-pub use floe::{is_floe_preset_path, FLOE_PLUGIN_ID};
+pub use floe::{floe_preset_is_percussion, is_floe_preset_path, FLOE_PLUGIN_ID};
 pub use host::{
     builtin_plugin_path, load_builtin_entry, load_entry, PluginEntry, BUILTIN_PLUGIN_PATH_PREFIX,
 };
@@ -97,8 +97,8 @@ pub use render::{
 };
 pub use render::{PluginProbeReport, ProbedDescriptor};
 pub use sforzando::{
-    is_ariax_patch_path, is_sforzando_patch_path, is_sfz_patch_path, sfz_sample_weight,
-    SfzSampleWeight, SFORZANDO_PLUGIN_ID,
+    is_ariax_patch_path, is_sforzando_patch_path, is_sfz_patch_path, sfz_is_drum_kit,
+    sfz_sample_weight, SfzSampleWeight, SFORZANDO_PLUGIN_ID,
 };
 pub use six_sines::{is_six_sines_patch_path, SIX_SINES_PLUGIN_ID};
 pub use surge_data::{

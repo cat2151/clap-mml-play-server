@@ -1,7 +1,11 @@
-//! Floe の音色置き場を `floe.ini` から読む。
+//! Floe の音色置き場（`floe.ini` から読む）と preset のタグ。
 //!
-//! config.toml の `patches_dirs` は使わない。再インストールや本体側の設定変更のたびに
+//! 置き場に config.toml の `patches_dirs` は使わない。再インストールや本体側の設定変更のたびに
 //! toml を書き直す二度手間になり、書き忘れると本体と食い違うため。
+
+mod preset_tags;
+
+pub use preset_tags::floe_preset_is_percussion;
 
 /// Floe が scan する preset 置き場。
 ///

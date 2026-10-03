@@ -8,10 +8,12 @@
 //! directory ARIA has not registered could be listed but not played.
 
 mod ariax;
+mod drum_kit;
 mod excluded;
 mod installed_bank;
 mod manifest;
 mod sample_weight;
+mod sfz_regions;
 mod unplayable;
 mod user_bank;
 
@@ -19,6 +21,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
 pub use ariax::{resolve_sforzando_preset, SforzandoPresetRef};
+pub use drum_kit::sfz_is_drum_kit;
 pub use sample_weight::{sfz_sample_weight, SfzSampleWeight};
 
 /// A program that ARIA can resolve from a canonical SFZ path.

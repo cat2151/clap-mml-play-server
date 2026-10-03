@@ -1,10 +1,12 @@
 //! Floe の音色ファイル（`.floe-preset`）。
 //!
 //! 1 ファイルが Floe の full-state snapshot であり、Floe 固有 CLAP extension で
-//! ロードする。ここでは、列挙・routing が共有する path 判定だけを持つ。
+//! ロードする。ここでは、列挙・routing が共有する path 判定と、catalog が使うタグ判定を持つ。
 
 /// `.floe-preset` を音色置き場にする Floe の CLAP plugin ID。
 pub const FLOE_PLUGIN_ID: &str = "com.floe-audio.floe";
+
+pub use cmrt_server_config::floe_preset_is_percussion;
 
 const FLOE_PRESET_EXTENSION: &str = ".floe-preset";
 const PATH_SEPARATORS: [char; 2] = ['/', '\\'];

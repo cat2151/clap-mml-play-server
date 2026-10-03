@@ -64,7 +64,7 @@ pub(super) fn scan_sfz(path: &Path) -> anyhow::Result<SfzScan> {
     })
 }
 
-fn read_sfz_text(path: &Path) -> std::io::Result<String> {
+pub(super) fn read_sfz_text(path: &Path) -> std::io::Result<String> {
     let bytes = std::fs::read(path)?;
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
@@ -139,7 +139,7 @@ impl Walker<'_> {
 }
 
 /// `"..."` で囲まれた文字列と、閉じ引用符までに消費した byte 数。
-fn quoted(text: &str) -> Option<(&str, usize)> {
+pub(super) fn quoted(text: &str) -> Option<(&str, usize)> {
     let leading = text.len() - text.trim_start().len();
     let body = text[leading..].strip_prefix('"')?;
     let end = body.find('"')?;
@@ -167,7 +167,7 @@ fn opcode_value(line: &str, pos: usize, name: &str) -> Option<std::ops::Range<us
     Some(start..end)
 }
 
-fn value_len(value: &str) -> usize {
+pub(super) fn value_len(value: &str) -> usize {
     for (index, ch) in value.char_indices() {
         if ch == '<' || starts_directive(&value[index..]) {
             return index;
@@ -193,7 +193,7 @@ fn starts_next_opcode(text: &str) -> bool {
 }
 
 /// `base` に `parts` を順に連結し、`\` を区切りとして扱い、`.` と `..` を字句的に畳む。
-fn normalize(base: &Path, parts: &[&str]) -> PathBuf {
+pub(super) fn normalize(base: &Path, parts: &[&str]) -> PathBuf {
     let mut path = base.to_path_buf();
     for part in parts {
         for piece in part.split(['/', '\\']) {
