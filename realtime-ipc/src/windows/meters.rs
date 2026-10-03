@@ -31,6 +31,15 @@ pub(super) fn underrun_frames(ring: &SharedRing) -> u64 {
     ring.underrun_frames.load(Ordering::Acquire)
 }
 
+pub(super) fn publish_dropped_live_events_total(ring: &SharedRing, total: u64) {
+    ring.dropped_live_events_total
+        .store(total, Ordering::Release);
+}
+
+pub(super) fn dropped_live_events_total(ring: &SharedRing) -> u64 {
+    ring.dropped_live_events_total.load(Ordering::Acquire)
+}
+
 /// instance ごとの auto-trim ゲインを dB で公開する。
 ///
 /// 渡された数より後ろの instance は「auto gain が動いていない」= 0 dB に戻す。

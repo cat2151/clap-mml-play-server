@@ -109,10 +109,10 @@ fn at_samples(queue: &[LiveQueuedEvent]) -> Vec<u64> {
 #[test]
 fn enqueue_keeps_sample_order_and_same_sample_insertion_order() {
     let mut queue = Vec::new();
-    enqueue_live_event(&mut queue, 1_000, event(0, 500, 60));
-    enqueue_live_event(&mut queue, 1_000, event(0, 100, 64));
-    enqueue_live_event(&mut queue, 1_000, event(0, 300, 67));
-    enqueue_live_event(&mut queue, 1_000, event(0, 300, 69));
+    enqueue_live_event(&mut queue, 1_000, event(0, 500, 60), MAX_LIVE_QUEUE_EVENTS);
+    enqueue_live_event(&mut queue, 1_000, event(0, 100, 64), MAX_LIVE_QUEUE_EVENTS);
+    enqueue_live_event(&mut queue, 1_000, event(0, 300, 67), MAX_LIVE_QUEUE_EVENTS);
+    enqueue_live_event(&mut queue, 1_000, event(0, 300, 69), MAX_LIVE_QUEUE_EVENTS);
     assert_eq!(at_samples(&queue), vec![1_100, 1_300, 1_300, 1_500]);
     assert_eq!(queue[1].message[1], 67);
     assert_eq!(queue[2].message[1], 69);
@@ -121,10 +121,70 @@ fn enqueue_keeps_sample_order_and_same_sample_insertion_order() {
 #[test]
 fn enqueue_stops_at_the_per_instance_cap() {
     let mut queue = Vec::new();
-    for _ in 0..MAX_LIVE_QUEUE_EVENTS + 10 {
-        enqueue_live_event(&mut queue, 0, event(0, 0, 60));
-    }
-    assert_eq!(queue.len(), MAX_LIVE_QUEUE_EVENTS);
+    let accepted = (0..14)
+        .filter(|_| enqueue_live_event(&mut queue, 0, event(0, 0, 60), 4))
+        .count();
+    assert_eq!(accepted, 4);
+    assert_eq!(queue.len(), 4);
+}
+
+#[test]
+fn enqueue_accepts_everything_below_the_cap() {
+    let mut queue = Vec::new();
+    let accepted = (0..4)
+        .filter(|_| enqueue_live_event(&mut queue, 0, event(0, 0, 60), 4))
+        .count();
+    assert_eq!(accepted, 4);
+}
+
+fn timeline_events(count: usize) -> Vec<cmrt_realtime_ipc::TimelineMidiEvent> {
+    (0..count)
+        .map(|index| cmrt_realtime_ipc::TimelineMidiEvent {
+            timeline_id: 7,
+            instance_id: 0,
+            timeline_seconds: index as f64 * 0.1,
+            message: [0x90, 60, 100],
+        })
+        .collect()
+}
+
+fn schedule_into_live_timeline(mode: &mut Option<PlaybackMode>, count: usize, limit: usize) -> u64 {
+    let Some(PlaybackMode::Live {
+        instances,
+        timeline: Some(timeline),
+        ..
+    }) = mode
+    else {
+        panic!("expected a live timeline");
+    };
+    schedule_timeline_midi(timeline, instances, timeline_events(count), limit)
+}
+
+#[test]
+fn timeline_midi_past_the_cap_is_dropped_and_counted() {
+    let mut mode = live_mode_with_timeline(120.0);
+    assert_eq!(schedule_into_live_timeline(&mut mode, 3, 5), 0);
+    assert_eq!(schedule_into_live_timeline(&mut mode, 4, 5), 2);
+    assert_eq!(live_parts(&mode).2.scheduler.len(), 5);
+}
+
+#[test]
+fn timeline_midi_within_the_cap_drops_nothing() {
+    let mut mode = live_mode_with_timeline(120.0);
+    assert_eq!(schedule_into_live_timeline(&mut mode, 5, 5), 0);
+    let (_, _, timeline) = live_parts(&mode);
+    assert_eq!(timeline.scheduler.len(), 5);
+    assert!(timeline.started);
+}
+
+#[test]
+fn dropped_live_events_accumulate_across_batches() {
+    let dropped = DroppedLiveEvents::default();
+    dropped.add(0);
+    assert_eq!(dropped.total(), 0);
+    dropped.add(3);
+    dropped.add(4);
+    assert_eq!(dropped.total(), 7);
 }
 
 #[test]

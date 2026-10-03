@@ -17,8 +17,8 @@ use super::{
     mixer::add_samples_ramped,
     output_stream::build_output_stream,
     runtime::{
-        new_live_instances, AutoGainControl, LiveGains, LiveInstanceState, LiveTimelineState,
-        PlaybackMode, TimelinePayload, TimingMetricsState,
+        new_live_instances, AutoGainControl, DroppedLiveEvents, LiveGains, LiveInstanceState,
+        LiveTimelineState, PlaybackMode, TimelinePayload, TimingMetricsState,
     },
     startup::create_live_renderers,
     timing_diagnostics::LiveTimingWindow,
@@ -26,7 +26,11 @@ use super::{
 };
 
 const OUTPUT_WAIT_TIMEOUT: Duration = Duration::from_millis(10);
-const MAX_LIVE_QUEUE_EVENTS: usize = 8192;
+/// 待ち行列 1 本に積めるイベント数。超えた分は捨て、[`DroppedLiveEvents`] に数える。
+///
+/// 長い曲の行演奏を丸ごと先に積むので、クライアントが 1 行で送る上限
+/// （TUI の `MAX_LINE_EVENTS`）の 2 倍を取ってある。
+const MAX_LIVE_QUEUE_EVENTS: usize = 65_536;
 /// render するものが無く先読みだけが飛んでいる間、返事を見に起きる間隔。
 const STANDBY_POLL_INTERVAL: Duration = Duration::from_millis(100);
 mod bank;
@@ -40,7 +44,7 @@ use self::standby::{StandbyContext, StandbyLoad};
 use super::commands::TimedCommand;
 use command::{apply_command, CommandContext};
 #[cfg(test)]
-use command::{apply_live_tempo, begin_live_timeline};
+use command::{apply_live_tempo, begin_live_timeline, schedule_timeline_midi};
 
 pub(super) struct WorkerOutput {
     pub(super) control: Arc<AudioOutputControl>,
@@ -48,6 +52,7 @@ pub(super) struct WorkerOutput {
     pub(super) live_gains: Arc<LiveGains>,
     pub(super) auto_gain: Arc<AutoGainControl>,
     pub(super) timing_metrics: Arc<TimingMetricsState>,
+    pub(super) dropped_events: Arc<DroppedLiveEvents>,
     pub(super) producer: AudioOutputProducer,
     pub(super) consumer: AudioOutputConsumer,
 }
@@ -66,6 +71,7 @@ pub(super) fn run_player_worker(
         live_gains,
         auto_gain,
         timing_metrics,
+        dropped_events,
         producer: output_producer,
         consumer: output_consumer,
     } = output;
@@ -143,6 +149,7 @@ pub(super) fn run_player_worker(
                     auto_gain: &auto_gain,
                     timing_window: &mut timing_window,
                     timing_metrics: &timing_metrics,
+                    dropped_events: &dropped_events,
                     audio_output: &audio_output,
                     playback_mode: &mut playback_mode,
                     standby: &mut standby,
@@ -167,6 +174,7 @@ pub(super) fn run_player_worker(
                     auto_gain: &auto_gain,
                     timing_window: &mut timing_window,
                     timing_metrics: &timing_metrics,
+                    dropped_events: &dropped_events,
                     audio_output: &audio_output,
                     playback_mode: &mut playback_mode,
                     standby: &mut standby,
@@ -336,16 +344,15 @@ fn new_live_mode(generation: u64, instance_count: usize) -> PlaybackMode {
     }
 }
 
+/// 時刻順を保って積む。`limit` 件に達していれば積まずに `false` を返す。
 pub(super) fn enqueue_live_event(
     queue: &mut Vec<LiveQueuedEvent>,
     clock_samples: u64,
     event: cmrt_realtime_ipc::FastMidiEvent,
-) {
-    if queue.len() >= MAX_LIVE_QUEUE_EVENTS {
-        eprintln!(
-            "realtime live MIDI queue is full ({MAX_LIVE_QUEUE_EVENTS} events); dropping event"
-        );
-        return;
+    limit: usize,
+) -> bool {
+    if queue.len() >= limit {
+        return false;
     }
     let at_sample = clock_samples.saturating_add(u64::from(event.offset_frames));
     let insert_at = queue.partition_point(|queued| queued.at_sample <= at_sample);
@@ -356,6 +363,7 @@ pub(super) fn enqueue_live_event(
             message: event.message,
         },
     );
+    true
 }
 
 pub(super) fn take_chunk_events(

@@ -107,6 +107,10 @@ impl PlayerHandle for FakePlayer {
         0
     }
 
+    fn dropped_live_events_total(&self) -> u64 {
+        0
+    }
+
     fn timing_metrics(&self) -> TimingMetrics {
         TimingMetrics::default()
     }

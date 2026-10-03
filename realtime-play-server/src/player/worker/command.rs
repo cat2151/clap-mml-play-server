@@ -9,6 +9,8 @@ pub(super) struct CommandContext<'a> {
     pub(super) auto_gain: &'a AutoGainControl,
     pub(super) timing_window: &'a mut LiveTimingWindow,
     pub(super) timing_metrics: &'a TimingMetricsState,
+    /// 待ち行列が満杯で捨てたイベントの累計。IPC スレッドが共有メモリへ写す。
+    pub(super) dropped_events: &'a DroppedLiveEvents,
     pub(super) audio_output: &'a AudioOutputControl,
     pub(super) playback_mode: &'a mut Option<PlaybackMode>,
     /// 進行中の先読みロード。**コマンド処理はここを空にしないまま帰ってよい。**
@@ -24,6 +26,7 @@ pub(super) fn apply_command(context: CommandContext<'_>, command: PlayerCommand)
         auto_gain,
         timing_window,
         timing_metrics,
+        dropped_events,
         audio_output,
         playback_mode,
         standby,
@@ -124,10 +127,24 @@ pub(super) fn apply_command(context: CommandContext<'_>, command: PlayerCommand)
                     *clock_samples,
                     timeline.is_some()
                 );
+                let mut dropped = 0u64;
                 for event in events {
                     let instance = &mut instances[usize::from(event.instance_id)];
                     instance.active = true;
-                    enqueue_live_event(&mut instance.queue, *clock_samples, event);
+                    if !enqueue_live_event(
+                        &mut instance.queue,
+                        *clock_samples,
+                        event,
+                        MAX_LIVE_QUEUE_EVENTS,
+                    ) {
+                        dropped += 1;
+                    }
+                }
+                if dropped > 0 {
+                    eprintln!(
+                        "cmrt-live: event=live-midi-dropped count={dropped} limit={MAX_LIVE_QUEUE_EVENTS}"
+                    );
+                    dropped_events.add(dropped);
                 }
             } else {
                 // live モードに入れていない。生 MIDI はここで黙って捨てられる。
@@ -194,20 +211,14 @@ pub(super) fn apply_command(context: CommandContext<'_>, command: PlayerCommand)
                 return;
             };
             *live_generation = generation;
-            for event in events {
-                let index = usize::from(event.instance_id);
-                if timeline.scheduler.len() >= MAX_LIVE_QUEUE_EVENTS {
-                    eprintln!(
-                        "realtime timeline MIDI queue is full ({MAX_LIVE_QUEUE_EVENTS} events); dropping event"
-                    );
-                    continue;
-                }
-                instances[index].active = true;
-                if let Err(error) = timeline.schedule(event) {
-                    eprintln!("realtime timeline MIDI rejected: {error:#}");
-                } else {
-                    timeline.started = true;
-                }
+            let dropped =
+                schedule_timeline_midi(timeline, instances, events, MAX_LIVE_QUEUE_EVENTS);
+            if dropped > 0 {
+                eprintln!(
+                    "cmrt-live: event=timeline-midi-dropped timeline={} count={dropped} limit={MAX_LIVE_QUEUE_EVENTS}",
+                    timeline.id
+                );
+                dropped_events.add(dropped);
             }
         }
         PlayerCommand::PrepareLivePatch {
@@ -314,6 +325,30 @@ pub(super) fn apply_command(context: CommandContext<'_>, command: PlayerCommand)
             let _ = completion.send(result);
         }
     }
+}
+
+/// timeline の待ち行列へ積む。`limit` 件に達した後の分は捨て、その数を返す。
+pub(super) fn schedule_timeline_midi(
+    timeline: &mut LiveTimelineState,
+    instances: &mut [LiveInstanceState],
+    events: Vec<cmrt_realtime_ipc::TimelineMidiEvent>,
+    limit: usize,
+) -> u64 {
+    let mut dropped = 0u64;
+    for event in events {
+        if timeline.scheduler.len() >= limit {
+            dropped += 1;
+            continue;
+        }
+        let index = usize::from(event.instance_id);
+        instances[index].active = true;
+        if let Err(error) = timeline.schedule(event) {
+            eprintln!("realtime timeline MIDI rejected: {error:#}");
+        } else {
+            timeline.started = true;
+        }
+    }
+    dropped
 }
 
 /// 新しい timeline を live へ据える。前の演奏をそのまま続けて描いたら `true`。

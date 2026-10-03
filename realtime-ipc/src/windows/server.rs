@@ -166,6 +166,11 @@ impl FastMidiServer {
         meters::publish_underrun_frames(self.mapping.ring(), frames);
     }
 
+    /// 待ち行列が満杯で捨てたイベントの累計を公開する。
+    pub fn publish_dropped_live_events_total(&self, total: u64) {
+        meters::publish_dropped_live_events_total(self.mapping.ring(), total);
+    }
+
     pub fn publish_auto_gain_db(&self, gains_db: &[f32]) {
         meters::publish_auto_gain_db(self.mapping.ring(), gains_db);
     }

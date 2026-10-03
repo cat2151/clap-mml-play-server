@@ -13,7 +13,7 @@ use cmrt_realtime_ipc::{
     FastIpcError, FastMidiClient, FastMidiEvent, LimiterMeter, LiveTempoChange, LiveTimelineConfig,
     TimelineMidiEvent, TimingMetrics,
 };
-use std::sync::{mpsc::SyncSender, Condvar, Mutex};
+use std::sync::{atomic::AtomicU64, mpsc::SyncSender, Condvar, Mutex};
 
 use crate::player::{standby_completion_channel, StandbyLoadResult};
 
@@ -37,6 +37,7 @@ struct FakePlayerState {
 struct FakePlayer {
     state: Mutex<FakePlayerState>,
     changed: Condvar,
+    dropped_live_events_total: AtomicU64,
 }
 
 impl FakePlayer {
@@ -167,6 +168,10 @@ impl PlayerHandle for FakePlayer {
 
     fn underrun_frames(&self) -> u64 {
         0
+    }
+
+    fn dropped_live_events_total(&self) -> u64 {
+        self.dropped_live_events_total.load(Ordering::SeqCst)
     }
 
     fn timing_metrics(&self) -> TimingMetrics {
@@ -344,4 +349,25 @@ fn a_pending_standby_load_fails_when_the_receive_loop_stops() {
         matches!(completion, Some(Err(FastIpcError::RequestFailed(ref message))) if message.contains("stopped")),
         "停止時は error 完了を publish するはず: {completion:?}"
     );
+}
+
+/// player が数えた「捨てた数」は、受信ループが共有メモリへ写してクライアントへ届く。
+#[test]
+fn the_receive_loop_publishes_the_dropped_event_total() {
+    let harness = Harness::start(test_port(4));
+    assert_eq!(harness.client.dropped_live_events_total(), 0);
+
+    harness
+        .player
+        .dropped_live_events_total
+        .store(321, Ordering::SeqCst);
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while harness.client.dropped_live_events_total() != 321 {
+        assert!(
+            Instant::now() < deadline,
+            "dropped event total was never published"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
 }

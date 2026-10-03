@@ -11,6 +11,9 @@ use super::{
 };
 
 pub(super) const MAGIC: [u8; 8] = *b"CMRTMIDI";
+/// v13 adds [`SharedRing::dropped_live_events_total`]. An old server would leave it at 0, so a
+/// client could not tell "nothing was dropped" from "the server cannot report drops".
+///
 /// v12 adds [`KIND_FADE_OUT_INSTANCES`]. The layout is unchanged, but an old server would
 /// reject the kind and leave the previous line ringing, so the version is bumped.
 ///
@@ -28,7 +31,7 @@ pub(super) const MAGIC: [u8; 8] = *b"CMRTMIDI";
 /// v9 added standby-bank patch preload ([`KIND_PREPARE_STANDBY_PATCH`]).
 ///
 /// v8 was live tempo-map changes ([`KIND_SET_LIVE_TEMPO`]).
-pub(super) const VERSION: u32 = 12;
+pub(super) const VERSION: u32 = 13;
 pub(super) const SLOT_COUNT: usize = 64;
 pub(super) const KIND_MIDI: u32 = 1;
 pub(super) const KIND_STOP: u32 = 2;
@@ -144,6 +147,11 @@ pub(super) struct SharedRing {
     pub(super) limiter_current_bits: AtomicU32,
     pub(super) limiter_peak_bits: AtomicU32,
     pub(super) underrun_frames: AtomicU64,
+    /// サーバーの待ち行列が満杯で捨てた MIDI イベントの累計（live MIDI と timeline MIDI の合計）。
+    ///
+    /// 捨てた note off は音を鳴り残らせるので、クライアントはこの値の増加を見て
+    /// 次の停止を全音停止にする。
+    pub(super) dropped_live_events_total: AtomicU64,
     /// Even while stable, odd while the timing aggregate is being replaced.
     pub(super) timing_sequence: AtomicU64,
     pub(super) timing_events: AtomicU64,
@@ -189,7 +197,8 @@ const _: () = assert!(size_of::<SharedRing>() == 677_184);
 // standby 用フィールドは auto gain と汎用応答の間へ挿し込んである。ここがずれても
 // magic と version は一致してしまうので、接続時には気づけない。両 repository で
 // 同じオフセットになることを const で固定する。
-const _: () = assert!(offset_of!(SharedRing, standby_sequence) == 264);
-const _: () = assert!(offset_of!(SharedRing, standby) == 272);
-const _: () = assert!(offset_of!(SharedRing, response) == 1308);
-const _: () = assert!(offset_of!(SharedRing, slots) == 17_704);
+const _: () = assert!(offset_of!(SharedRing, dropped_live_events_total) == 64);
+const _: () = assert!(offset_of!(SharedRing, standby_sequence) == 272);
+const _: () = assert!(offset_of!(SharedRing, standby) == 280);
+const _: () = assert!(offset_of!(SharedRing, response) == 1316);
+const _: () = assert!(offset_of!(SharedRing, slots) == 17_712);

@@ -221,6 +221,11 @@ impl FastMidiClient {
         meters::underrun_frames(self.mapping.ring())
     }
 
+    /// サーバーが待ち行列満杯で捨てたイベントの累計。
+    pub fn dropped_live_events_total(&self) -> u64 {
+        meters::dropped_live_events_total(self.mapping.ring())
+    }
+
     pub fn auto_gain_db(&self) -> [f32; MAX_INSTANCE_COUNT] {
         meters::auto_gain_db(self.mapping.ring())
     }

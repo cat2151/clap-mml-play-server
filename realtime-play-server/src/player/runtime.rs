@@ -96,6 +96,26 @@ impl LiveTimelineState {
     }
 }
 
+/// 待ち行列が満杯で捨てたイベントの累計（live MIDI と timeline MIDI の合計）。
+///
+/// 数えるのはワーカースレッド、共有メモリへ写すのは IPC スレッドなので atomic で持つ。
+#[derive(Default)]
+pub(super) struct DroppedLiveEvents {
+    total: AtomicU64,
+}
+
+impl DroppedLiveEvents {
+    pub(super) fn add(&self, count: u64) {
+        if count > 0 {
+            self.total.fetch_add(count, Ordering::Relaxed);
+        }
+    }
+
+    pub(super) fn total(&self) -> u64 {
+        self.total.load(Ordering::Relaxed)
+    }
+}
+
 #[derive(Default)]
 pub(super) struct LiveInstanceState {
     pub(super) active: bool,

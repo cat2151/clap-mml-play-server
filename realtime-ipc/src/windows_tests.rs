@@ -107,6 +107,20 @@ fn underrun_frames_are_published_as_a_monotonic_snapshot() {
     assert_eq!(client.underrun_frames(), 1_234_567_890_123);
 }
 
+#[test]
+fn dropped_live_events_total_is_published_independently_of_underruns() {
+    let port = test_port(17);
+    let server = FastMidiServer::create(port).unwrap();
+    let client = FastMidiClient::connect(port).unwrap();
+    assert_eq!(client.dropped_live_events_total(), 0);
+
+    server.publish_underrun_frames(5);
+    server.publish_dropped_live_events_total(12_345);
+
+    assert_eq!(client.dropped_live_events_total(), 12_345);
+    assert_eq!(client.underrun_frames(), 5);
+}
+
 /// 渡さなかった instance は 0 dB へ戻ること。track 数を減らしたあと、消えた行の
 /// 古い値が残り続けると「鳴っていないのに +3dB」に見えてしまう。
 #[test]

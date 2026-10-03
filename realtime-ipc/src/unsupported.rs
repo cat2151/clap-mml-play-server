@@ -109,6 +109,10 @@ impl FastMidiClient {
         0
     }
 
+    pub fn dropped_live_events_total(&self) -> u64 {
+        0
+    }
+
     pub fn auto_gain_db(&self) -> [f32; MAX_INSTANCE_COUNT] {
         [0.0; MAX_INSTANCE_COUNT]
     }
@@ -155,6 +159,8 @@ impl FastMidiServer {
     pub fn publish_limiter_meter(&self, _meter: LimiterMeter) {}
 
     pub fn publish_underrun_frames(&self, _frames: u64) {}
+
+    pub fn publish_dropped_live_events_total(&self, _total: u64) {}
 
     pub fn publish_auto_gain_db(&self, _gains_db: &[f32]) {}
 

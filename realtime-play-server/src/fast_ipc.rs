@@ -83,6 +83,7 @@ fn run_fast_midi_server(
         publish_ready_standby(&server, &mut standby);
         server.publish_limiter_meter(player.limiter_meter());
         server.publish_underrun_frames(player.underrun_frames());
+        server.publish_dropped_live_events_total(player.dropped_live_events_total());
         server.publish_auto_gain_db(&player.auto_gain_db());
         server.publish_timing_metrics(player.timing_metrics());
         match server.recv_timeout(IPC_WAIT_TIMEOUT) {

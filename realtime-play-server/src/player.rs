@@ -23,7 +23,8 @@ use self::commands::PlayerInner;
 use self::instances::PatchBases;
 use self::live::{resolve_live_patch, validate_live_instance_id};
 use self::runtime::{
-    AutoGainControl, LimiterMeterState, LiveGains, LiveQueuedEvent, TimingMetricsState,
+    AutoGainControl, DroppedLiveEvents, LimiterMeterState, LiveGains, LiveQueuedEvent,
+    TimingMetricsState,
 };
 use self::worker::{run_player_worker, WorkerOutput};
 use anyhow::{Context as _, Result};
@@ -95,6 +96,8 @@ pub(crate) trait PlayerHandle: Send + Sync + 'static {
     fn stop(&self) -> Result<()>;
     fn limiter_meter(&self) -> LimiterMeter;
     fn underrun_frames(&self) -> u64;
+    /// 待ち行列が満杯で捨てたイベントの累計。
+    fn dropped_live_events_total(&self) -> u64;
     fn timing_metrics(&self) -> TimingMetrics;
     /// live instance ごとに auto-trim が掛けているゲイン（dB）。auto gain が
     /// off か、まだ何も鳴っていない instance は 0 dB。
@@ -111,6 +114,7 @@ pub(crate) struct RealtimePlayer {
     live_gains: Arc<LiveGains>,
     auto_gain: Arc<AutoGainControl>,
     timing_metrics: Arc<TimingMetricsState>,
+    dropped_events: Arc<DroppedLiveEvents>,
     live_instance_count: usize,
     /// 音色の相対パスを絶対パスへ直す基点。プラグインごとに音色置き場が違うので形ごとに持つ。
     patch_bases: PatchBases,
@@ -133,12 +137,14 @@ impl RealtimePlayer {
         let live_gains = Arc::new(LiveGains::default());
         let auto_gain = Arc::new(AutoGainControl::default());
         let timing_metrics = Arc::new(TimingMetricsState::default());
+        let dropped_events = Arc::new(DroppedLiveEvents::default());
         let worker_inner = Arc::clone(&inner);
         let worker_audio_output = Arc::clone(&audio_output);
         let worker_limiter_meter = Arc::clone(&limiter_meter);
         let worker_live_gains = Arc::clone(&live_gains);
         let worker_auto_gain = Arc::clone(&auto_gain);
         let worker_timing_metrics = Arc::clone(&timing_metrics);
+        let worker_dropped_events = Arc::clone(&dropped_events);
         let worker_core_cfg = core_cfg.clone();
         let (init_tx, init_rx) = std::sync::mpsc::channel();
         let worker = std::thread::Builder::new()
@@ -152,6 +158,7 @@ impl RealtimePlayer {
                         live_gains: worker_live_gains,
                         auto_gain: worker_auto_gain,
                         timing_metrics: worker_timing_metrics,
+                        dropped_events: worker_dropped_events,
                         producer: output_producer,
                         consumer: output_consumer,
                     },
@@ -181,6 +188,7 @@ impl RealtimePlayer {
             live_gains,
             auto_gain,
             timing_metrics,
+            dropped_events,
             live_instance_count,
             patch_bases,
             worker: Mutex::new(Some(worker)),
@@ -368,6 +376,10 @@ impl PlayerHandle for RealtimePlayer {
 
     fn underrun_frames(&self) -> u64 {
         self.audio_output.underrun_frames()
+    }
+
+    fn dropped_live_events_total(&self) -> u64 {
+        self.dropped_events.total()
     }
 
     fn timing_metrics(&self) -> TimingMetrics {
