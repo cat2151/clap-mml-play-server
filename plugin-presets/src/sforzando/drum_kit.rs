@@ -87,8 +87,14 @@ fn is_drum_kit(regions: &[SfzRegion]) -> bool {
 }
 
 /// region が鳴る鍵の範囲。`key=` は `lokey=` / `hikey=` より優先する。読めない鍵名は `None`。
-fn key_range(region: &SfzRegion) -> Option<(u8, u8)> {
-    let (lo, hi) = match region.get("key") {
+pub(super) fn key_range(region: &SfzRegion) -> Option<(u8, u8)> {
+    let (lo, hi) = raw_key_range(region)?;
+    let (lo, hi) = (lo.clamp(0, 127), hi.clamp(0, 127));
+    (lo <= hi).then_some((lo as u8, hi as u8))
+}
+
+pub(super) fn raw_key_range(region: &SfzRegion) -> Option<(i32, i32)> {
+    Some(match region.get("key") {
         Some(key) => {
             let key = midi_key(key)?;
             (key, key)
@@ -97,9 +103,7 @@ fn key_range(region: &SfzRegion) -> Option<(u8, u8)> {
             region.get("lokey").map_or(Some(0), |key| midi_key(key))?,
             region.get("hikey").map_or(Some(127), |key| midi_key(key))?,
         ),
-    };
-    let (lo, hi) = (lo.clamp(0, 127), hi.clamp(0, 127));
-    (lo <= hi).then_some((lo as u8, hi as u8))
+    })
 }
 
 /// MIDI 番号か音名（`c4` = 60、`c#4` / `db4` = 61）。
@@ -125,7 +129,12 @@ fn midi_key(text: &str) -> Option<i32> {
         Some('b') => (-1, &rest[1..]),
         _ => (0, rest),
     };
-    Some(base + accidental + (octave.parse::<i32>().ok()? + 1) * 12)
+    octave
+        .parse::<i32>()
+        .ok()?
+        .checked_add(1)?
+        .checked_mul(12)?
+        .checked_add(base + accidental)
 }
 
 fn keytrack_is_zero(region: &SfzRegion) -> bool {

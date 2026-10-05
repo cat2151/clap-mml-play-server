@@ -6,7 +6,7 @@
 /// `.floe-preset` を音色置き場にする Floe の CLAP plugin ID。
 pub const FLOE_PLUGIN_ID: &str = "com.floe-audio.floe";
 
-pub use cmrt_server_config::floe_preset_is_percussion;
+pub use cmrt_server_config::{floe_note_assignments, floe_preset_is_percussion};
 
 const FLOE_PRESET_EXTENSION: &str = ".floe-preset";
 const PATH_SEPARATORS: [char; 2] = ['/', '\\'];

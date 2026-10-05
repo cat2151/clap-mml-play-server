@@ -23,6 +23,15 @@ pub(super) type SfzRegion = BTreeMap<String, String>;
 
 /// `path` の `.sfz` の region を出現順に返す。ルートの `.sfz` を読めないときだけ `Err` を返す。
 pub(super) fn sfz_regions(path: &Path) -> anyhow::Result<Vec<SfzRegion>> {
+    read_regions(path, false)
+}
+
+/// 全割当の取得には include の欠損・循環を許容しない。
+pub(super) fn complete_sfz_regions(path: &Path) -> anyhow::Result<Vec<SfzRegion>> {
+    read_regions(path, true)
+}
+
+fn read_regions(path: &Path, strict: bool) -> anyhow::Result<Vec<SfzRegion>> {
     let text =
         read_sfz_text(path).with_context(|| format!("sfz を読めない: {}", path.display()))?;
     let mut walker = Walker {
@@ -32,8 +41,9 @@ pub(super) fn sfz_regions(path: &Path) -> anyhow::Result<Vec<SfzRegion>> {
         current: Current::Ignored,
         region: None,
         regions: Vec::new(),
+        strict,
     };
-    walker.walk_text(&text, 0);
+    walker.walk_text(&text, 0)?;
     walker.flush_region();
     Ok(walker.regions)
 }
@@ -52,10 +62,11 @@ struct Walker<'a> {
     current: Current,
     region: Option<SfzRegion>,
     regions: Vec<SfzRegion>,
+    strict: bool,
 }
 
 impl Walker<'_> {
-    fn walk_text(&mut self, text: &str, depth: usize) {
+    fn walk_text(&mut self, text: &str, depth: usize) -> anyhow::Result<()> {
         for line in text.lines() {
             let line = line.find("//").map_or(line, |end| &line[..end]);
             if let Some(define) = line.trim_start().strip_prefix("#define") {
@@ -63,8 +74,9 @@ impl Walker<'_> {
                 continue;
             }
             let line = self.expand_defines(line);
-            self.walk_line(&line, depth);
+            self.walk_line(&line, depth)?;
         }
+        Ok(())
     }
 
     fn define(&mut self, rest: &str) {
@@ -88,7 +100,7 @@ impl Walker<'_> {
             })
     }
 
-    fn walk_line(&mut self, line: &str, depth: usize) {
+    fn walk_line(&mut self, line: &str, depth: usize) -> anyhow::Result<()> {
         let mut pos = 0;
         while pos < line.len() {
             let rest = &line[pos..];
@@ -96,7 +108,9 @@ impl Walker<'_> {
                 pos += "#include".len();
                 if let Some((include, consumed)) = quoted(after) {
                     pos += consumed;
-                    self.walk_include(include, depth);
+                    self.walk_include(include, depth)?;
+                } else if self.strict {
+                    anyhow::bail!("sfz の include 指定が不正: {line}");
                 }
             } else if let Some(end) = rest.strip_prefix('<').and_then(|body| body.find('>')) {
                 self.header(&rest[1..=end]);
@@ -110,15 +124,26 @@ impl Walker<'_> {
                 pos += rest.chars().next().map_or(1, char::len_utf8);
             }
         }
+        Ok(())
     }
 
-    fn walk_include(&mut self, include: &str, depth: usize) {
+    fn walk_include(&mut self, include: &str, depth: usize) -> anyhow::Result<()> {
         if depth >= MAX_INCLUDE_DEPTH {
-            return;
+            if self.strict {
+                anyhow::bail!("sfz の include 深さ超過または循環: {include}");
+            }
+            return Ok(());
         }
-        if let Ok(text) = read_sfz_text(&normalize(self.root_dir, &[include])) {
-            self.walk_text(&text, depth + 1);
+        let path = normalize(self.root_dir, &[include]);
+        match read_sfz_text(&path) {
+            Ok(text) => self.walk_text(&text, depth + 1)?,
+            Err(error) if self.strict => {
+                return Err(error)
+                    .with_context(|| format!("sfz include を読めない: {}", path.display()));
+            }
+            Err(_) => {}
         }
+        Ok(())
     }
 
     fn header(&mut self, name: &str) {

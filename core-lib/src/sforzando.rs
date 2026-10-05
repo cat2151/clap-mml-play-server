@@ -14,7 +14,7 @@ pub(crate) use cmrt_server_config::{
     resolve_sforzando_preset, resolve_sforzando_program, SforzandoPresetRef, SforzandoProgramRef,
 };
 pub use cmrt_server_config::{
-    sfz_is_drum_kit, sfz_sample_weight, SfzSampleWeight, SFORZANDO_PLUGIN_ID,
+    sfz_is_drum_kit, sfz_note_assignments, sfz_sample_weight, SfzSampleWeight, SFORZANDO_PLUGIN_ID,
 };
 
 const SFZ_EXTENSION: &str = ".sfz";

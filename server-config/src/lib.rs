@@ -39,11 +39,11 @@ pub use plugin_identity::{
     plugin_file_stem, CACHE_PLAYER_PLUGIN_ID, DEXED_PLUGIN_ID, FLOE_PLUGIN_ID, SFORZANDO_PLUGIN_ID,
     SIX_SINES_PLUGIN_ID, SURGE_XT_PLUGIN_ID, TYRELLN6_PLUGIN_ID, VAPORIZER2_PLUGIN_ID,
 };
-pub use plugin_presets::floe::floe_preset_is_percussion;
+pub use plugin_presets::floe::{floe_note_assignments, floe_preset_is_percussion};
 pub use plugin_presets::lexical_absolute;
 pub use plugin_presets::sforzando::{
-    resolve_sforzando_preset, resolve_sforzando_program, sfz_is_drum_kit, sfz_sample_weight,
-    SforzandoPresetRef, SforzandoProgramRef, SfzSampleWeight,
+    resolve_sforzando_preset, resolve_sforzando_program, sfz_is_drum_kit, sfz_note_assignments,
+    sfz_sample_weight, SforzandoPresetRef, SforzandoProgramRef, SfzSampleWeight,
 };
 pub use plugin_presets::vaporizer2::VAPORIZER2_CATEGORY_CODES;
 pub use plugin_profile::{

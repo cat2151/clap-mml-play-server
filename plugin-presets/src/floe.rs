@@ -3,9 +3,34 @@
 //! 置き場に config.toml の `patches_dirs` は使わない。再インストールや本体側の設定変更のたびに
 //! toml を書き直す二度手間になり、書き忘れると本体と食い違うため。
 
+mod library_regions;
+mod lua_regions;
+mod note_assignments;
+mod preset_layers;
 mod preset_tags;
 
+pub use note_assignments::floe_note_assignments;
 pub use preset_tags::floe_preset_is_percussion;
+
+fn floe_library_dirs() -> Vec<std::path::PathBuf> {
+    let Some(public) = floe_global_data_dir() else {
+        return Vec::new();
+    };
+    let mut dirs = vec![public.join("Floe").join("Libraries")];
+    if let Ok(ini) =
+        std::fs::read_to_string(public.join("Floe").join("Preferences").join("floe.ini"))
+    {
+        dirs.extend(
+            ini.lines()
+                .filter_map(|line| line.split_once('='))
+                .filter(|(key, value)| {
+                    key.trim() == "extra-libraries-folder" && !value.trim().is_empty()
+                })
+                .map(|(_, value)| std::path::PathBuf::from(value.trim())),
+        );
+    }
+    dirs
+}
 
 /// Floe が scan する preset 置き場。
 ///

@@ -12,6 +12,7 @@ anyhow = "1"
 dunce = "1"
 serde = { version = "1", features = ["derive"] }
 xmltree = "0.11"
+mlua = { version = "0.12", features = ["lua54", "vendored", "anyhow"] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
