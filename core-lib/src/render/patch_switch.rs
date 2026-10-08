@@ -73,8 +73,9 @@ impl RealtimeRenderer {
             PatchTarget::StateFile(path) => {
                 ensure_accepts_generic_state_file(&self.plugin_id, &path)?;
                 self.forget_cartridge_program();
+                let plugin_id = self.plugin_id.clone();
                 let plugin_instance = self.plugin_instance_mut();
-                load_patch(plugin_instance, &path)?;
+                load_patch(plugin_instance, &plugin_id, &path)?;
             }
             PatchTarget::InitState => {
                 let init_state = self.init_state.take().ok_or_else(|| {

@@ -10,6 +10,7 @@ pub mod host;
 mod logging;
 pub mod midi;
 pub mod patch_list;
+pub mod patch_state_prepare;
 pub mod pipeline;
 pub mod plugin_catalog;
 pub mod render;
@@ -81,6 +82,7 @@ pub use logging::{set_log_sink, LogSink};
 pub use patch_list::{
     collect_patch_listing, collect_patches, to_relative, CollectedPatch, MergedPatches,
 };
+pub use patch_state_prepare::{prepare_clap_patch_state, PatchStateError};
 pub use pipeline::{
     embedded_patch_ref, encode_wav_i16, ensure_cmrt_dir, ensure_daw_dir, ensure_phrase_dir,
     mml_render, mml_render_for_cache, mml_render_for_cache_with_effects,

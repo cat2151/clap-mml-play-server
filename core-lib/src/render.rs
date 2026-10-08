@@ -208,7 +208,7 @@ impl RealtimeRenderer {
                 load_tyrelln6_state(&mut plugin_instance, patch)?;
             } else {
                 ensure_accepts_generic_state_file(&descriptor.id, patch)?;
-                load_patch(&mut plugin_instance, patch)?;
+                load_patch(&mut plugin_instance, &descriptor.id, patch)?;
             }
             timing.load_patch = step.elapsed();
         }

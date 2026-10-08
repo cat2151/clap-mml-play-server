@@ -311,19 +311,52 @@ fn categories_and_kinds_are_deduplicated_and_sorted() {
 }
 
 /// 実 install が無い環境（Linux CI など）では何もせず通す。
-/// TUI の add overlay の category / kind pane の項目数を実機カタログで裏づける。
+/// TUI の category / kind pane を Surge の実機カタログで裏づける。
+/// 他の任意 install（TONE3000 の Amp Simulator 等）は混ぜない。
 #[test]
-fn installed_surge_catalog_has_five_categories_and_eighteen_kinds() {
-    let root = PathBuf::from(r"C:\ProgramData\Surge XT\fx_presets");
-    if !root.is_dir() {
+fn installed_surge_catalog_has_the_expected_categories_and_kinds() {
+    let Some(plugin) = builtin_effect_plugins()
+        .into_iter()
+        .find(|plugin| plugin.plugin_id == SURGE_FX_PLUGIN_ID)
+    else {
+        return;
+    };
+    if !plugin.preset_root.is_dir() {
         return;
     }
-    let catalog = AudioEffectCatalog::discover();
-    assert_eq!(catalog.categories().len(), 5, "{:?}", catalog.categories());
-    let mut kinds = catalog.kinds_in(None);
-    // Shu / Voyage Voyage の install 有無で増減するので数えない。
-    kinds.retain(|kind| kind != "Shimmer Reverb");
-    assert_eq!(kinds.len(), 18, "{kinds:?}");
+    let catalog = AudioEffectCatalog::scan(vec![plugin]);
+    assert_eq!(
+        catalog.categories(),
+        [
+            "Distortion / Saturation",
+            "Dynamics",
+            "Filter / EQ",
+            "Modulation",
+            "Space / Imaging",
+        ]
+    );
+    assert_eq!(
+        catalog.kinds_in(None),
+        [
+            "Chorus / Ensemble",
+            "Compressor",
+            "Delay",
+            "Distortion",
+            "EQ",
+            "Filter",
+            "Freq Shift",
+            "Limiter / Clipper",
+            "LoFi",
+            "Phaser / Flanger",
+            "Pitch / Granular",
+            "Reverb",
+            "Ring Modulator",
+            "Rotary",
+            "Saturation / Exciter",
+            "Stereo",
+            "Tape",
+        ]
+    );
 }
 
 mod dragonfly;

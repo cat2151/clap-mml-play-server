@@ -33,21 +33,19 @@ pub(super) fn ensure_accepts_generic_state_file(plugin_id: &str, patch_path: &st
     }
 }
 
-/// .fxp ファイルを clap state として plugin にロードする
-///
-/// Surge XTの .fxp は VST2 の opaque chunk 形式:
-///   Bytes  0-3 : 'CcnK'
-///   Bytes  4-7 : byteSize (big-endian)
-///   Bytes  8-11: 'FPCh' (opaque chunk preset)
-///   Bytes 12-27: version / fxID / fxVersion / numPrograms
-///   Bytes 28-31: chunkSize (big-endian)
-///   Bytes 32+  : chunk data (== Surge 独自形式: 'sub3' + xml + wavetables)
-///
-/// CLAP state として渡すべきは chunk data (offset 32 以降) のみ。
+/// Surge FXP は公開の検査付き変換を共用し、他の既存 state 経路は維持する。
 pub(super) fn load_patch(
     plugin_instance: &mut PluginInstance<MidiRenderHost>,
+    plugin_id: &str,
     patch_path: &str,
 ) -> Result<()> {
+    let path = std::path::Path::new(patch_path);
+    if plugin_id == crate::SURGE_XT_PLUGIN_ID && crate::patch_state_prepare::is_fxp(path) {
+        let absolute = crate::lexical_absolute(path)?;
+        let state = crate::prepare_clap_patch_state(plugin_id, &absolute)?;
+        return load_plugin_state(plugin_instance, &state)
+            .map_err(|e| anyhow::anyhow!("パッチのロードに失敗 ({}): {}", patch_path, e));
+    }
     let raw = std::fs::read(patch_path)
         .map_err(|e| anyhow::anyhow!("パッチファイルを読めない '{}': {}", patch_path, e))?;
 
