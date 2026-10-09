@@ -12,6 +12,14 @@ fn fixture() -> PathBuf {
     root
 }
 
+fn notes(path: &Path, root: &Path) -> Vec<u8> {
+    notes_from_dirs(path, &[root.to_path_buf()])
+        .unwrap()
+        .into_iter()
+        .map(|assignment| assignment.note)
+        .collect()
+}
+
 fn preset(root: &Path, layers: &[(&str, u8, u8, i16)]) -> PathBuf {
     let mut bytes = Vec::new();
     bytes.extend(0x2a491f93_u32.to_le_bytes());
@@ -64,10 +72,7 @@ fn evaluated_functions_loops_includes_and_layer_bounds_keep_holes() {
         return lib
     "#).unwrap();
     let path = preset(&root, &[("A", 35, 60, 0), ("B", 58, 59, 2)]);
-    assert_eq!(
-        notes_from_dirs(&path, std::slice::from_ref(&root)).unwrap(),
-        vec![36, 42, 58, 59]
-    );
+    assert_eq!(notes(&path, &root), vec![36, 42, 58, 59]);
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -84,10 +89,7 @@ fn auto_mapping_is_completed_before_note_on_filtering() {
         return lib
     "#).unwrap();
     let path = preset(&root, &[("A", 30, 60, 0)]);
-    assert_eq!(
-        notes_from_dirs(&path, std::slice::from_ref(&root)).unwrap(),
-        (30..=48).collect::<Vec<_>>()
-    );
+    assert_eq!(notes(&path, &root), (30..=48).collect::<Vec<_>>());
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -129,10 +131,7 @@ fn equal_auto_map_roots_preserve_floes_note_on_off_order() {
     )
     .unwrap();
     let path = preset(&root, &[("A", 0, 127, 0)]);
-    assert_eq!(
-        notes_from_dirs(&path, std::slice::from_ref(&root)).unwrap(),
-        (37..=127).collect::<Vec<_>>()
-    );
+    assert_eq!(notes(&path, &root), (37..=127).collect::<Vec<_>>());
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -140,11 +139,57 @@ fn equal_auto_map_roots_preserve_floes_note_on_off_order() {
 #[ignore = "set CMRT_TEST_FLOE_PRESET to a real installed Taiko preset"]
 fn installed_taiko_matches_evaluated_note_assignments() {
     let path = std::env::var("CMRT_TEST_FLOE_PRESET").expect("real preset path");
-    let notes = floe_note_assignments(Path::new(&path)).unwrap();
+    let assignments = floe_note_assignments(Path::new(&path)).unwrap();
+    let notes: Vec<_> = assignments
+        .iter()
+        .map(|assignment| assignment.note)
+        .collect();
     let expected = vec![
         36, 37, 38, 39, 41, 42, 43, 44, 45, 46, 48, 49, 50, 51, 53, 54, 55, 56, 57, 58, 60, 61, 62,
         63, 65, 66, 67, 68, 69, 70,
     ];
     assert_eq!(notes, expected);
-    eprintln!("{path}: {notes:?}");
+    assert!(assignments
+        .iter()
+        .all(|assignment| assignment.name.is_some()));
+    eprintln!("{path}: {assignments:?}");
+}
+
+#[test]
+fn named_key_ranges_win_over_sample_names_after_layer_transpose() {
+    let root = fixture();
+    std::fs::write(
+        root.join("floe.lua"),
+        r#"
+        local lib=floe.new_library({name="Kit",author="Test"})
+        local inst=floe.new_instrument(lib,{name="A"})
+        floe.add_named_key_range(inst,{name="Taiko Drum 1",key_range={36,38}})
+        floe.add_named_key_range(inst,{name="Taiko Drum 2",key_range={38,40}})
+        floe.add_region(inst,{path="Samples/Hit 1-15.flac",root_key=36,trigger_criteria={key_range={36,38}}})
+        floe.add_region(inst,{path="Samples/Hit 2-2.flac",root_key=38,trigger_criteria={key_range={38,40}}})
+        floe.add_region(inst,{path="Samples/Rim.flac",root_key=40,trigger_criteria={key_range={40,41}}})
+        floe.add_region(inst,{path="Samples/Rim.flac",root_key=40,trigger_criteria={key_range={40,41}}})
+        floe.add_region(inst,{path="Samples/Rim off.flac",root_key=41,trigger_criteria={trigger_event="note-off",key_range={41,42}}})
+        return lib
+    "#,
+    )
+    .unwrap();
+    // Input 34..=39 is heard as instrument keys 36..=41.
+    let path = preset(&root, &[("A", 34, 39, 2)]);
+    let named: Vec<_> = notes_from_dirs(&path, std::slice::from_ref(&root))
+        .unwrap()
+        .into_iter()
+        .map(|assignment| (assignment.note, assignment.name.unwrap()))
+        .collect();
+    assert_eq!(
+        named,
+        vec![
+            (34, "Taiko Drum 1".to_string()),
+            (35, "Taiko Drum 1".to_string()),
+            (36, "Taiko Drum 2".to_string()),
+            (37, "Taiko Drum 2".to_string()),
+            (38, "Rim".to_string()),
+        ]
+    );
+    std::fs::remove_dir_all(root).unwrap();
 }

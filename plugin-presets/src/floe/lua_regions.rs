@@ -10,7 +10,8 @@ use std::{
 use anyhow::{Context, Result};
 use mlua::{AnyUserData, HookTriggers, Lua, LuaOptions, StdLib, Table, UserData, VmState};
 
-use super::library_regions::{library_hash, Library, Region};
+use super::library_regions::{library_hash, Library, NamedKeyRange, Region};
+use crate::drum_kit_note::sample_name;
 
 #[derive(Clone)]
 struct LibraryHandle(Rc<RefCell<Library>>);
@@ -91,11 +92,25 @@ pub(super) fn evaluate(path: &Path) -> Result<Library> {
             Ok(())
         })?,
     )?;
-    for name in [
+    api.set(
         "add_named_key_range",
-        "set_attribution_requirement",
-        "set_required_floe_version",
-    ] {
+        lua.create_function(|_, (instrument, params): (AnyUserData, Table)| {
+            let instrument = instrument.borrow::<InstrumentHandle>()?;
+            let name = params.get::<String>("name")?;
+            let range = params.get::<Table>("key_range")?;
+            let (low, end) = key_range(&range)?;
+            instrument
+                .library
+                .0
+                .borrow_mut()
+                .named_key_ranges
+                .entry(instrument.id.clone())
+                .or_default()
+                .push(NamedKeyRange { name, low, end });
+            Ok(())
+        })?,
+    )?;
+    for name in ["set_attribution_requirement", "set_required_floe_version"] {
         api.set(name, lua.create_function(|_, _: mlua::MultiValue| Ok(()))?)?;
     }
     api.set(
@@ -194,7 +209,7 @@ pub(super) fn evaluate(path: &Path) -> Result<Library> {
 }
 
 fn region(params: &Table) -> mlua::Result<Region> {
-    let _path = params.get::<String>("path")?;
+    let path = params.get::<String>("path")?;
     let root = params.get::<u8>("root_key")?;
     if root > 127 {
         return Err(mlua::Error::runtime("Floe root_key が不正"));
@@ -206,12 +221,9 @@ fn region(params: &Table) -> mlua::Result<Region> {
         .transpose()?
         .flatten();
     let (low, end) = match range {
-        Some(range) => (range.get::<u8>(1)?, range.get::<u8>(2)?),
+        Some(range) => key_range(&range)?,
         None => (0, 128),
     };
-    if low > 127 || end > 128 || end == 0 {
-        return Err(mlua::Error::runtime("Floe key_range が不正"));
-    }
     let event = trigger
         .as_ref()
         .map(|t| t.get::<Option<String>>("trigger_event"))
@@ -232,10 +244,20 @@ fn region(params: &Table) -> mlua::Result<Region> {
         .transpose()?
         .flatten();
     Ok(Region {
+        name: sample_name(&path).to_string(),
         root,
         low,
         end,
         note_on,
         auto_map,
     })
+}
+
+/// Floe の `{low, end}`。`end` は含まない。
+fn key_range(range: &Table) -> mlua::Result<(u8, u8)> {
+    let (low, end) = (range.get::<u8>(1)?, range.get::<u8>(2)?);
+    if low > 127 || end > 128 || end == 0 {
+        return Err(mlua::Error::runtime("Floe key_range が不正"));
+    }
+    Ok((low, end))
 }

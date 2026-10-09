@@ -1,4 +1,6 @@
 //! preset の参照 instrument と評価済み library の note-on 鍵域を合成する。
+//!
+//! 名前は instrument の named key range を優先し、無ければ鳴る region の sample ファイル名を使う。
 
 use std::{
     collections::BTreeSet,
@@ -13,13 +15,14 @@ use super::{
     lua_regions,
     preset_layers::{self, Instrument},
 };
+use crate::drum_kit_note::{DrumKitNote, NameSource, NoteNames};
 
 /// Floe の library 置き場から正確な割当を取得する。未解決の参照や評価失敗は部分集合を返さない。
-pub fn floe_note_assignments(path: &Path) -> Result<Vec<u8>> {
+pub fn floe_note_assignments(path: &Path) -> Result<Vec<DrumKitNote>> {
     notes_from_dirs(path, &floe_library_dirs())
 }
 
-fn notes_from_dirs(path: &Path, dirs: &[PathBuf]) -> Result<Vec<u8>> {
+fn notes_from_dirs(path: &Path, dirs: &[PathBuf]) -> Result<Vec<DrumKitNote>> {
     let bytes = std::fs::read(path)
         .with_context(|| format!("Floe preset を読めない: {}", path.display()))?;
     let layers = preset_layers::read(&bytes)?;
@@ -55,11 +58,11 @@ fn notes_from_dirs(path: &Path, dirs: &[PathBuf]) -> Result<Vec<u8>> {
             }
         }
     }
-    let mut notes = BTreeSet::new();
+    let mut notes = NoteNames::default();
     for layer in layers {
-        let region_notes = match layer.instrument {
+        let sampler = match layer.instrument {
             Instrument::None => continue,
-            Instrument::Waveform => (0..=127).collect::<BTreeSet<u8>>(),
+            Instrument::Waveform => None,
             Instrument::Sampler { library, id } => {
                 let library = libraries
                     .iter()
@@ -74,23 +77,40 @@ fn notes_from_dirs(path: &Path, dirs: &[PathBuf]) -> Result<Vec<u8>> {
                     .instruments
                     .get(&id)
                     .with_context(|| format!("Floe instrument を解決できない: {id}"))?;
-                regions
-                    .iter()
-                    .filter(|region| region.note_on)
-                    .flat_map(|region| region.low..region.end)
-                    .collect()
+                let named = library
+                    .named_key_ranges
+                    .get(&id)
+                    .map_or(&[][..], Vec::as_slice);
+                Some((regions, named))
             }
         };
         for note in layer.low..=layer.high {
-            let mapped = i16::from(note) + layer.transpose;
-            if let Ok(mapped) = u8::try_from(mapped) {
-                if region_notes.contains(&mapped) {
-                    notes.insert(note);
+            let Ok(mapped) = u8::try_from(i16::from(note) + layer.transpose) else {
+                continue;
+            };
+            let Some((regions, named)) = sampler else {
+                if mapped <= 127 {
+                    notes.insert_note(note);
                 }
+                continue;
+            };
+            let covers = |low: u8, end: u8| (low..end).contains(&mapped);
+            let sounding: Vec<_> = regions
+                .iter()
+                .filter(|region| region.note_on && covers(region.low, region.end))
+                .collect();
+            if sounding.is_empty() {
+                continue;
+            }
+            for range in named.iter().filter(|range| covers(range.low, range.end)) {
+                notes.insert(note, NameSource::KeyLabel, &range.name);
+            }
+            for region in sounding {
+                notes.insert(note, NameSource::Sample, &region.name);
             }
         }
     }
-    Ok(notes.into_iter().collect())
+    Ok(notes.finish())
 }
 
 fn collect_library_files(dir: &Path, files: &mut Vec<PathBuf>, failures: &mut Vec<String>) {

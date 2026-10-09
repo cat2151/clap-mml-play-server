@@ -6,6 +6,7 @@
 
 pub mod dexed;
 pub mod dragonfly;
+mod drum_kit_note;
 pub mod effect_preset;
 pub mod floe;
 pub mod juce_value_tree;
@@ -19,4 +20,5 @@ pub mod tyrelln6;
 pub mod vaporizer2;
 pub mod voyage_voyage;
 
+pub use drum_kit_note::DrumKitNote;
 pub use lexical_path::lexical_absolute;

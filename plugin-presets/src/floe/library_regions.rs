@@ -6,14 +6,25 @@ use std::collections::BTreeMap;
 pub(super) struct Library {
     pub id: u64,
     pub instruments: BTreeMap<String, Vec<Region>>,
+    /// instrument ID ごとの `add_named_key_range`。鍵域は region と同じ instrument の鍵で表す。
+    pub named_key_ranges: BTreeMap<String, Vec<NamedKeyRange>>,
 }
 
 pub(super) struct Region {
+    /// sample ファイル名（拡張子を除く）。
+    pub name: String,
     pub root: u8,
     pub low: u8,
     pub end: u8,
     pub note_on: bool,
     pub auto_map: Option<String>,
+}
+
+/// `low..end` の鍵に付いた表示名。
+pub(super) struct NamedKeyRange {
+    pub name: String,
+    pub low: u8,
+    pub end: u8,
 }
 
 impl Library {

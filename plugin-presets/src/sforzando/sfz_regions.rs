@@ -153,7 +153,14 @@ impl Walker<'_> {
             self.region = Some(SfzRegion::new());
             self.current = Current::Region;
         } else if let Some(level) = LEVELS.iter().position(|level| *level == name) {
-            for inherited in &mut self.levels[level..] {
+            // `<control>` は継承の階層の外にあり、下位の header を消さない。Plogue の CR-909 は
+            // `<global>` の後で `<control>` から始まる file を include し、`<global>` が効き続ける前提。
+            let cleared = if name == "control" {
+                0..1
+            } else {
+                level..LEVELS.len()
+            };
+            for inherited in &mut self.levels[cleared] {
                 inherited.clear();
             }
             self.current = Current::Level(level);

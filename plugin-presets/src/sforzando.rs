@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 
 pub use ariax::{resolve_sforzando_preset, SforzandoPresetRef};
 pub use drum_kit::sfz_is_drum_kit;
-pub use note_assignments::sfz_note_assignments;
+pub use note_assignments::{sfz_note_assignments, sfz_one_shot_notes};
 pub use sample_weight::{sfz_sample_weight, SfzSampleWeight};
 
 /// A program that ARIA can resolve from a canonical SFZ path.

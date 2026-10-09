@@ -87,3 +87,33 @@ fn unreadable_root_is_an_error() {
 
     assert!(sfz_regions(&dir.join("missing.sfz")).is_err());
 }
+
+#[test]
+fn a_control_header_replaces_only_control_opcodes() {
+    let dir = fixture_dir("control");
+    let path = write(
+        &dir,
+        "kit.sfz",
+        "<control> default_path=a/\n\
+         <global> loop_mode=one_shot\n\
+         <master> volume=-3\n\
+         #include \"part.sfz\"\n",
+    );
+    write(
+        &dir,
+        "part.sfz",
+        "<control> default_path=b/\n<region> sample=kick.wav key=36\n",
+    );
+
+    let regions = sfz_regions(&path).unwrap();
+    assert_eq!(
+        opcodes(&regions[0]),
+        [
+            ("default_path", "b/"),
+            ("key", "36"),
+            ("loop_mode", "one_shot"),
+            ("sample", "kick.wav"),
+            ("volume", "-3"),
+        ]
+    );
+}

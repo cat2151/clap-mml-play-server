@@ -64,6 +64,7 @@ pub use audio_plugin::{
     PluginVoicingSource, RouteError,
 };
 pub use boot_log::{log_boot, log_boot_fatal};
+pub use cmrt_server_config::DrumKitNote;
 pub use cmrt_server_config::{lexical_absolute, PatchBase};
 pub use downloaded_patches::{prepare_downloaded_patches, PatchDownload};
 pub use dx7::{
@@ -102,7 +103,8 @@ pub use render::{
 pub use render::{PluginProbeReport, ProbedDescriptor};
 pub use sforzando::{
     is_ariax_patch_path, is_sforzando_patch_path, is_sfz_patch_path, sfz_is_drum_kit,
-    sfz_note_assignments, sfz_sample_weight, SfzSampleWeight, SFORZANDO_PLUGIN_ID,
+    sfz_note_assignments, sfz_one_shot_notes, sfz_sample_weight, SfzSampleWeight,
+    SFORZANDO_PLUGIN_ID,
 };
 pub use six_sines::{is_six_sines_patch_path, SIX_SINES_PLUGIN_ID};
 pub use surge_data::{
