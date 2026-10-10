@@ -8,6 +8,11 @@ use std::{
 
 use crate::SURGE_XT_PLUGIN_ID;
 
+mod native;
+pub use native::prepare_native_clap_patch_state;
+mod catalog;
+pub use catalog::{prepare_catalog_clap_patch_state, supports_catalog_clap_plugin};
+
 /// A patch could not be prepared. Paths and plugin IDs are retained for callers.
 #[derive(Debug)]
 pub enum PatchStateError {

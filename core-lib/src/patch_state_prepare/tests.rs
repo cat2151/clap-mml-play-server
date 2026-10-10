@@ -19,10 +19,10 @@ fn fixture() -> Vec<u8> {
     raw
 }
 
-struct PatchFile(PathBuf);
+pub(super) struct PatchFile(pub(super) PathBuf);
 
 impl PatchFile {
-    fn new(extension: &str, bytes: &[u8]) -> Self {
+    pub(super) fn new(extension: &str, bytes: &[u8]) -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let path = std::env::temp_dir().join(format!(
             "cmrt-patch-prepare-{}-{}.{}",
