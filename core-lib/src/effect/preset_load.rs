@@ -73,11 +73,7 @@ impl EffectRenderer {
                     .with_context(|| format!("{} が読めない", path.display()))?;
                 let preset =
                     parse_t3k_preset(&bytes).with_context(|| path.display().to_string())?;
-                let preset_id = path
-                    .file_stem()
-                    .and_then(|stem| stem.to_str())
-                    .ok_or_else(|| anyhow::anyhow!("{} の名前が取れない", path.display()))?;
-                self.load_tone3000_preset(&preset, preset_id).map(|_| ())
+                self.load_tone3000_preset(&preset).map(|_| ())
             }
             VOYAGE_VOYAGE_PLUGIN_ID => {
                 let xml = std::fs::read_to_string(path)
@@ -126,13 +122,9 @@ impl EffectRenderer {
     /// TONE3000 は state load 後に model を非同期で読み、その間は無音を出す。
     /// readiness を知る API が無いので、正弦波を通して出力で確かめる。戻るときは
     /// `reset()` 済みで、probe の残響は残らない。
-    pub fn load_tone3000_preset(
-        &mut self,
-        preset: &Tone3000Preset,
-        preset_id: &str,
-    ) -> Result<Duration> {
+    pub fn load_tone3000_preset(&mut self, preset: &Tone3000Preset) -> Result<Duration> {
         self.ensure_plugin(TONE3000_PLUGIN_ID)?;
-        let blob = tone3000_state_blob(self.init_state(), preset, preset_id)?;
+        let blob = tone3000_state_blob(self.init_state(), preset)?;
         self.load_state(&blob)
             .with_context(|| format!("TONE3000 preset '{}' の load", preset.name))?;
         self.ensure_active()?;

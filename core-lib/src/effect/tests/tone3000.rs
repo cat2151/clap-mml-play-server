@@ -14,18 +14,16 @@ fn tone3000_renderer() -> EffectRenderer {
     EffectRenderer::new(&entry, TONE3000_PLUGIN_ID, SAMPLE_RATE, BUFFER_SIZE).unwrap()
 }
 
-/// preset ディレクトリの `.t3kpreset` を (uuid, preset) で名前順に返す。
-fn factory_presets() -> Vec<(String, Tone3000Preset)> {
+/// preset ディレクトリの `.t3kpreset` を名前順に返す。
+fn factory_presets() -> Vec<Tone3000Preset> {
     let dir = PathBuf::from(plugin_path(TONE3000_PRESETS_ENV));
-    let mut presets: Vec<(String, Tone3000Preset)> = std::fs::read_dir(&dir)
+    let mut presets: Vec<Tone3000Preset> = std::fs::read_dir(&dir)
         .unwrap()
         .map(|entry| entry.unwrap().path())
         .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("t3kpreset"))
         .map(|path| {
-            let uuid = path.file_stem().unwrap().to_string_lossy().into_owned();
-            let preset = parse_t3k_preset(&std::fs::read(&path).unwrap())
-                .unwrap_or_else(|error| panic!("{}: {error:#}", path.display()));
-            (uuid, preset)
+            parse_t3k_preset(&std::fs::read(&path).unwrap())
+                .unwrap_or_else(|error| panic!("{}: {error:#}", path.display()))
         })
         .collect();
     assert!(
@@ -33,7 +31,7 @@ fn factory_presets() -> Vec<(String, Tone3000Preset)> {
         "{} に .t3kpreset が無い",
         dir.display()
     );
-    presets.sort_by(|a, b| a.1.name.cmp(&b.1.name));
+    presets.sort_by(|a, b| a.name.cmp(&b.name));
     presets
 }
 
@@ -97,9 +95,9 @@ fn tone3000_init_state_is_a_value_tree_that_round_trips() {
 #[ignore = "実 TONE3000 CLAP と factory preset が要る"]
 fn tone3000_naming_the_preset_alone_does_not_load_it() {
     let mut renderer = tone3000_renderer();
-    let (uuid, preset) = factory_presets().into_iter().next().unwrap();
+    let preset = factory_presets().into_iter().next().unwrap();
     let mut tree = parse_state(renderer.init_state()).unwrap();
-    tree.set_property("activePresetId", Var::String(uuid.clone()));
+    tree.set_property("activePresetId", Var::String(preset.id.clone()));
     tree.set_property("activePresetName", Var::String(preset.name.clone()));
     let mut blob = b"T3KB".to_vec();
     blob.extend(encode(&tree));
@@ -117,13 +115,13 @@ fn tone3000_naming_the_preset_alone_does_not_load_it() {
 #[ignore = "実 TONE3000 CLAP と factory preset が要る"]
 fn tone3000_preset_loads_and_changes_the_sound() {
     let mut renderer = tone3000_renderer();
-    let (uuid, preset) = factory_presets()
+    let preset = factory_presets()
         .into_iter()
-        .find(|(_, preset)| preset.name == "Bogner Fullstack")
+        .find(|preset| preset.name == "Bogner Fullstack")
         .expect("Bogner Fullstack が factory preset に無い");
 
     let started = std::time::Instant::now();
-    let waited = renderer.load_tone3000_preset(&preset, &uuid).unwrap();
+    let waited = renderer.load_tone3000_preset(&preset).unwrap();
     let load_total = started.elapsed();
     let saved = saved_tree(&mut renderer);
     let blocks = chain_block_types(&saved);
@@ -164,21 +162,21 @@ fn tone3000_preset_loads_and_changes_the_sound() {
     );
 }
 
-/// factory preset 7 件すべてが、preset ごとに新規の instance へ載って音が出る。
+/// factory preset すべてが、preset ごとに新規の instance へ載って音が出る。
 #[test]
 #[ignore = "実 TONE3000 CLAP と factory preset が要る"]
 fn tone3000_every_factory_preset_loads_by_name() {
     let presets = factory_presets();
-    for (uuid, preset) in &presets {
+    for preset in &presets {
         let mut renderer = tone3000_renderer();
         let started = std::time::Instant::now();
-        let waited = renderer.load_tone3000_preset(preset, uuid).unwrap();
+        let waited = renderer.load_tone3000_preset(preset).unwrap();
         let load_total = started.elapsed();
         let saved = saved_tree(&mut renderer);
         let blocks = chain_block_types(&saved);
         eprintln!(
-            "{uuid} '{}' load={load_total:?} audible after {waited:?} blocks={blocks:?}",
-            preset.name
+            "{} '{}' load={load_total:?} audible after {waited:?} blocks={blocks:?}",
+            preset.id, preset.name
         );
         assert_eq!(
             saved.property_string("activePresetName"),
@@ -190,10 +188,7 @@ fn tone3000_every_factory_preset_loads_by_name() {
             preset.name
         );
     }
-    let names: Vec<&str> = presets
-        .iter()
-        .map(|(_, preset)| preset.name.as_str())
-        .collect();
+    let names: Vec<&str> = presets.iter().map(|preset| preset.name.as_str()).collect();
     eprintln!("presets: {names:?}");
     assert_eq!(
         presets.len(),

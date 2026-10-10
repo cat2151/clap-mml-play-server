@@ -33,6 +33,19 @@ fn pure_formats_validate_identity_and_data() {
             Err(PatchStateError::InvalidData { .. })
         ));
     }
+    let juce = b"<VASTvaporizer2><PARAM id=\"m_uPolyMode\" text=\"Poly16\"/><w v=\"a&#13;&#29;&#x1D;&amp;\"/></VASTvaporizer2>";
+    let file = PatchFile::new("vvp", juce);
+    let state = prepare_catalog_clap_patch_state(VAPORIZER2_PLUGIN_ID, bundle, &file.0).unwrap();
+    assert!(
+        state.windows(juce.len()).any(|w| w == juce),
+        "plugin receives the original bytes"
+    );
+    let six = b"<patch id=\"org.baconpaul.six-sines\" v=\"&#29;\"><params/></patch>";
+    let file = PatchFile::new("sxsnp", six);
+    assert_eq!(
+        prepare_catalog_clap_patch_state(SIX_SINES_PLUGIN_ID, bundle, &file.0).unwrap(),
+        six
+    );
     let other = PatchFile::new("sxsnp", b"<patch id=\"other\"><params/></patch>");
     assert!(prepare_catalog_clap_patch_state(SIX_SINES_PLUGIN_ID, bundle, &other.0).is_err());
     let other = PatchFile::new("h2p", b"#AM=Other\n");

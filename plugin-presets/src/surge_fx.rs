@@ -88,7 +88,11 @@ pub struct SurgeFxSnapshot {
 ///
 /// 古い `streaming_version` の preset は Surge の loader と同じ移行
 /// （[`apply_streaming_migrations`]）を済ませてから返す。
+///
+/// factory preset `Neuron/This Cassette.srgfx` は属性の区切りが空白でなく `¨`（U+00A8）で
+/// XML として読めないので、属性値の閉じ `"` 直後の `¨` を空白とみなす。
 pub fn parse_srgfx(xml: &str) -> Result<Vec<SurgeFxSnapshot>> {
+    let xml = xml.replace("\"\u{a8}", "\" ");
     let root = Element::parse(Cursor::new(xml.as_bytes())).context(".srgfx の XML が不正")?;
     if root.name != "single-fx" {
         bail!(

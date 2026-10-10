@@ -1,11 +1,12 @@
 //! TONE3000 の factory preset（`.t3kpreset`）を plugin state に組み立てる。
 //!
-//! preset も state も `T3KB` magic + JUCE [`ValueTree`](crate::juce_value_tree) で、
-//! 木の形だけが違う:
+//! 中身はどちらも JUCE [`ValueTree`](crate::juce_value_tree) で、前置きと木の形が違う:
 //!
 //! ```text
-//! preset: T3KPreset{schemaVersion, name} → ChainSnapshot{…}, Params{Param{id, value}*}
-//! state : TONE3000State{…, activePresetId, activePresetName}
+//! preset: `T3KH` + header 長（u32 LE）+ T3KPresetHeader{id, name} の後に
+//!         T3KPreset{schemaVersion, name, id} → ChainSnapshot{…}, Params{Param{id, value}*}
+//! state : `T3KB` の後に
+//!         TONE3000State{…, activePresetId, activePresetName}
 //!         → PARAMETERS{PARAM{id, value}*}, MidiMappings, ChainSnapshot{…}
 //! ```
 //!
@@ -30,7 +31,8 @@ pub const T3K_PRESET_EXTENSION: &str = "t3kpreset";
 pub const TONE3000_CATEGORY: &str = "Distortion / Saturation";
 pub const TONE3000_KIND: &str = "Amp Simulator";
 
-const MAGIC: &[u8; 4] = b"T3KB";
+const STATE_MAGIC: &[u8; 4] = b"T3KB";
+const PRESET_MAGIC: &[u8; 4] = b"T3KH";
 const PRESET_TYPE: &str = "T3KPreset";
 const STATE_TYPE: &str = "TONE3000State";
 const CHAIN_SNAPSHOT: &str = "ChainSnapshot";
@@ -40,29 +42,40 @@ const CHAIN_SNAPSHOT: &str = "ChainSnapshot";
 pub struct Tone3000Preset {
     /// preset 内の `name`。catalog はこれを表示名・JSON の値にする。
     pub name: String,
+    /// preset 内の `id`（uuid）。plugin は state の `activePresetId` にこれを持つ。
+    pub id: String,
     pub tree: ValueTree,
 }
 
 /// `.t3kpreset` のバイト列を読む。
 pub fn parse_t3k_preset(bytes: &[u8]) -> Result<Tone3000Preset> {
-    let tree = decode(strip_magic(bytes)?).context("TONE3000 preset の ValueTree が読めない")?;
+    let tree =
+        decode(strip_preset_header(bytes)?).context("TONE3000 preset の ValueTree が読めない")?;
     if tree.type_name != PRESET_TYPE {
         bail!(
             "TONE3000 preset の root が {PRESET_TYPE} ではない: '{}'",
             tree.type_name
         );
     }
-    let name = tree
-        .property_string("name")
-        .filter(|name| !name.is_empty())
-        .ok_or_else(|| anyhow::anyhow!("TONE3000 preset に name が無い"))?
-        .to_string();
-    Ok(Tone3000Preset { name, tree })
+    let name = non_empty_property(&tree, "name")?;
+    let id = non_empty_property(&tree, "id")?;
+    Ok(Tone3000Preset { name, id, tree })
+}
+
+fn non_empty_property(tree: &ValueTree, name: &str) -> Result<String> {
+    tree.property_string(name)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| anyhow::anyhow!("TONE3000 preset に {name} が無い"))
 }
 
 /// plugin state（`T3KB` + ValueTree）を木にする。
 pub fn parse_state(bytes: &[u8]) -> Result<ValueTree> {
-    let tree = decode(strip_magic(bytes)?).context("TONE3000 state の ValueTree が読めない")?;
+    let tree = match bytes.split_at_checked(4) {
+        Some((magic, rest)) if magic == STATE_MAGIC => decode(rest),
+        _ => bail!("TONE3000 state の magic が T3KB ではない"),
+    }
+    .context("TONE3000 state の ValueTree が読めない")?;
     if tree.type_name != STATE_TYPE {
         bail!(
             "TONE3000 state の root が {STATE_TYPE} ではない: '{}'",
@@ -72,21 +85,24 @@ pub fn parse_state(bytes: &[u8]) -> Result<ValueTree> {
     Ok(tree)
 }
 
-fn strip_magic(bytes: &[u8]) -> Result<&[u8]> {
-    match bytes.split_at_checked(4) {
-        Some((magic, rest)) if magic == MAGIC => Ok(rest),
-        _ => bail!("TONE3000 の magic が T3KB ではない"),
+/// `T3KH` + header 長 + header を読み飛ばし、`T3KPreset` の木のバイト列を返す。
+fn strip_preset_header(bytes: &[u8]) -> Result<&[u8]> {
+    let Some((magic, rest)) = bytes.split_at_checked(4) else {
+        bail!("TONE3000 preset が短すぎる");
+    };
+    if magic != PRESET_MAGIC {
+        bail!("TONE3000 preset の magic が T3KH ではない");
     }
+    let Some((length, rest)) = rest.split_first_chunk::<4>() else {
+        bail!("TONE3000 preset に header 長が無い");
+    };
+    let length = u32::from_le_bytes(*length) as usize;
+    rest.get(length..)
+        .ok_or_else(|| anyhow::anyhow!("TONE3000 preset の header 長 {length} が本体を超える"))
 }
 
 /// init state を template に、preset を載せた state を組む。
-///
-/// `preset_id` は plugin が `activePresetId` に持つ識別子（factory preset ではファイル名の uuid）。
-pub fn tone3000_state_blob(
-    init_state: &[u8],
-    preset: &Tone3000Preset,
-    preset_id: &str,
-) -> Result<Vec<u8>> {
+pub fn tone3000_state_blob(init_state: &[u8], preset: &Tone3000Preset) -> Result<Vec<u8>> {
     let mut state = parse_state(init_state)?;
     let chain = preset
         .tree
@@ -98,9 +114,9 @@ pub fn tone3000_state_blob(
         None => state.children.push(chain),
     }
     overwrite_parameters(&mut state, &preset.tree)?;
-    state.set_property("activePresetId", Var::String(preset_id.to_string()));
+    state.set_property("activePresetId", Var::String(preset.id.clone()));
     state.set_property("activePresetName", Var::String(preset.name.clone()));
-    let mut bytes = MAGIC.to_vec();
+    let mut bytes = STATE_MAGIC.to_vec();
     bytes.extend(encode(&state));
     Ok(bytes)
 }
@@ -132,7 +148,7 @@ fn overwrite_parameters(state: &mut ValueTree, preset: &ValueTree) -> Result<()>
     Ok(())
 }
 
-/// preset 内の `name` を値にする（ファイル名は uuid で読めない）。
+/// preset 内の `name` を値にする。
 pub fn tone3000_value(_root: &Path, path: &Path, _plugin_name: &str) -> Result<PresetValue> {
     let bytes = std::fs::read(path).context("読めない")?;
     let name = parse_t3k_preset(&bytes)?.name;

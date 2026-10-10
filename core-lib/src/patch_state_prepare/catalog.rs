@@ -76,7 +76,7 @@ pub fn prepare_catalog_clap_patch_state(
         }
         return Ok(bytes);
     }
-    let xml = xmltree::Element::parse(bytes.as_slice())
+    let xml = xmltree::Element::parse(replace_control_char_refs(&bytes).as_slice())
         .map_err(|e| invalid(format!("invalid patch XML: {e}")))?;
     if id == SIX_SINES_PLUGIN_ID {
         if xml.name != "patch"
@@ -93,6 +93,37 @@ pub fn prepare_catalog_clap_patch_state(
         crate::parse_vvp_header(&bytes).map_err(|e| invalid(format!("{e:#}")))?;
         Ok(crate::vvp_state_blob(&bytes))
     }
+}
+
+/// Plugins write control characters such as `&#29;` (JUCE does) that XML 1.0
+/// forbids and they read back. Replace them with `?` for the structural check only.
+fn replace_control_char_refs(bytes: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut rest = bytes;
+    while let Some(at) = rest.windows(2).position(|w| w == b"&#") {
+        out.extend_from_slice(&rest[..at]);
+        rest = &rest[at..];
+        let end = rest.iter().take(12).position(|&b| b == b';');
+        let code = end.and_then(|end| {
+            let digits = std::str::from_utf8(&rest[2..end]).ok()?;
+            match digits.strip_prefix(['x', 'X']) {
+                Some(hex) => u32::from_str_radix(hex, 16).ok(),
+                None => digits.parse().ok(),
+            }
+        });
+        match (end, code) {
+            (Some(end), Some(code)) if code < 0x20 && !matches!(code, 0x9 | 0xA | 0xD) => {
+                out.push(b'?');
+                rest = &rest[end + 1..];
+            }
+            _ => {
+                out.extend_from_slice(b"&#");
+                rest = &rest[2..];
+            }
+        }
+    }
+    out.extend_from_slice(rest);
+    out
 }
 
 #[cfg(test)]

@@ -91,6 +91,15 @@ fn old_streaming_version_is_migrated_on_parse() {
 }
 
 #[test]
+fn diaeresis_between_attributes_reads_as_a_space() {
+    let xml = "<single-fx streaming_version=\"15\">\
+        <snapshot type=\"15\" name=\"x\" p0=\"18.7714\"\u{a8}p1=\"1\" /></single-fx>";
+    let snapshot = &parse_srgfx(xml).unwrap()[0];
+    assert_eq!(snapshot.params[0].value, Some(18.7714));
+    assert_eq!(snapshot.params[1].value, Some(1.0));
+}
+
+#[test]
 fn rejects_files_without_snapshot_or_type() {
     assert!(parse_srgfx("<single-fx/>").is_err());
     assert!(parse_srgfx(r#"<single-fx><snapshot name="x"/></single-fx>"#).is_err());

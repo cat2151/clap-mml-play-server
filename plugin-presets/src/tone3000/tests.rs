@@ -32,6 +32,7 @@ fn sample_preset() -> Vec<u8> {
         properties: vec![
             ("schemaVersion".to_string(), Var::Int(1)),
             ("name".to_string(), Var::String("Test Amp".to_string())),
+            ("id".to_string(), Var::String("uuid-1".to_string())),
         ],
         children: vec![
             chain,
@@ -42,7 +43,16 @@ fn sample_preset() -> Vec<u8> {
             },
         ],
     };
-    let mut bytes = b"T3KB".to_vec();
+    let header = encode(&leaf(
+        "T3KPresetHeader",
+        vec![
+            ("id", Var::String("uuid-1".to_string())),
+            ("name", Var::String("Test Amp".to_string())),
+        ],
+    ));
+    let mut bytes = b"T3KH".to_vec();
+    bytes.extend((header.len() as u32).to_le_bytes());
+    bytes.extend(header);
     bytes.extend(encode(&tree));
     bytes
 }
@@ -76,12 +86,14 @@ fn sample_init_state() -> Vec<u8> {
 fn parses_the_preset_name() {
     let preset = parse_t3k_preset(&sample_preset()).unwrap();
     assert_eq!(preset.name, "Test Amp");
+    assert_eq!(preset.id, "uuid-1");
     assert!(preset.tree.child("ChainSnapshot").is_some());
 }
 
 #[test]
 fn rejects_wrong_magic_or_root() {
     assert!(parse_t3k_preset(b"VC2!xxxx").is_err());
+    assert!(parse_t3k_preset(b"T3KH\xff\0\0\0").is_err());
     assert!(parse_t3k_preset(&sample_init_state()).is_err());
     assert!(parse_state(&sample_preset()).is_err());
 }
@@ -89,7 +101,7 @@ fn rejects_wrong_magic_or_root() {
 #[test]
 fn state_blob_replaces_chain_and_parameters_and_names_the_preset() {
     let preset = parse_t3k_preset(&sample_preset()).unwrap();
-    let blob = tone3000_state_blob(&sample_init_state(), &preset, "uuid-1").unwrap();
+    let blob = tone3000_state_blob(&sample_init_state(), &preset).unwrap();
     let state = parse_state(&blob).unwrap();
     assert_eq!(state.property_string("activePresetId"), Some("uuid-1"));
     assert_eq!(state.property_string("activePresetName"), Some("Test Amp"));

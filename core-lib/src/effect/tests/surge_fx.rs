@@ -373,8 +373,45 @@ fn surge_fx_every_factory_snapshot_matches_self_report() {
     );
     assert!(snapshots > 0);
     assert!(
-        unreadable.len() <= 1,
-        "読めない .srgfx が増えている: {unreadable:?}"
+        unreadable.is_empty(),
+        "読めない .srgfx がある: {unreadable:?}"
+    );
+}
+
+/// Neuron / This Cassette（区切りが `¨` の壊れた factory preset）が載り、音が変わる。
+#[test]
+#[ignore = "実 Surge XT Effects CLAP と factory preset が要る"]
+fn surge_fx_this_cassette_loads_and_changes_the_sound() {
+    let mut renderer = surge_fx_renderer();
+    let snapshot = load_snapshot_file("Neuron/This Cassette.srgfx")
+        .into_iter()
+        .next()
+        .unwrap();
+    let ranges = renderer.measure_surge_fx_ranges(snapshot.fx_type).unwrap();
+    load_and_check(&mut renderer, &snapshot, &ranges, "This Cassette");
+
+    let frames = SAMPLE_RATE as usize;
+    let input: Vec<f32> = (0..frames)
+        .flat_map(|index| {
+            let sample =
+                0.25 * (2.0 * std::f64::consts::PI * 220.0 * index as f64 / SAMPLE_RATE).sin();
+            [sample as f32, sample as f32]
+        })
+        .collect();
+    let mut wet = input.clone();
+    process_blocks(&mut renderer, &mut wet);
+    let (start, end) = (frames / 4, frames);
+    let input_rms = rms_dbfs_frames(&input, start, end);
+    let wet_rms = rms_dbfs_frames(&wet, start, end);
+    let diff: Vec<f32> = wet.iter().zip(&input).map(|(a, b)| a - b).collect();
+    let diff_rms = rms_dbfs_frames(&diff, start, end);
+    eprintln!(
+        "220 Hz sine: input={input_rms:.1} dBFS wet={wet_rms:.1} dBFS wet-input={diff_rms:.1} dBFS"
+    );
+    assert!(wet_rms > -60.0, "出力が無音: {wet_rms} dBFS");
+    assert!(
+        diff_rms > input_rms - 20.0,
+        "出力が入力とほぼ同じ（effect が効いていない）: diff {diff_rms} dBFS"
     );
 }
 
