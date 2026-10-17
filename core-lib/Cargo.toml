@@ -7,39 +7,66 @@ edition = "2021"
 name = "cmrt_core"
 path = "src/lib.rs"
 
+[features]
+default = ["host"]
+# CLAP ホスト・render・playback 一式。無効だと `path_identity` だけが残る。
+host = [
+    "dep:clack-host",
+    "dep:clack-plugin",
+    "dep:clack-extensions",
+    "dep:clap-sys",
+    "dep:cmrt-cache-player",
+    "dep:cmrt-clack-timeline",
+    "dep:cmrt-server-config",
+    "dep:cmrt-timeline",
+    "dep:plugin-presets",
+    "dep:mmlabc-to-smf",
+    "dep:midly",
+    "dep:hound",
+    "dep:rodio",
+    "dep:serde_json",
+    "dep:serde",
+    "dep:dirs",
+    "dep:anyhow",
+    "dep:ureq",
+    "dep:flate2",
+    "dep:xmltree",
+    "dep:cat-self-update-lib",
+]
+
 [dependencies]
 # CLAP host bindings (crates.io 未公開のため git 指定が必要)
-clack-host = { git = "https://github.com/prokopyl/clack.git", package = "clack-host", features = ["clack-plugin"] }
-clack-plugin = { git = "https://github.com/prokopyl/clack.git", package = "clack-plugin" }
-clack-extensions = { git = "https://github.com/prokopyl/clack.git", package = "clack-extensions", features = ["audio-ports", "latency", "note-ports", "params", "preset-discovery", "state", "voice-info", "clack-host"] }
-clap-sys = "0.5"
-cmrt-cache-player = { path = "../cache-player" }
-cmrt-clack-timeline = { path = "../clack-timeline" }
-cmrt-server-config = { path = "../server-config" }
-cmrt-timeline = { path = "../timeline" }
-plugin-presets = { path = "../plugin-presets" }
+clack-host = { git = "https://github.com/prokopyl/clack.git", package = "clack-host", features = ["clack-plugin"], optional = true }
+clack-plugin = { git = "https://github.com/prokopyl/clack.git", package = "clack-plugin", optional = true }
+clack-extensions = { git = "https://github.com/prokopyl/clack.git", package = "clack-extensions", features = ["audio-ports", "latency", "note-ports", "params", "preset-discovery", "state", "voice-info", "clack-host"], optional = true }
+clap-sys = { version = "0.5", optional = true }
+cmrt-cache-player = { path = "../cache-player", optional = true }
+cmrt-clack-timeline = { path = "../clack-timeline", optional = true }
+cmrt-server-config = { path = "../server-config", optional = true }
+cmrt-timeline = { path = "../timeline", optional = true }
+plugin-presets = { path = "../plugin-presets", optional = true }
 
 # MML → SMF (cli feature で pass1_parser が有効になる)
-mmlabc-to-smf = { git = "https://github.com/cat2151/mmlabc-to-smf-rust.git", package = "mmlabc-to-smf", features = ["cli"] }
+mmlabc-to-smf = { git = "https://github.com/cat2151/mmlabc-to-smf-rust.git", package = "mmlabc-to-smf", features = ["cli"], optional = true }
 
 # MIDI parsing
-midly = "0.5"
+midly = { version = "0.5", optional = true }
 
 # WAV output / 再生
-hound = "3.5"
-rodio = "0.22"
+hound = { version = "3.5", optional = true }
+rodio = { version = "0.22", optional = true }
 
 # Config/path helper
-serde_json = "1"
-serde = { version = "1", features = ["derive"] }
-dirs = "6"
+serde_json = { version = "1", optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+dirs = { version = "6", optional = true }
 
 # Error handling
-anyhow = "1"
+anyhow = { version = "1", optional = true }
 # Six Sines の factory 音色を GitHub から取得する
-ureq = { version = "3", features = ["json"] }
-flate2 = "1"
-xmltree = "0.11"
+ureq = { version = "3", features = ["json"], optional = true }
+flate2 = { version = "1", optional = true }
+xmltree = { version = "0.11", optional = true }
 
 # Self update
-cat-self-update-lib = { git = "https://github.com/cat2151/cat-self-update", package = "cat-self-update-lib" }
+cat-self-update-lib = { git = "https://github.com/cat2151/cat-self-update", package = "cat-self-update-lib", optional = true }

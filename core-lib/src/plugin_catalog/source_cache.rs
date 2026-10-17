@@ -7,6 +7,8 @@ use serde::Deserialize;
 
 use cmrt_server_config::PatchCatalogResolution;
 
+use crate::path_identity::{path_key, same_path};
+
 const FORMAT_VERSION: u32 = 1;
 const CACHE_RELATIVE_PATH: &str = "patch-catalog/sources.json";
 
@@ -87,23 +89,6 @@ fn same_dirs(left: &[String], right: &[String]) -> bool {
     left.sort();
     right.sort();
     left == right
-}
-
-fn same_path(left: &str, right: &str) -> bool {
-    path_key(left) == path_key(right)
-}
-
-fn path_key(path: &str) -> String {
-    let path = Path::new(path.trim());
-    let key = std::fs::canonicalize(path)
-        .unwrap_or_else(|_| path.to_path_buf())
-        .to_string_lossy()
-        .replace('\\', "/");
-    if cfg!(windows) {
-        key.to_lowercase()
-    } else {
-        key
-    }
 }
 
 #[cfg(test)]
