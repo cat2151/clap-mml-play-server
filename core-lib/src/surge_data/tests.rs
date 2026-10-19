@@ -35,6 +35,10 @@ fn fake_source(root: &Path) {
         "pad",
     );
     write_file(&root.join(WAVETABLES).join("saw.wt"), "wt");
+    write_file(
+        &root.join("fx_presets").join("Delay").join("Echo.srgfx"),
+        "fx",
+    );
     write_file(&root.join("skins").join("skin.xml"), "skin");
     write_file(&root.join("readme.txt"), "readme");
 }
@@ -50,6 +54,7 @@ fn shared_entry_names_excludes_patch_directories() {
     assert_eq!(
         names,
         vec![
+            std::ffi::OsString::from("fx_presets"),
             std::ffi::OsString::from("readme.txt"),
             std::ffi::OsString::from("skins"),
             std::ffi::OsString::from(WAVETABLES),
@@ -71,10 +76,21 @@ fn sync_minimal_tree_shares_data_and_drops_patches() {
         "初回は作り直す"
     );
 
+    for emptied in EMPTIED.iter().filter(|name| source.join(name).is_dir()) {
+        assert!(
+            entry_names(&minimal.join(emptied)).unwrap().is_empty(),
+            "{emptied} は一覧構築を省くため空ディレクトリであること"
+        );
+    }
     assert_eq!(
-        fs::read_to_string(minimal.join(WAVETABLES).join("saw.wt")).unwrap(),
+        fs::read_to_string(source.join(WAVETABLES).join("saw.wt")).unwrap(),
         "wt",
-        "wavetable は元データの実体が見えること"
+        "元データの wavetable は残ること"
+    );
+    assert_eq!(
+        fs::read_to_string(minimal.join("skins").join("skin.xml")).unwrap(),
+        "skin",
+        "空にしないディレクトリは元データの実体が見えること"
     );
     assert_eq!(
         fs::read_to_string(minimal.join("readme.txt")).unwrap(),
@@ -123,6 +139,29 @@ fn sync_minimal_tree_skips_rebuild_when_current() {
     assert!(
         !sync_minimal_tree(&source, &minimal).unwrap(),
         "2 回目は作り直さないこと"
+    );
+    remove_entry(&root).unwrap();
+}
+
+/// wavetables 等をジャンクションで共有していた古いツリーは作り直して空にする。
+#[test]
+fn sync_minimal_tree_rebuilds_tree_sharing_emptied_directory() {
+    let root = temp_root("rebuild_shared_emptied");
+    let source = root.join("source");
+    let minimal = root.join("minimal");
+    fake_source(&source);
+    sync_minimal_tree(&source, &minimal).unwrap();
+    fs::remove_dir(minimal.join(WAVETABLES)).unwrap();
+    link_dir(&minimal.join(WAVETABLES), &source.join(WAVETABLES)).unwrap();
+
+    assert!(
+        sync_minimal_tree(&source, &minimal).unwrap(),
+        "共有したままの wavetables を検出して作り直すこと"
+    );
+    assert!(entry_names(&minimal.join(WAVETABLES)).unwrap().is_empty());
+    assert!(
+        source.join(WAVETABLES).join("saw.wt").exists(),
+        "作り直しで元データの wavetable を消さないこと"
     );
     remove_entry(&root).unwrap();
 }

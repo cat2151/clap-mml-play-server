@@ -12,6 +12,10 @@
 //! 実体はジャンクション（Windows では管理者権限不要）で共有するので、
 //! ディスク使用量はほぼ増えず、元のデータディレクトリは読むだけで改変しない。
 //!
+//! `fx_presets` / `wavetables` / `wavetables_3rdparty` も一覧構築のために走査されるので、
+//! 空ディレクトリにする。音色の wavetable は `.fxp` / state の payload に入っており、
+//! Surge XT Effects の preset も [`crate::effect`] が元の `fx_presets` から自分で読む。
+//!
 //! **`patches_factory/Templates` を空にしてはいけない。** Surge は初期パッチ（Init Saw 等）を
 //! ここから読む。空にすると初期状態が変わり、その後 `.fxp` を読み込んでも出音が変わる
 //! （実測で全パッチ RMS +26%、約 +2dB）。`.fxp` は全パラメータを書いているわけではなく、
@@ -36,6 +40,8 @@ const PATCHES_FACTORY: &str = "patches_factory";
 const PATCHES_3RDPARTY: &str = "patches_3rdparty";
 const TEMPLATES: &str = "Templates";
 const WAVETABLES: &str = "wavetables";
+/// 共有せず空ディレクトリにする最上位エントリ。一覧構築用の走査を省くため。
+const EMPTIED: &[&str] = &["fx_presets", WAVETABLES, "wavetables_3rdparty"];
 const SURGE_DATA_HOME_ENV: &str = "SURGE_DATA_HOME";
 /// `0` / `false` を入れると最小データディレクトリを使わず Surge の既定動作に戻す。
 const DISABLE_ENV: &str = "CMRT_SURGE_MINIMAL_DATA_HOME";
@@ -215,7 +221,18 @@ fn tree_is_current(minimal: &Path, source: &Path, shared: &[OsString]) -> Result
     if shared.iter().any(|name| !minimal.join(name).exists()) {
         return Ok(false);
     }
+    for name in shared.iter().filter(|name| is_emptied(name)) {
+        let path = minimal.join(name);
+        // ジャンクションのままなら、空にする前に作った古いツリー。
+        if is_link(&fs::symlink_metadata(&path)?) || !entry_names(&path)?.is_empty() {
+            return Ok(false);
+        }
+    }
     Ok(entry_names(minimal)? == expected_entry_names(shared))
+}
+
+fn is_emptied(name: &OsString) -> bool {
+    EMPTIED.iter().any(|emptied| name == emptied)
 }
 
 fn entry_names(dir: &Path) -> Result<Vec<OsString>> {
@@ -250,7 +267,9 @@ fn rebuild_tree(minimal: &Path, source: &Path, shared: &[OsString]) -> Result<()
     for name in shared {
         let target = source.join(name);
         let link = minimal.join(name);
-        if target.is_dir() {
+        if is_emptied(name) && target.is_dir() {
+            fs::create_dir(&link).with_context(|| format!("{} の作成に失敗", link.display()))?;
+        } else if target.is_dir() {
             link_dir(&link, &target)?;
         } else {
             fs::copy(&target, &link)
