@@ -12,6 +12,10 @@ pub(crate) enum CliAction {
     Run,
     Update,
     Check,
+    ProbePitchTracking {
+        patch: String,
+        json: bool,
+    },
     ProbeVoicing {
         patch: String,
         previous_patch: Option<String>,
@@ -67,6 +71,15 @@ enum Commands {
     Update,
     /// Compare the embedded commit hash with the remote main branch
     Check,
+    /// Measure whether a patch's pitch follows the played note, without opening an audio device
+    ProbePitchTracking {
+        /// Patch path relative to patches_dir, or an absolute path
+        #[arg(long)]
+        patch: String,
+        /// Print the result as JSON
+        #[arg(long)]
+        json: bool,
+    },
     /// Probe a patch for mono/poly voicing without opening an audio device
     ProbeVoicing {
         /// Patch path relative to patches_dir, or an absolute path
@@ -111,6 +124,9 @@ where
         Ok(cli) => match cli.command {
             Some(Commands::Update) => Ok(CliAction::Update),
             Some(Commands::Check) => Ok(CliAction::Check),
+            Some(Commands::ProbePitchTracking { patch, json }) => {
+                Ok(CliAction::ProbePitchTracking { patch, json })
+            }
             Some(Commands::ProbeVoicing {
                 patch,
                 previous_patch,

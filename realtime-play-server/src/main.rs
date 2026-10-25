@@ -3,6 +3,7 @@ mod config;
 mod effect_presets;
 mod fast_ipc;
 mod http;
+mod pitch_tracking;
 mod player;
 mod probe;
 mod timing;
@@ -26,7 +27,7 @@ use config::{
 use effect_presets::list_effect_presets;
 use http::run_realtime_play_server;
 use player::{plugin_kinds, PlayerHandle, PluginKind, RealtimePlayer};
-use probe::{run_capability_probe, run_voicing_probe};
+use probe::{run_capability_probe, run_pitch_tracking_probe, run_voicing_probe};
 
 const RENDER_PREROLL_MS: u64 = 100;
 const BUILD_COMMIT_HASH: &str = env!("BUILD_COMMIT_HASH");
@@ -60,6 +61,10 @@ fn main() -> Result<()> {
         }
         CliAction::Check => {
             println!("{}", check_workspace_update(BUILD_COMMIT_HASH)?);
+            return Ok(());
+        }
+        CliAction::ProbePitchTracking { patch, json } => {
+            run_pitch_tracking_probe(&patch, json)?;
             return Ok(());
         }
         CliAction::ProbeVoicing {

@@ -1,6 +1,25 @@
 use super::*;
 
 #[test]
+fn probe_pitch_tracking_requires_a_patch() {
+    assert_eq!(
+        parse_cli([
+            "clap-mml-realtime-play-server",
+            "probe-pitch-tracking",
+            "--patch",
+            "Percussion/Bell.fxp",
+            "--json",
+        ])
+        .unwrap(),
+        CliAction::ProbePitchTracking {
+            patch: "Percussion/Bell.fxp".into(),
+            json: true,
+        }
+    );
+    assert!(parse_cli(["server", "probe-pitch-tracking"]).is_err());
+}
+
+#[test]
 fn cli_without_subcommand_runs_server() {
     assert_eq!(
         parse_cli(["clap-mml-realtime-play-server"]).unwrap(),
