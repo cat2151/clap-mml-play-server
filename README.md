@@ -1,56 +1,49 @@
 # clap-mml-play-server
 
 ### Usage
-- Utilized as a library by `clap-mml-render-tui`.
-- Utilized by `clap-mml-render-tui` as a separately launched server process.
+- Used as a library by `clap-mml-render-tui`.
+- Launched and used as a server process by `clap-mml-render-tui`.
 
-### Realtime MIDI API
-
-`clap-mml-realtime-play-server` accepts timestamp-free MIDI 1.0 channel voice messages. Messages
-in one request are delivered in order at the start of the next audio chunk. The first request
-switches playback to the plugin's Init Saw state.
-
-```http
-POST /midi
-Content-Type: application/json
-
-{"messages":[[128,60,0],[144,62,100]]}
-```
-
-Each message must contain exactly three bytes. Status bytes `0x80` through `0xEF` are accepted;
-data bytes must be `0x00` through `0x7F`. Pad two-byte messages such as Program Change with a
-zero third byte. SysEx, running status, and MIDI 2.0 are not supported by this endpoint.
-
-### Install
+### install
 
 ```
 cargo install --force --git https://github.com/cat2151/clap-mml-play-server clap-mml-realtime-play-server
 ```
 
-### Self Update
+### self update
 
-Running the update command from either server will update both `clap-mml-render-server` and `clap-mml-realtime-play-server` simultaneously.
+Regardless of which server you run it from, it updates both `clap-mml-render-server` and `clap-mml-realtime-play-server` together.
 
 ```
 clap-mml-render-server update
 ```
 
-or
+Or
 
 ```
 clap-mml-realtime-play-server update
 ```
 
-To compare the commit hash at build time with the commit hash of the remote main branch, use the `check` subcommand for each command.
+To compare the build-time commit hash with the remote `main` branch's commit hash, use the `check` subcommand for each command.
 
 ```
 clap-mml-render-server check
 clap-mml-realtime-play-server check
 ```
 
-### Background:
-- This project was forked from the original repository (`clap-mml-render-tui`). It carries the commit history up to the point of the fork.
+### Patch Pitch Tracking Measurement
 
-### Note:
-- The actual server / CLI / TUI functionalities are implemented within `clap-mml-render-tui`.
-  - → The server process is currently being extracted into this repository.
+This allows measuring whether changing the note of a single patch causes its pitch to track the keyboard (`tracks_keyboard`). Any plugin can be used. No audio device is opened. Bulk measurement of all patches in the drum/percussion section is performed by `clap-mml-render-tui`'s `cmrt build-pitch-tracking`, which launches this subcommand for each patch.
+
+```powershell
+cargo run --release -p clap-mml-realtime-play-server -- probe-pitch-tracking --patch "patches_factory/Percussion/Drum One.fxp" --json
+```
+
+Refer to [Patch Pitch Tracking Measurement](docs/patch-pitch-tracking.md) for details on judgment criteria, limitations, and the process leading to shared data (`cat-music-patterns/patch-pitch-tracking.json`).
+
+### Background:
+- This project was branched off (forked) from the original repository (`clap-mml-render-tui`) and preserves the history up to the point of the split.
+
+### Notes:
+- Actual server / CLI / TUI functionalities are currently implemented on the `clap-mml-render-tui` side.
+  - → The server process is currently being extracted to this repository.
