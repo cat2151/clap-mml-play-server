@@ -2,6 +2,7 @@
 - cat2151のライブラリは、「revision固定を禁止。さらに、古い lock を放置せず最新 HEAD へ追従すること」
 - issue-notes/は更新を禁止
 - README.mdは更新禁止。README.ja.mdから生成されるので。
+- README.ja.mdは人間だけが書く。AIの更新を禁止
 - 意図しない実行中serverを検出したらtaskkillすること
   - 例えばビルドがリンクエラー（os error 5 等）で落ちたら、server実行中の可能性がある
 - ビルドロック回避を含め、`--target-dir`等で既定以外のtargetディレクトリを作成・使用することを禁止
