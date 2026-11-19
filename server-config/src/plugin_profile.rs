@@ -16,8 +16,9 @@ use crate::{
     default_dexed_cartridge_dirs, default_dexed_plugin_path, default_floe_plugin_path,
     default_patches_dirs, default_plugin_path, default_sforzando_plugin_path,
     default_six_sines_plugin_path, default_tyrelln6_plugin_path, default_vaporizer2_plugin_path,
-    CACHE_PLAYER_PLUGIN_ID, DEXED_PLUGIN_ID, FLOE_PLUGIN_ID, SFORZANDO_PLUGIN_ID,
-    SIX_SINES_PLUGIN_ID, SURGE_XT_PLUGIN_ID, TYRELLN6_PLUGIN_ID, VAPORIZER2_PLUGIN_ID,
+    default_zebralette3_plugin_path, u_he_product_of, CACHE_PLAYER_PLUGIN_ID, DEXED_PLUGIN_ID,
+    FLOE_PLUGIN_ID, SFORZANDO_PLUGIN_ID, SIX_SINES_PLUGIN_ID, SURGE_XT_PLUGIN_ID,
+    TYRELLN6_PLUGIN_ID, VAPORIZER2_PLUGIN_ID, ZEBRALETTE3_PLUGIN_ID,
 };
 
 /// `[plugins.<名前>]` 1 つ分のプラグイン設定。
@@ -121,16 +122,22 @@ pub fn builtin_plugin_profiles() -> BTreeMap<String, PluginProfile> {
                 patches_dirs: None,
             },
         ),
+        (
+            "Zebralette3".to_string(),
+            PluginProfile {
+                plugin_path: default_zebralette3_plugin_path().to_string(),
+                plugin_id: Some(ZEBRALETTE3_PLUGIN_ID.to_string()),
+                // 音色置き場は registry から [`merged_plugin_profiles`] が埋める。
+                patches_dirs: None,
+            },
+        ),
     ])
 }
 
 /// このプラグインの音色が、patch 文字列としてどういう形で指されるか。
 ///
-/// 1 プロセスに複数のプラグインを載せると、「この patch 文字列はどちらのプラグインの
-/// ものか」を決める規則が要る。現状その材料は**文字列の形だけ**で、`.syx` コンポーネントを
-/// 含むかどうかで割り切れている（`docs/adr/0007-patch-string-decides-the-plugin.md`）。
-/// patch 文字列そのものにプラグイン名を入れる仕様変更は、display 文字列が永続 ID である
-/// ため保存済みデータの移行が要る。いまは踏み込まない。
+/// 拡張子から決まる loader の種類。送り先の plugin は、これと patch 文字列のタグの組で決まる
+/// （`docs/adr/0026-patch-tag-decides-the-owner.md`）。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PatchForm {
     /// ファイル 1 つ = 音色 1 つ。Surge XT の `.fxp`（CLAP state）。
@@ -156,10 +163,11 @@ pub enum PatchForm {
     ///
     /// Surge XT の `.fxp` と同じく state だが、固有拡張子で分けて互いの instance へ流さない。
     SixSines,
-    /// ファイル 1 つ = 音色 1 つ。TyrellN6 の `.h2p`（バイト列をそのまま CLAP state へ）。
+    /// ファイル 1 つ = 音色 1 つ。u-he の `.h2p`（バイト列をそのまま CLAP state へ）。
     ///
-    /// `.h2p` は他の u-he plugin も使う拡張子だが、扱うのは TyrellN6 だけ。
-    TyrellN6,
+    /// TyrellN6 と Zebralette3 が同じ拡張子を読む。どちらへ送るかは patch タグで決める
+    /// （[`crate::U_HE_PRODUCTS`]）。
+    H2p,
     /// ファイル 1 つ = 音源 1 つ。組み込み cache-player の `.wav`（DAW の cell キャッシュ）。
     ///
     /// 他の形と違い、**音色ではなく録音済みの音そのもの**を指す。それでも patch 文字列の
@@ -197,8 +205,8 @@ pub fn patch_form_of(plugin_id: Option<&str>, plugin_path: &str) -> PatchForm {
         PatchForm::Vvp
     } else if matches(SIX_SINES_PLUGIN_ID, "six sines") {
         PatchForm::SixSines
-    } else if matches(TYRELLN6_PLUGIN_ID, "tyrelln6") {
-        PatchForm::TyrellN6
+    } else if u_he_product_of(plugin_id, plugin_path).is_some() {
+        PatchForm::H2p
     } else {
         PatchForm::StateFile
     }
@@ -208,9 +216,9 @@ pub fn patch_form_of(plugin_id: Option<&str>, plugin_path: &str) -> PatchForm {
 ///
 /// 表記ゆれを吸収し、同名なら config 側の「書かれている項目」が組み込みを上書きする。
 ///
-/// Vaporizer2・Floe・TyrellN6 の `patches_dirs` は config を無視し、本体の設定から読んだ値で
-/// 置き換える（[`plugin_presets::vaporizer2::vaporizer2_preset_dirs`]・
-/// [`plugin_presets::floe::floe_preset_dirs`]・[`plugin_presets::tyrelln6::tyrelln6_preset_dirs`]）。
+/// Vaporizer2・Floe・u-he（TyrellN6・Zebralette3）の `patches_dirs` は config を無視し、本体の設定から
+/// 読んだ値で置き換える（[`plugin_presets::vaporizer2::vaporizer2_preset_dirs`]・
+/// [`plugin_presets::floe::floe_preset_dirs`]・[`plugin_presets::u_he::u_he_preset_dirs`]）。
 /// Six Sines は factory の取得先（[`crate::six_sines_factory_dir`]）で置き換える。
 pub fn merged_plugin_profiles(
     from_config: &BTreeMap<String, PluginProfile>,
@@ -234,8 +242,10 @@ pub fn merged_plugin_profiles(
             PatchForm::FloePreset => {
                 profile.patches_dirs = Some(plugin_presets::floe::floe_preset_dirs())
             }
-            PatchForm::TyrellN6 => {
-                profile.patches_dirs = Some(plugin_presets::tyrelln6::tyrelln6_preset_dirs())
+            PatchForm::H2p => {
+                profile.patches_dirs =
+                    u_he_product_of(profile.plugin_id.as_deref(), &profile.plugin_path)
+                        .map(|product| plugin_presets::u_he::u_he_preset_dirs(product.product))
             }
             PatchForm::SixSines => {
                 profile.patches_dirs = Some(

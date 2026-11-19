@@ -1,5 +1,8 @@
 use super::*;
-use crate::sforzando::{is_ariax_patch_path, is_sfz_patch_path};
+use crate::dx7::is_cartridge_patch_path;
+use crate::floe::is_floe_preset_path;
+use crate::sforzando::{is_ariax_patch_path, is_sforzando_patch_path, is_sfz_patch_path};
+use crate::vvp::is_vvp_patch_path;
 
 /// パッチ文字列だけで行き先が決まること。`RealtimeRenderer` を作らずに確かめられる部分。
 #[test]

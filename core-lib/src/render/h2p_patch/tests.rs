@@ -1,16 +1,27 @@
 use super::*;
-use cmrt_server_config::{SIX_SINES_PLUGIN_ID, SURGE_XT_PLUGIN_ID, VAPORIZER2_PLUGIN_ID};
+use cmrt_server_config::{
+    SIX_SINES_PLUGIN_ID, SURGE_XT_PLUGIN_ID, TYRELLN6_PLUGIN_ID, VAPORIZER2_PLUGIN_ID,
+    ZEBRALETTE3_PLUGIN_ID,
+};
 
 #[test]
-fn only_tyrelln6_accepts_h2p() {
-    assert!(ensure_tyrelln6_capable(TYRELLN6_PLUGIN_ID).is_ok());
+fn only_the_u_he_products_accept_h2p() {
+    assert_eq!(ensure_h2p_capable(TYRELLN6_PLUGIN_ID).unwrap(), "TyrellN6");
+    assert_eq!(
+        ensure_h2p_capable(ZEBRALETTE3_PLUGIN_ID).unwrap(),
+        "Zebralette3"
+    );
     for other in [
         SURGE_XT_PLUGIN_ID,
         VAPORIZER2_PLUGIN_ID,
         SIX_SINES_PLUGIN_ID,
     ] {
-        let error = ensure_tyrelln6_capable(other).unwrap_err();
+        let error = ensure_h2p_capable(other).unwrap_err();
         assert!(error.to_string().contains(TYRELLN6_PLUGIN_ID), "{error:#}");
+        assert!(
+            error.to_string().contains(ZEBRALETTE3_PLUGIN_ID),
+            "{error:#}"
+        );
     }
 }
 

@@ -74,6 +74,9 @@ impl RealtimeServerConfig {
         if !SUPPORTED_LIVE_INSTANCE_COUNTS.contains(&self.live_instance_count) {
             anyhow::bail!("{LIVE_INSTANCE_COUNT_ENV} は {SUPPORTED_LIVE_INSTANCE_COUNTS:?} のいずれかにしてください");
         }
+        if let Some(patch) = &self.patch_path {
+            cmrt_core::parse_patch_wire(patch).context("config.toml の patch_path")?;
+        }
         Ok(())
     }
 }
@@ -181,13 +184,21 @@ mod tests {
         let config = RealtimeServerConfig::from_toml_str(
             r#"
 realtime_play_server_port = 62222
-patch_path = "Pads/Pad 1.fxp"
+patch_path = "Pads/Pad 1.fxp:"
 "#,
         )
         .unwrap();
 
         assert_eq!(config.realtime_play_server_port, 62222);
-        assert_eq!(config.patch_path.as_deref(), Some("Pads/Pad 1.fxp"));
+        assert_eq!(config.patch_path.as_deref(), Some("Pads/Pad 1.fxp:"));
+    }
+
+    #[test]
+    fn overlay_rejects_an_untagged_patch_path() {
+        let error =
+            RealtimeServerConfig::from_toml_str(r#"patch_path = "Pads/Pad 1.fxp""#).unwrap_err();
+
+        assert!(format!("{error:#}").contains("旧形式"), "{error:#}");
     }
 
     #[test]

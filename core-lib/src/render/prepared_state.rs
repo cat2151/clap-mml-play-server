@@ -2,7 +2,7 @@
 use anyhow::Result;
 
 use super::{save_plugin_state, RealtimeRenderer};
-use crate::{load_entry, CoreConfig};
+use crate::{load_entry, patch_tag::default_owner_wire, CoreConfig};
 
 /// Creates, processes, snapshots and destroys a temporary renderer on the calling
 /// thread. No device, GUI or server is created. The caller must exclude instance
@@ -12,7 +12,8 @@ pub(crate) fn prepare_native_state(bundle: &str, id: &str, patch: &str) -> Resul
     let entry = load_entry(bundle)?;
     let config = CoreConfig {
         plugin_id: Some(id.into()),
-        patch_path: Some(patch.into()),
+        // 呼び出し元（Dexed・Floe・sforzando）はどれも拡張子の既定所有者。
+        patch_path: Some(default_owner_wire(patch)),
         sample_rate: 48_000.0,
         buffer_size: 256,
         ..Default::default()

@@ -46,6 +46,11 @@ fn plugin_path(env: &str) -> String {
         .unwrap_or_else(|_| panic!("{env} に CLAP のパスを設定してからこのテストを実行すること"))
 }
 
+/// 拡張子の既定所有者の wire（`set_patch` と `patch_path` は wire しか受けない）。
+fn wire(path: &str) -> String {
+    crate::default_owner_wire(path)
+}
+
 fn test_config() -> CoreConfig {
     CoreConfig {
         output_midi: String::new(),
@@ -103,3 +108,4 @@ mod surge;
 mod tyrelln6;
 mod tyrelln6_patch_switch;
 mod vaporizer2;
+mod zebralette3;

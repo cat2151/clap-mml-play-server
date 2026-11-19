@@ -1,10 +1,10 @@
-//! Strict preparation of the seven catalog instrument formats.
+//! Strict preparation of the catalog instrument formats.
 use std::path::Path;
 
 use super::{prepare_clap_patch_state, prepare_native_clap_patch_state, PatchStateError};
 use crate::{
     DEXED_PLUGIN_ID, FLOE_PLUGIN_ID, SFORZANDO_PLUGIN_ID, SIX_SINES_PLUGIN_ID, SURGE_XT_PLUGIN_ID,
-    TYRELLN6_PLUGIN_ID, VAPORIZER2_PLUGIN_ID,
+    TYRELLN6_PLUGIN_ID, VAPORIZER2_PLUGIN_ID, ZEBRALETTE3_PLUGIN_ID,
 };
 
 pub fn supports_catalog_clap_plugin(id: &str) -> bool {
@@ -17,6 +17,7 @@ pub fn supports_catalog_clap_plugin(id: &str) -> bool {
             | SIX_SINES_PLUGIN_ID
             | TYRELLN6_PLUGIN_ID
             | VAPORIZER2_PLUGIN_ID
+            | ZEBRALETTE3_PLUGIN_ID
     )
 }
 
@@ -36,7 +37,7 @@ pub fn prepare_catalog_clap_patch_state(
     }
     let extension = match id {
         SIX_SINES_PLUGIN_ID => "sxsnp",
-        TYRELLN6_PLUGIN_ID => "h2p",
+        TYRELLN6_PLUGIN_ID | ZEBRALETTE3_PLUGIN_ID => "h2p",
         VAPORIZER2_PLUGIN_ID => "vvp",
         _ => {
             return Err(PatchStateError::UnsupportedPlugin {
@@ -67,13 +68,8 @@ pub fn prepare_catalog_clap_patch_state(
         path: patch.into(),
         reason,
     };
-    if id == TYRELLN6_PLUGIN_ID {
-        if !bytes
-            .split(|b| *b == b'\n')
-            .any(|line| line.strip_suffix(b"\r").unwrap_or(line) == b"#AM=TyrellN6")
-        {
-            return Err(invalid("missing TyrellN6 model marker".into()));
-        }
+    if let Some(product) = crate::h2p::h2p_product_of(id) {
+        crate::h2p::check_h2p_model(product, &bytes).map_err(invalid)?;
         return Ok(bytes);
     }
     let xml = xmltree::Element::parse(replace_control_char_refs(&bytes).as_slice())

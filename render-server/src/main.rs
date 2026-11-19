@@ -185,7 +185,7 @@ fn main() -> Result<()> {
             });
             Ok(move |mml: &str| {
                 // 音色無指定の MML は既定プラグイン（先頭）で鳴らす。
-                let index = kind_for_patch(&kinds, 0, embedded_patch_ref(mml).as_deref())
+                let index = kind_for_patch(&kinds, 0, embedded_patch_ref(mml)?.as_deref())
                     .map_err(|error| anyhow::anyhow!(error))?;
                 let samples = effect_plugins.with_render_effects(|effects| {
                     mml_render_stateless_with_effects(

@@ -271,7 +271,7 @@ fn the_builtin_tyrelln6_profile_reads_its_patch_directories_from_the_registry() 
     assert_eq!(profile.plugin_id.as_deref(), Some(TYRELLN6_PLUGIN_ID));
     assert_eq!(
         profile.patches_dirs,
-        Some(plugin_presets::tyrelln6::tyrelln6_preset_dirs())
+        Some(plugin_presets::u_he::u_he_preset_dirs("TyrellN6"))
     );
 }
 
@@ -289,7 +289,37 @@ patches_dirs = ["/presets/TyrellN6"]
 
     assert_eq!(
         profile.patches_dirs,
-        Some(plugin_presets::tyrelln6::tyrelln6_preset_dirs())
+        Some(plugin_presets::u_he::u_he_preset_dirs("TyrellN6"))
+    );
+}
+
+#[test]
+fn the_builtin_zebralette3_profile_reads_its_patch_directories_from_the_registry() {
+    let profile = resolve_builtin("Zebralette3").unwrap();
+
+    assert_eq!(profile.plugin_path, default_zebralette3_plugin_path());
+    assert_eq!(profile.plugin_id.as_deref(), Some(ZEBRALETTE3_PLUGIN_ID));
+    assert_eq!(
+        profile.patches_dirs,
+        Some(plugin_presets::u_he::u_he_preset_dirs("Zebralette3"))
+    );
+}
+
+/// 本体の設定と食い違わないよう、config に書かれた置き場は無視する。
+#[test]
+fn a_configured_zebralette3_patches_dirs_is_ignored() {
+    let profile = resolve(
+        "zebralette3",
+        r#"
+[plugins.Zebralette3]
+patches_dirs = ["/presets/Zebralette3"]
+"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        profile.patches_dirs,
+        Some(plugin_presets::u_he::u_he_preset_dirs("Zebralette3"))
     );
 }
 
@@ -336,7 +366,11 @@ fn the_plugin_id_decides_the_patch_form() {
     );
     assert_eq!(
         patch_form_of(Some(TYRELLN6_PLUGIN_ID), "whatever.clap"),
-        PatchForm::TyrellN6
+        PatchForm::H2p
+    );
+    assert_eq!(
+        patch_form_of(Some(ZEBRALETTE3_PLUGIN_ID), "whatever.clap"),
+        PatchForm::H2p
     );
 }
 
@@ -370,7 +404,11 @@ fn the_file_name_is_the_last_resort_when_no_plugin_id_is_written() {
     );
     assert_eq!(
         patch_form_of(None, r"C:\CLAP\u-he\TyrellN6.clap"),
-        PatchForm::TyrellN6
+        PatchForm::H2p
+    );
+    assert_eq!(
+        patch_form_of(None, r"C:\CLAP\u-he\Zebralette3.clap"),
+        PatchForm::H2p
     );
 }
 

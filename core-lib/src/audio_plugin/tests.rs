@@ -1,7 +1,7 @@
 use super::*;
 use cmrt_server_config::{
     CACHE_PLAYER_PLUGIN_ID, DEXED_PLUGIN_ID, FLOE_PLUGIN_ID, SFORZANDO_PLUGIN_ID,
-    SIX_SINES_PLUGIN_ID, TYRELLN6_PLUGIN_ID, VAPORIZER2_PLUGIN_ID,
+    SIX_SINES_PLUGIN_ID, TYRELLN6_PLUGIN_ID, VAPORIZER2_PLUGIN_ID, ZEBRALETTE3_PLUGIN_ID,
 };
 
 fn plugin(name: &str, id: &str) -> AudioPluginInfo {
@@ -93,7 +93,8 @@ fn only_dry_patch_forms_report_no_builtin_effects() {
         (SFORZANDO_PLUGIN_ID, PatchForm::Sfz, false),
         (FLOE_PLUGIN_ID, PatchForm::FloePreset, false),
         (SIX_SINES_PLUGIN_ID, PatchForm::SixSines, false),
-        (TYRELLN6_PLUGIN_ID, PatchForm::TyrellN6, false),
+        (TYRELLN6_PLUGIN_ID, PatchForm::H2p, false),
+        (ZEBRALETTE3_PLUGIN_ID, PatchForm::H2p, true),
         (VAPORIZER2_PLUGIN_ID, PatchForm::Vvp, true),
         (SURGE_XT_PLUGIN_ID, PatchForm::StateFile, true),
         (CACHE_PLAYER_PLUGIN_ID, PatchForm::CacheWav, true),
@@ -205,10 +206,16 @@ fn describe_patch_finds_the_file_under_a_per_root_base() {
 
 #[test]
 fn ariax_presets_are_read_by_sforzando_like_sfz() {
-    assert_eq!(patch_form_of_path("Keys/Airy Bells.ariax"), PatchForm::Sfz);
-    assert_eq!(patch_form_of_path("Keys\\Airy Bells.ARIAX"), PatchForm::Sfz);
     assert_eq!(
-        patch_form_of_path("Garritan/Glockenspiel.sfz"),
+        patch_form_of_path("Keys/Airy Bells.ariax").unwrap(),
+        PatchForm::Sfz
+    );
+    assert_eq!(
+        patch_form_of_path("Keys\\Airy Bells.ARIAX").unwrap(),
+        PatchForm::Sfz
+    );
+    assert_eq!(
+        patch_form_of_path("Garritan/Glockenspiel.sfz").unwrap(),
         PatchForm::Sfz
     );
 }
@@ -251,11 +258,45 @@ fn tyrelln6_patches_route_to_tyrelln6_only() {
         "Surge XT"
     );
     assert_eq!(
-        patch_form_of_path("01 Basses\\Abgrund.H2P"),
-        PatchForm::TyrellN6
+        patch_form_of_path("01 Basses\\Abgrund.H2P").unwrap(),
+        PatchForm::H2p
     );
     assert_eq!(
         plugin_voicing_source(Some(TYRELLN6_PLUGIN_ID), "TyrellN6.clap"),
+        PluginVoicingSource::AssumePoly
+    );
+}
+
+/// 表示名の `:z` は Zebralette3 だけへ、タグ無しの `.h2p` は TyrellN6 だけへ。
+#[test]
+fn the_display_tag_splits_h2p_between_tyrelln6_and_zebralette3() {
+    let catalog = AudioPluginCatalog::new(vec![
+        plugin("Surge XT", SURGE_XT_PLUGIN_ID),
+        plugin("TyrellN6", TYRELLN6_PLUGIN_ID),
+        plugin("Zebralette3", ZEBRALETTE3_PLUGIN_ID),
+    ]);
+    assert_eq!(
+        catalog
+            .route_patch("1 Poly Keys/Applicant Replicant.h2p:z")
+            .unwrap()
+            .name,
+        "Zebralette3"
+    );
+    assert_eq!(
+        catalog.route_patch("01 Basses/Abgrund.h2p").unwrap().name,
+        "TyrellN6"
+    );
+    assert!(matches!(
+        catalog.route_patch("01 Basses/Abgrund.h2p:q"),
+        Err(RouteError::Unsupported { .. })
+    ));
+    let only_tyrell = AudioPluginCatalog::new(vec![plugin("TyrellN6", TYRELLN6_PLUGIN_ID)]);
+    assert!(matches!(
+        only_tyrell.route_patch("1 Poly Keys/x.h2p:z"),
+        Err(RouteError::Unsupported { .. })
+    ));
+    assert_eq!(
+        plugin_voicing_source(Some(ZEBRALETTE3_PLUGIN_ID), "Zebralette3.clap"),
         PluginVoicingSource::AssumePoly
     );
 }

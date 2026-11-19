@@ -1,4 +1,6 @@
 use super::*;
+use crate::patch_tag::parse_patch_wire;
+use cmrt_server_config::PatchForm;
 
 #[test]
 fn wav_paths_are_recognized_regardless_of_case() {
@@ -40,10 +42,8 @@ fn missing_file_reports_the_path() {
 /// スロット指定つきの綴りも同じ patch 文字列として routing されること。
 #[test]
 fn a_slot_prefixed_path_is_still_a_cache_wav_patch() {
-    assert!(is_cache_wav_patch_path(&cache_wav_patch_with_slot(
-        1,
-        r"C:\cache\track2_meas3.wav"
-    )));
+    let patch = cache_wav_patch_with_slot(1, r"C:\cache\track2_meas3.wav");
+    assert_eq!(parse_patch_wire(&patch).unwrap().form, PatchForm::CacheWav);
     assert!(is_cache_wav_patch_path("slot=0;track2_meas1.wav"));
     assert!(is_cache_wav_patch_path("  slot=1;track2_meas2.wav  "));
 }
@@ -55,9 +55,10 @@ fn a_slot_prefixed_path_is_still_a_cache_wav_patch() {
 #[test]
 fn the_slot_spelling_keeps_the_wav_extension_of_the_whole_patch_string() {
     let patch = cache_wav_patch_with_slot(1, r"C:\cache\track2_meas3.wav");
+    let path = parse_patch_wire(&patch).unwrap().path;
 
     assert_eq!(
-        Path::new(&patch).extension().and_then(|ext| ext.to_str()),
+        Path::new(path).extension().and_then(|ext| ext.to_str()),
         Some("wav"),
         "{patch}"
     );
@@ -98,8 +99,26 @@ fn the_state_is_the_patch_string_itself() {
     let path = dir.join("track1_meas2.wav");
     std::fs::write(&path, b"not really a wav").unwrap();
     let patch = cache_wav_patch_with_slot(1, path.to_str().unwrap());
+    let path = parse_patch_wire(&patch).unwrap().path;
 
-    let state = cache_wav_state(&patch).unwrap();
+    let state = cache_wav_state(path).unwrap();
 
-    assert_eq!(state, patch.as_bytes());
+    assert_eq!(state, path.as_bytes());
+}
+
+/// cache WAV も他の形と同じく、タグの区切りが無い綴りは旧形式として断ること。
+#[test]
+fn cache_wav_wires_carry_the_empty_tag_and_untagged_spellings_are_legacy() {
+    assert_eq!(cache_wav_patch_with_slot(1, ""), "slot=1;:");
+    let patch = cache_wav_patch_with_slot(1, r"C:\cache\x.wav");
+    assert_eq!(patch, r"slot=1;C:\cache\x.wav:");
+    for untagged in ["slot=1;", r"slot=1;C:\cache\x.wav", "x.wav"] {
+        assert!(
+            matches!(
+                parse_patch_wire(untagged),
+                Err(crate::PatchWireError::Legacy { .. })
+            ),
+            "{untagged}"
+        );
+    }
 }

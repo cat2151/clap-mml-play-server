@@ -57,7 +57,7 @@ pub(crate) fn run_voicing_probe(
     let target = ProbeTarget::load(patch)?;
     let (kinds, kind) = (&target.kinds, target.kind());
     let resolve_patch = |patch: &str| target.bases.resolve(patch);
-    let patch_path = resolve_patch(patch);
+    let patch_path = resolve_patch(patch)?;
     let entry = cmrt_core::load_entry(&kind.plugin_path)?;
     // 下の `RealtimeRenderer::new` も同じ `core_cfg.plugin_id` で descriptor を選ぶ。
     let descriptor = cmrt_core::select_descriptor(&entry, kind.core_cfg.plugin_id.as_deref())
@@ -78,7 +78,7 @@ pub(crate) fn run_voicing_probe(
                 kind.name
             );
         }
-        renderer.set_patch(Some(&resolve_patch(previous_patch)))?;
+        renderer.set_patch(Some(&resolve_patch(previous_patch)?))?;
         let _ = renderer.probe_voicing()?;
     }
     renderer.set_patch(Some(&patch_path))?;
@@ -131,7 +131,7 @@ pub(crate) fn run_pitch_tracking_probe(patch: &str, json: bool) -> Result<()> {
     let mut core_cfg = kind.core_cfg.clone();
     core_cfg.sample_rate = f64::from(pitch_tracking::SAMPLE_RATE);
     core_cfg.buffer_size = 256;
-    core_cfg.patch_path = Some(target.bases.resolve(patch));
+    core_cfg.patch_path = Some(target.bases.resolve(patch)?);
     let entry = cmrt_core::load_entry(&kind.plugin_path)?;
     let mut observations = Vec::with_capacity(pitch_tracking::NOTES.len());
     for note in pitch_tracking::NOTES {

@@ -5,7 +5,6 @@
 //! 環境変数もインストールも要らずに `cargo test` で走る。
 
 use super::*;
-use crate::cache_wav::is_cache_wav_patch_path;
 use crate::host::load_builtin_entry;
 use cmrt_cache_player::{CachePlayerEntry, CACHE_PLAYER_PLUGIN_ID};
 
@@ -94,8 +93,7 @@ fn an_unknown_builtin_id_is_an_error_not_a_dll_load_attempt() {
 #[test]
 fn a_wav_patch_sounds_through_the_normal_set_patch_and_midi_note_path() {
     let wav = write_test_wav("sounds.wav", 0.5);
-    let display = wav.to_str().unwrap().to_string();
-    assert!(is_cache_wav_patch_path(&display));
+    let display = format!("{}:", wav.to_str().unwrap());
 
     let mut renderer = cache_player_renderer();
     renderer.set_patch(Some(&display)).unwrap();
@@ -121,7 +119,7 @@ fn a_missing_wav_is_rejected_with_the_path() {
     let mut renderer = cache_player_renderer();
 
     let error = renderer
-        .set_patch(Some("X:/does/not/exist.wav"))
+        .set_patch(Some("X:/does/not/exist.wav:"))
         .unwrap_err();
 
     assert!(error.to_string().contains("exist.wav"), "{error}");
@@ -135,7 +133,6 @@ fn a_missing_wav_is_rejected_with_the_path() {
 fn a_slot_specified_patch_lands_on_that_slot_only() {
     let wav = write_test_wav("slot_one.wav", 0.5);
     let patch = crate::cache_wav::cache_wav_patch_with_slot(1, wav.to_str().unwrap());
-    assert!(is_cache_wav_patch_path(&patch), "{patch}");
 
     let mut renderer = cache_player_renderer();
     renderer.set_patch(Some(&patch)).unwrap();
@@ -214,7 +211,7 @@ fn the_same_wav_patch_string_reloads_the_file_contents() {
 #[test]
 fn a_bare_path_still_lands_in_slot_zero() {
     let wav = write_test_wav("bare_path.wav", 0.5);
-    let display = wav.to_str().unwrap().to_string();
+    let display = format!("{}:", wav.to_str().unwrap());
 
     let mut renderer = cache_player_renderer();
     renderer.set_patch(Some(&display)).unwrap();
@@ -235,7 +232,7 @@ fn a_bare_path_still_lands_in_slot_zero() {
 fn a_broken_slot_number_is_rejected_before_the_plugin() {
     let mut renderer = cache_player_renderer();
 
-    let error = renderer.set_patch(Some("slot=9;C:/x.wav")).unwrap_err();
+    let error = renderer.set_patch(Some("slot=9;C:/x.wav:")).unwrap_err();
 
     assert!(error.to_string().contains("slot=9"), "{error}");
 }

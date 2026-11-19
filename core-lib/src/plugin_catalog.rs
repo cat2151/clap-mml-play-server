@@ -13,9 +13,13 @@
 
 use std::{path::Path, time::Instant};
 
-use crate::{audio_plugin::patch_form_of_path, CoreConfig, PatchBase, PluginKey};
+use crate::{
+    patch_tag::{parse_patch_wire, PatchWire, PatchWireError},
+    CoreConfig, PatchBase, PluginKey,
+};
 use cmrt_server_config::{
-    patch_form_of, PatchForm, ServerConfig, CACHE_PLAYER_PLUGIN_ID, PRIMARY_PLUGIN_PROFILE_NAME,
+    patch_form_of, patch_tag_of, PatchForm, ServerConfig, CACHE_PLAYER_PLUGIN_ID,
+    PRIMARY_PLUGIN_PROFILE_NAME,
 };
 
 mod source_cache;
@@ -30,6 +34,8 @@ pub struct PluginKind {
     pub plugin_path: String,
     /// この種別の音色が patch 文字列としてどう書かれるか。
     pub patch_form: PatchForm,
+    /// patch 文字列のタグ。拡張子を共有する plugin どうしを分ける（既定所有者は空）。
+    pub patch_tag: &'static str,
     /// この種別のインスタンスを作るときの設定。`plugin_id` と `patch_base` が種別ごとに違う。
     pub core_cfg: CoreConfig,
 }
@@ -54,6 +60,7 @@ pub fn plugin_kinds(cfg: &ServerConfig, core_cfg: &CoreConfig) -> Vec<PluginKind
         name: PRIMARY_PLUGIN_PROFILE_NAME.to_string(),
         plugin_path: cfg.plugin_path.clone(),
         patch_form: default_form,
+        patch_tag: patch_tag_of(cfg.plugin_id.as_deref(), &cfg.plugin_path),
         core_cfg: default_core_cfg,
     };
     let mut kinds = vec![default_kind];
@@ -74,6 +81,7 @@ pub fn plugin_kinds(cfg: &ServerConfig, core_cfg: &CoreConfig) -> Vec<PluginKind
             name,
             plugin_path: profile.plugin_path.clone(),
             patch_form,
+            patch_tag: patch_tag_of(profile.plugin_id.as_deref(), &profile.plugin_path),
             core_cfg: CoreConfig {
                 plugin_id: profile.plugin_id.clone(),
                 // 起動時の音色（config の `patch_path`）は既定プラグイン向けの指定なので、
@@ -112,6 +120,7 @@ fn push_builtin_kinds(kinds: &mut Vec<PluginKind>, core_cfg: &CoreConfig) {
         name: CACHE_PLAYER_PROFILE_NAME.to_string(),
         plugin_path: plugin_path.clone(),
         patch_form: PatchForm::CacheWav,
+        patch_tag: "",
         core_cfg: CoreConfig {
             plugin_id: Some(CACHE_PLAYER_PLUGIN_ID.to_string()),
             // 起動時の音色は既定プラグイン向けの指定なので持ち込まない。
@@ -126,9 +135,9 @@ fn push_builtin_kinds(kinds: &mut Vec<PluginKind>, core_cfg: &CoreConfig) {
 /// cache-player のプロファイル名。ログとエラー文にしか使わない。
 const CACHE_PLAYER_PROFILE_NAME: &str = "Cache Player";
 
-/// patch 文字列がどのプラグインを要求しているか。`kinds` の添字を返す。
+/// patch 文字列（wire）がどのプラグインを要求しているか。`kinds` の添字を返す。
 ///
-/// 判別の材料は文字列の形だけ（`docs/adr/0007-patch-string-decides-the-plugin.md`）。無指定は
+/// 判別の材料は文字列の拡張子とタグだけ（`docs/adr/0026-patch-tag-decides-the-owner.md`）。無指定は
 /// 既定プラグインへ固定する。そうしておくと、無指定の行が鳴るプラグインが常に
 /// 1 つに決まり、MML 文字列を鍵にしている cache が衝突しない。
 ///
@@ -146,11 +155,11 @@ pub fn kind_for_patch(
     let Some(patch) = patch else {
         return Ok(default_kind);
     };
-    let form = patch_form_of_path(patch);
+    let wire = parse_patch_wire(patch).map_err(|error| error.to_string())?;
     let matches = kinds
         .iter()
         .enumerate()
-        .filter(|(_, kind)| kind.patch_form == form)
+        .filter(|(_, kind)| kind.patch_form == wire.form && kind.patch_tag == wire.tag)
         .collect::<Vec<_>>();
     match matches.as_slice() {
         [] => {
@@ -175,29 +184,30 @@ pub fn kind_for_patch(
     }
 }
 
-/// patch 文字列の形ごとの、相対パスを絶対パスへ直す基点。
+/// patch 文字列の (形, タグ) ごとの、相対パスを絶対パスへ直す基点。
 ///
-/// 音色置き場はプラグインごとに別の場所なので、基点も形ごとに分かれる。
+/// 音色置き場はプラグインごとに別の場所なので、基点も所有者ごとに分かれる。
 #[derive(Clone, Debug, Default)]
 pub struct PatchBases {
-    state_file: PatchBase,
-    cartridge: PatchBase,
-    vvp: PatchBase,
-    floe_preset: PatchBase,
-    sfz: PatchBase,
-    six_sines: PatchBase,
-    tyrelln6: PatchBase,
-    cache_wav: PatchBase,
+    bases: Vec<(PatchForm, &'static str, PatchBase)>,
 }
 
 impl PatchBases {
     pub fn from_kinds(kinds: &[PluginKind]) -> Self {
         let mut bases = Self::default();
         for kind in kinds {
-            let slot = bases.slot_mut(kind.patch_form);
-            // 先頭（既定プラグイン）の基点を優先する。
-            if *slot == PatchBase::None {
-                slot.clone_from(&kind.core_cfg.patch_base);
+            let base = &kind.core_cfg.patch_base;
+            // 先頭（既定プラグイン）の基点を優先する。基点無しは後の種別で埋める。
+            match bases
+                .bases
+                .iter_mut()
+                .find(|(f, t, _)| *f == kind.patch_form && *t == kind.patch_tag)
+            {
+                Some((_, _, slot)) if *slot == PatchBase::None => slot.clone_from(base),
+                Some(_) => {}
+                None => bases
+                    .bases
+                    .push((kind.patch_form, kind.patch_tag, base.clone())),
             }
         }
         bases
@@ -212,7 +222,7 @@ impl PatchBases {
         Self::from_all_bases(state_file, cartridge, vvp, None, None)
     }
 
-    /// Floe を含む全形式の基点を直接指定して作る。
+    /// Floe を含む全形式の基点を直接指定して作る。残りの形は基点無し。
     pub fn from_all_bases(
         state_file: Option<&str>,
         cartridge: Option<&str>,
@@ -220,50 +230,36 @@ impl PatchBases {
         floe_preset: Option<&str>,
         sfz: Option<&str>,
     ) -> Self {
-        let shared = |dir: Option<&str>| PatchBase::from(dir.map(str::to_string));
-        Self {
-            state_file: shared(state_file),
-            cartridge: shared(cartridge),
-            vvp: shared(vvp),
-            floe_preset: shared(floe_preset),
-            sfz: shared(sfz),
-            six_sines: PatchBase::None,
-            tyrelln6: PatchBase::None,
-            // 組み込み cache-player は基点を持たない（DAW が絶対パスを渡す）。
-            cache_wav: PatchBase::None,
-        }
+        let bases = [
+            (PatchForm::StateFile, state_file),
+            (PatchForm::Cartridge, cartridge),
+            (PatchForm::Vvp, vvp),
+            (PatchForm::FloePreset, floe_preset),
+            (PatchForm::Sfz, sfz),
+        ]
+        .into_iter()
+        .map(|(form, dir)| (form, "", PatchBase::from(dir.map(str::to_string))))
+        .collect();
+        Self { bases }
     }
 
-    /// この patch 文字列に対応する基点。
-    pub fn base_for(&self, patch: &str) -> &PatchBase {
-        match patch_form_of_path(patch) {
-            PatchForm::StateFile => &self.state_file,
-            PatchForm::Cartridge => &self.cartridge,
-            PatchForm::Vvp => &self.vvp,
-            PatchForm::FloePreset => &self.floe_preset,
-            PatchForm::Sfz => &self.sfz,
-            PatchForm::SixSines => &self.six_sines,
-            PatchForm::TyrellN6 => &self.tyrelln6,
-            PatchForm::CacheWav => &self.cache_wav,
-        }
+    fn get(&self, form: PatchForm, tag: &str) -> Option<&PatchBase> {
+        self.bases
+            .iter()
+            .find(|(f, t, _)| *f == form && *t == tag)
+            .map(|(_, _, base)| base)
     }
 
-    /// patch 文字列を、その形の基点で絶対パスへ直す。絶対パスはそのまま。
-    pub fn resolve(&self, patch: &str) -> String {
-        self.base_for(patch).resolve(patch)
+    /// この wire の所有者の基点。所有者が一覧に居なければ基点無し。
+    pub fn base_for(&self, wire: &PatchWire<'_>) -> &PatchBase {
+        static NO_BASE: PatchBase = PatchBase::None;
+        self.get(wire.form, wire.tag).unwrap_or(&NO_BASE)
     }
 
-    fn slot_mut(&mut self, form: PatchForm) -> &mut PatchBase {
-        match form {
-            PatchForm::StateFile => &mut self.state_file,
-            PatchForm::Cartridge => &mut self.cartridge,
-            PatchForm::Vvp => &mut self.vvp,
-            PatchForm::FloePreset => &mut self.floe_preset,
-            PatchForm::Sfz => &mut self.sfz,
-            PatchForm::SixSines => &mut self.six_sines,
-            PatchForm::TyrellN6 => &mut self.tyrelln6,
-            PatchForm::CacheWav => &mut self.cache_wav,
-        }
+    /// wire のパス部分を所有者の基点で絶対パスへ直し、タグを付け直す。絶対パスはそのまま。
+    pub fn resolve(&self, patch: &str) -> Result<String, PatchWireError> {
+        let wire = parse_patch_wire(patch)?;
+        Ok(wire.with_path(&self.base_for(&wire).resolve(wire.path)))
     }
 }
 

@@ -60,7 +60,7 @@ fn collect_patches_lists_tyrelln6_presets_under_category_dirs() {
     assert_eq!(patches.len(), 2);
     assert!(patches
         .iter()
-        .all(|path| crate::is_tyrelln6_patch_path(&path.to_string_lossy())));
+        .all(|path| crate::is_h2p_patch_path(&path.to_string_lossy())));
     assert_eq!(
         to_relative(tmp_dir.to_str().unwrap(), &patches[0]),
         "01 Basses/Abgrund.h2p"

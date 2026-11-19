@@ -10,7 +10,7 @@
 //! - Floe: `.floe-preset` 1 ファイル = 1 音色。`.floe-pkg` などは列挙しない。
 //! - sforzando: `.sfz` 1 ファイル = 1 音色。
 //! - Six Sines: `.sxsnp` 1 ファイル = 1 音色。
-//! - TyrellN6: `.h2p` 1 ファイル = 1 音色。
+//! - TyrellN6・Zebralette3: `.h2p` 1 ファイル = 1 音色。
 //!
 //! どれも同じ `Vec<PathBuf>` で返すので、呼び出し側（TUI の一覧・検索・カテゴリ分け）は
 //! プラグインの違いを知らないまま動く。

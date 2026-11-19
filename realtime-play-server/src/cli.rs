@@ -57,7 +57,7 @@ impl From<ExpectedVoicing> for PatchVoicing {
     disable_help_subcommand = true,
     disable_version_flag = true,
     args_conflicts_with_subcommands = true,
-    after_help = "CONFIG:\n    config_local_dir()/clap-mml-render-tui/config.toml\n\nHTTP:\n    GET /health\n    POST /play               request: Standard MIDI File bytes, Content-Type: audio/midi | audio/x-midi | application/octet-stream\n    POST /play-mml           request: MML text (leading {\"Surge XT patch\": ...} JSON selects the patch), Content-Type: text/plain\n    POST /stop\n\nLIVE MIDI (Windows):\n    1/2/4/8/16/32 CLAP instances through named shared memory on the realtime server port\n    CMRT_LIVE_INSTANCE_COUNT selects the count (default: 16)
+    after_help = "CONFIG:\n    config_local_dir()/clap-mml-render-tui/config.toml\n\nHTTP:\n    GET /health\n    POST /play               request: Standard MIDI File bytes, Content-Type: audio/midi | audio/x-midi | application/octet-stream\n    POST /play-mml           request: MML text (leading {\"patch\": \"<path><ext>:<tag>\"} JSON selects the patch), Content-Type: text/plain\n    POST /stop\n\nLIVE MIDI (Windows):\n    1/2/4/8/16/32 CLAP instances through named shared memory on the realtime server port\n    CMRT_LIVE_INSTANCE_COUNT selects the count (default: 16)
     CMRT_REALTIME_PLAY_SERVER_PORT overrides the configured port (for a second server without editing config.toml)\n    32 is for the grid sequencer chord mode, which double-buffers 16 tracks across two banks"
 )]
 struct Cli {
@@ -73,7 +73,7 @@ enum Commands {
     Check,
     /// Measure whether a patch's pitch follows the played note, without opening an audio device
     ProbePitchTracking {
-        /// Patch path relative to patches_dir, or an absolute path
+        /// Patch `<path><ext>:<tag>` (path relative to patches_dir, or absolute; e.g. `Pads/Pad 1.fxp:`)
         #[arg(long)]
         patch: String,
         /// Print the result as JSON
@@ -82,7 +82,7 @@ enum Commands {
     },
     /// Probe a patch for mono/poly voicing without opening an audio device
     ProbeVoicing {
-        /// Patch path relative to patches_dir, or an absolute path
+        /// Patch `<path><ext>:<tag>` (path relative to patches_dir, or absolute; e.g. `Pads/Pad 1.fxp:`)
         #[arg(long)]
         patch: String,
         /// Probe this patch first on the same plugin instance

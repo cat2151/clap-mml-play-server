@@ -2,17 +2,17 @@
 
 - 状態: 採用
 - 関連: [0006](0006-no-generic-clap-preset-api.md) / [0007](0007-patch-string-decides-the-plugin.md) /
-  [0018](0018-patch-load-must-not-spin-the-plugin.md) / [0022](0022-six-sines-sxsnp-state-and-github-factory.md)
+  [0027](0027-zebralette3-h2p-tag.md) / [0018](0018-patch-load-must-not-spin-the-plugin.md) / [0022](0022-six-sines-sxsnp-state-and-github-factory.md)
 
 ## 決定
 
 1. TyrellN6 の音色ファイル `.h2p` は、**バイト列を包み直さずにそのまま `clap.state` へ渡す**
-   （`core-lib/src/render/tyrelln6_patch.rs`）。1 ファイル = 1 音色
+   （`core-lib/src/render/h2p_patch.rs`）。1 ファイル = 1 音色
 2. `process()` を回したあとの instance へロードしたときは、`max(4, ceil(4096 / buf_size))` ブロック
    空回ししてから返す。`activate()` 前のロードでは回さない
 3. 音色置き場は registry `HKCU\Software\u-he\TyrellN6` の `DataPath` の下の `Presets\TyrellN6` だけ
-   （`plugin-presets/src/tyrelln6.rs`）。config の `patches_dirs` は無視し、`UserPresets` は列挙しない
-4. `.h2p` は拡張子で `PatchForm::TyrellN6` と決め、送り先は TyrellN6 に限る。他の u-he plugin の `.h2p` は扱わない
+   （`plugin-presets/src/u_he.rs`）。config の `patches_dirs` は無視し、`UserPresets` は列挙しない
+4. `.h2p` の送り先はタグで決める。TyrellN6 は既定所有者（空タグ）（[0027](0027-zebralette3-h2p-tag.md)）
 5. mono/poly は読まず `AssumePoly`。`has_builtin_effects()` は `false`（auto reverb 試聴の対象）
 
 ## 理由
@@ -39,7 +39,7 @@
   frame 数だけでもブロック数だけでも揃わず、buffer 2048 では 4 ブロック要る
 - **同じ音色でも、打鍵の履歴で音が変わる。** `reset()` と settle では新しい instance の音に揃わない。
   切り替えで前の音色が残っていないかは、音ではなく state のバイト一致で見る
-- **照合は両方向に要る。** `.h2p` を他 plugin へ送らない（`ensure_tyrelln6_capable`）、`.fxp` 等の汎用
+- **照合は両方向に要る。** `.h2p` を他 plugin へ送らない（`ensure_h2p_capable`）、`.fxp` 等の汎用
   state file を TyrellN6 へ送らない（`render/patch_state.rs` の `ensure_accepts_generic_state_file`）
 - `.h2p` は途中に NUL を含む。テキストとして読み直さず、バイト列のまま扱う
 - 生成のたびに plugin が stdout へ `log path:` の行を出す。ファイルは作られない
@@ -48,7 +48,7 @@
 
 | テスト | 落ちたら |
 |---|---|
-| `render::tyrelln6_patch::tests` / `render::patch_state::tests`（plugin 不要） | 照合が外れた |
-| `plugin-presets/src/tyrelln6/tests.rs` | `DataPath` から置き場を組み立てる規則が変わった |
+| `render::h2p_patch::tests` / `render::patch_state::tests`（plugin 不要） | 照合が外れた |
+| `plugin-presets/src/u_he/tests.rs` | `DataPath` から置き場を組み立てる規則が変わった |
 | `core-lib/src/render/tests/tyrelln6.rs`（`#[ignore]`・実 plugin） | descriptor・state の形式が変わった・`.h2p` をそのまま読まなくなった |
 | `core-lib/src/render/tests/tyrelln6_patch_switch.rs`（`#[ignore]`・実 plugin） | 全音色のロード失敗・切り替えで前の音色の state が残る・空回しが足りず settle 0 の 1 音目が前の音色寄りになる |

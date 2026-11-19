@@ -17,7 +17,7 @@ const FACTORY_PATCH_COUNT: usize = 669;
 const PATCH_SETTLE_BLOCKS: usize = 4;
 
 fn preset_path(display: &str) -> String {
-    presets_dir().join(display).to_string_lossy().into_owned()
+    wire(&presets_dir().join(display).to_string_lossy())
 }
 
 /// 669 件すべてを `switch_patch` でロードして C4 を鳴らす。無音の音色は失敗にせず列挙する
@@ -39,9 +39,11 @@ fn every_factory_patch_loads_through_switch_patch() {
     let mut silent = Vec::new();
     for patch in &patches {
         let display = crate::to_relative(&root.to_string_lossy(), patch);
-        if let Err(error) =
-            renderer.switch_patch(Some(&patch.to_string_lossy()), true, PATCH_SETTLE_BLOCKS)
-        {
+        if let Err(error) = renderer.switch_patch(
+            Some(&wire(&patch.to_string_lossy())),
+            true,
+            PATCH_SETTLE_BLOCKS,
+        ) {
             failed.push(format!("{display}: {error:#}"));
             continue;
         }

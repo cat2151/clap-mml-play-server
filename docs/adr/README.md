@@ -14,7 +14,7 @@ TUI 側（データ表現・config・カタログ）は `../clap-mml-render-tui/
 | [0004](0004-syx-format-and-persistent-ids.md) | `.syx` の形式と、program の永続 ID |
 | [0005](0005-dexed-mono-mode-is-poly.md) | Dexed の `MonoMode` は既定 POLY。生成時に設定しない |
 | [0006](0006-no-generic-clap-preset-api.md) | CLAP 汎用 preset API を採らない |
-| [0007](0007-patch-string-decides-the-plugin.md) | patch 文字列でプラグインを判別する（IPC / SHM は無改修） |
+| [0007](0007-patch-string-decides-the-plugin.md) | （置き換え済み: 0026）patch 文字列でプラグインを判別する（IPC / SHM は無改修） |
 | [0008](0008-spare-instance-pool.md) | 予備インスタンスプール（論理スロットと物理インスタンスの分離） |
 | [0009](0009-unsafe-thread-handoff.md) | unsafe thread handoff は測定で受け入れている（証明ではない） |
 | [0010](0010-surge-data-home-and-plugin-identity.md) | `SURGE_DATA_HOME` 最適化は Surge 限定 / プラグイン同定の優先順位 |
@@ -31,3 +31,5 @@ TUI 側（データ表現・config・カタログ）は `../clap-mml-render-tui/
 | [0021](0021-offline-render-serializes-instance-creation.md) | オフライン render は instance 生成を全 plugin 一律に直列化する |
 | [0022](0022-six-sines-sxsnp-state-and-github-factory.md) | Six Sines: `.sxsnp` は CLAP state として流し、factory は GitHub から取得する |
 | [0023](0023-tyrelln6-h2p.md) | TyrellN6: `.h2p` は CLAP state として流し、音色置き場は registry から読む |
+| [0026](0026-patch-tag-decides-the-owner.md) | patch 文字列は `<パス><拡張子>:<タグ>`。拡張子が loader を、タグが所有者を決める（0007 を置き換え） |
+| [0027](0027-zebralette3-h2p-tag.md) | Zebralette3: `.h2p` を `:z` のタグで受け、ロード前に `#AM=` で製品を照合する |

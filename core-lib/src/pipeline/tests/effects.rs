@@ -104,11 +104,7 @@ fn unsupported_route_still_accepts_mml_without_a_chain() {
         "CMRT_BASE_DIR",
         std::env::temp_dir().join("cmrt_test_effects_unsupported"),
     );
-    for mml in [
-        MML_BODY,
-        r#"{"Surge XT patch": "x.fxp"} t120 c"#,
-        "{broken json c",
-    ] {
+    for mml in [MML_BODY, r#"{"patch": "x.fxp:"} t120 c"#, "{broken json c"] {
         prepare_cache_render(
             mml,
             &test_config(),

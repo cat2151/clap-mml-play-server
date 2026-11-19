@@ -10,11 +10,15 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    cache_wav::is_cache_wav_patch_path, is_cartridge_patch_path, is_floe_preset_path,
-    is_sforzando_patch_path, is_six_sines_patch_path, is_tyrelln6_patch_path, is_vvp_patch_path,
-    patch_list::MergedPatches, read_vvp_header, six_sines::read_six_sines_voicing, PatchVoicing,
+    patch_list::MergedPatches,
+    patch_tag::{patch_form_of_path, split_display, wire_from_display},
+    read_vvp_header,
+    six_sines::read_six_sines_voicing,
+    PatchVoicing,
 };
-use cmrt_server_config::{patch_form_of, PatchBase, PatchForm, SURGE_XT_PLUGIN_ID};
+use cmrt_server_config::{
+    patch_form_of, patch_tag_of, u_he_product_of, PatchBase, PatchForm, SURGE_XT_PLUGIN_ID,
+};
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -53,6 +57,13 @@ impl fmt::Display for PluginKey {
 pub struct PatchRef {
     pub plugin: PluginKey,
     pub display: String,
+}
+
+impl PatchRef {
+    /// MML・履歴・config へ書く patch 文字列。表示名から作る経路はこれ 1 つに限る。
+    pub fn wire(&self) -> String {
+        wire_from_display(&self.display)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -103,6 +114,8 @@ pub struct AudioPluginInfo {
     pub plugin_id: Option<String>,
     pub patch_base: PatchBase,
     patch_form: PatchForm,
+    /// この plugin の音色を指す patch タグ（拡張子を共有する plugin を分ける）。
+    patch_tag: &'static str,
 }
 
 impl AudioPluginInfo {
@@ -117,6 +130,7 @@ impl AudioPluginInfo {
             key: PluginKey::from_identity(plugin_id.as_deref(), &plugin_path),
             name: name.into(),
             patch_form: patch_form_of(plugin_id.as_deref(), &plugin_path),
+            patch_tag: patch_tag_of(plugin_id.as_deref(), &plugin_path),
             plugin_path,
             plugin_id,
             patch_base: patch_base.into(),
@@ -129,7 +143,7 @@ impl AudioPluginInfo {
 
     pub fn describe_patch(&self, display: &str, absolute_path: Option<&Path>) -> AudioPatch {
         let inferred_path = (self.patch_base != PatchBase::None)
-            .then(|| PathBuf::from(self.patch_base.resolve(display)));
+            .then(|| PathBuf::from(self.patch_base.resolve(split_display(display).0)));
         describe_patch(self, display, absolute_path.or(inferred_path.as_deref()))
     }
 
@@ -143,14 +157,15 @@ impl AudioPluginInfo {
     ///
     /// false の plugin（Dexed・sforzando・Floe・Six Sines・TyrellN6）は音色が dry なので、client は試聴時に
     /// effect を足してよい。未知の plugin は true 側へ倒す（勝手に effect を足させない）。
-    /// render 済み wav は音が完成しているので true。
+    /// render 済み wav は音が完成しているので true。`.h2p` は製品ごとに違う
+    /// （Zebralette3 は reverb・delay を内蔵する）。
     pub fn has_builtin_effects(&self) -> bool {
         match self.patch_form {
-            PatchForm::Cartridge
-            | PatchForm::Sfz
-            | PatchForm::FloePreset
-            | PatchForm::SixSines
-            | PatchForm::TyrellN6 => false,
+            PatchForm::Cartridge | PatchForm::Sfz | PatchForm::FloePreset | PatchForm::SixSines => {
+                false
+            }
+            PatchForm::H2p => u_he_product_of(self.plugin_id.as_deref(), &self.plugin_path)
+                .is_none_or(|product| product.builtin_effects),
             PatchForm::Vvp | PatchForm::StateFile | PatchForm::CacheWav => true,
         }
     }
@@ -204,12 +219,18 @@ impl AudioPluginCatalog {
             .ok_or_else(|| RouteError::PluginMissing { key: key.clone() })
     }
 
+    /// 表示名（空タグの `:` を落とした形）から、その音色を鳴らす plugin を引く。
     pub fn route_patch(&self, patch: &str) -> Result<&AudioPluginInfo, RouteError> {
-        let form = patch_form_of_path(patch);
+        let (path, tag) = split_display(patch);
+        let Some(form) = patch_form_of_path(path) else {
+            return Err(RouteError::Unsupported {
+                patch: patch.to_string(),
+            });
+        };
         let matches = self
             .plugins
             .iter()
-            .filter(|plugin| plugin.patch_form == form)
+            .filter(|plugin| plugin.patch_form == form && plugin.patch_tag == tag)
             .collect::<Vec<_>>();
         match matches.as_slice() {
             [] => Err(RouteError::Unsupported {
@@ -239,17 +260,6 @@ pub fn plugin_voicing_source(plugin_id: Option<&str>, plugin_path: &str) -> Plug
     } else {
         PluginVoicingSource::AssumePoly
     }
-}
-
-pub fn patch_sort_metadata(path: &str) -> PatchSortMetadata {
-    let path = path.trim_matches(['/', '\\']);
-    if is_vvp_patch_path(path) {
-        return vvp_sort_metadata(path);
-    }
-    if has_surge_prefix(path) {
-        return surge_sort_metadata(path);
-    }
-    first_segment_metadata(path)
 }
 
 /// Compatibility lookup keys for a persisted display patch name.
@@ -337,26 +347,6 @@ fn selector_category(
     None
 }
 
-pub(crate) fn patch_form_of_path(patch: &str) -> PatchForm {
-    if is_cartridge_patch_path(patch) {
-        PatchForm::Cartridge
-    } else if is_sforzando_patch_path(patch) {
-        PatchForm::Sfz
-    } else if is_floe_preset_path(patch) {
-        PatchForm::FloePreset
-    } else if is_vvp_patch_path(patch) {
-        PatchForm::Vvp
-    } else if is_six_sines_patch_path(patch) {
-        PatchForm::SixSines
-    } else if is_tyrelln6_patch_path(patch) {
-        PatchForm::TyrellN6
-    } else if is_cache_wav_patch_path(patch) {
-        PatchForm::CacheWav
-    } else {
-        PatchForm::StateFile
-    }
-}
-
 fn is_surge(plugin_id: Option<&str>, plugin_path: &str) -> bool {
     match plugin_id {
         Some(id) => id == SURGE_XT_PLUGIN_ID,
@@ -366,84 +356,10 @@ fn is_surge(plugin_id: Option<&str>, plugin_path: &str) -> bool {
     }
 }
 
-fn has_surge_prefix(path: &str) -> bool {
-    path.starts_with("patches_factory/") || path.starts_with("patches_3rdparty/")
-}
+mod sort_metadata;
 
-fn split_first(path: &str) -> (&str, &str) {
-    path.split_once('/').unwrap_or((path, ""))
-}
-
-fn first_segment_metadata(path: &str) -> PatchSortMetadata {
-    let (category, rest) = split_first(path);
-    PatchSortMetadata {
-        category: category.to_string(),
-        source_rank: 0,
-        vendor: String::new(),
-        category_rest: rest.to_string(),
-        path_rest: path.to_string(),
-    }
-}
-
-fn surge_sort_metadata(path: &str) -> PatchSortMetadata {
-    if let Some(rest) = path.strip_prefix("patches_factory/") {
-        let (category, rest) = split_first(rest);
-        return PatchSortMetadata {
-            category: category.to_string(),
-            source_rank: 0,
-            vendor: String::new(),
-            category_rest: rest.to_string(),
-            path_rest: rest_path(path, "patches_factory/"),
-        };
-    }
-    let rest = path.strip_prefix("patches_3rdparty/").unwrap_or(path);
-    let (first, rest) = split_first(rest);
-    let (category, vendor, category_rest) = if rest.is_empty() || !rest.contains('/') {
-        (first, "", rest)
-    } else {
-        let (category, category_rest) = split_first(rest);
-        (category, first, category_rest)
-    };
-    PatchSortMetadata {
-        category: category.to_string(),
-        source_rank: 1,
-        vendor: vendor.to_string(),
-        category_rest: category_rest.to_string(),
-        path_rest: rest_path(path, "patches_3rdparty/"),
-    }
-}
-
-fn rest_path(path: &str, prefix: &str) -> String {
-    path.strip_prefix(prefix).unwrap_or(path).to_string()
-}
-
-fn vvp_sort_metadata(path: &str) -> PatchSortMetadata {
-    let code = vvp_category_code(path);
-    let category = cmrt_server_config::VAPORIZER2_CATEGORY_CODES
-        .iter()
-        .find(|(known, _)| code.eq_ignore_ascii_case(known))
-        .map_or(code, |(_, name)| *name);
-    PatchSortMetadata {
-        category: category.to_string(),
-        source_rank: 0,
-        vendor: String::new(),
-        category_rest: path.to_string(),
-        path_rest: path.to_string(),
-    }
-}
-
-fn vvp_category_code(path: &str) -> &str {
-    let file_name = path.rsplit(['/', '\\']).next().unwrap_or(path);
-    let stem = file_name
-        .rfind('.')
-        .filter(|dot| *dot > 0)
-        .map_or(file_name, |dot| &file_name[..dot]);
-    let end = stem
-        .char_indices()
-        .nth(2)
-        .map_or(stem.len(), |(end, _)| end);
-    &stem[..end]
-}
+pub use sort_metadata::patch_sort_metadata;
+use sort_metadata::{has_surge_prefix, vvp_category_code};
 
 #[cfg(test)]
 mod tests;

@@ -87,10 +87,10 @@ fn preset_json_element_is_a_single_key_object() {
 
 #[test]
 fn missing_key_means_no_effects() {
-    let chain = spec(r#"{"Surge XT patch": "Pads/Pad 1.fxp"}"#).unwrap();
+    let chain = spec(r#"{"patch": "Pads/Pad 1.fxp:"}"#).unwrap();
     assert!(chain.is_empty());
     assert!(!embedded_json_has_effect_chain(Some(
-        r#"{"Surge XT patch": "Pads/Pad 1.fxp"}"#
+        r#"{"patch": "Pads/Pad 1.fxp:"}"#
     )));
     assert!(!embedded_json_has_effect_chain(None));
 }
@@ -107,7 +107,7 @@ fn empty_array_means_no_effects() {
 #[test]
 fn chain_order_follows_the_array() {
     let chain = spec(
-        r#"{"Surge XT patch": "Pads/Pad 1.fxp",
+        r#"{"patch": "Pads/Pad 1.fxp:",
             "effects after instrument": [
               {"TONE3000 preset": "Bogner Fullstack"},
               {"Surge XT Effects preset": "Reverb 1/Cathedral 2.srgfx"}

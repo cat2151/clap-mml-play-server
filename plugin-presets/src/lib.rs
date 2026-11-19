@@ -16,7 +16,7 @@ pub mod sforzando;
 pub mod shu;
 pub mod surge_fx;
 pub mod tone3000;
-pub mod tyrelln6;
+pub mod u_he;
 pub mod vaporizer2;
 pub mod voyage_voyage;
 

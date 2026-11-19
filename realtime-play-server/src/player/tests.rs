@@ -13,36 +13,46 @@ fn test_bases() -> PatchBases {
 
 #[test]
 fn resolve_live_patch_uses_root_only_for_relative_paths() {
-    let relative = resolve_live_patch(Some("Keys/Piano.fxp".into()), &test_bases()).unwrap();
+    let relative = resolve_live_patch(Some("Keys/Piano.fxp:".into()), &test_bases())
+        .unwrap()
+        .unwrap();
     assert_eq!(
         relative,
         Path::new("/patches")
             .join("Keys/Piano.fxp")
             .to_string_lossy()
+            + ":"
     );
-    assert_eq!(resolve_live_patch(Some("  ".into()), &test_bases()), None);
+    assert_eq!(
+        resolve_live_patch(Some("  ".into()), &test_bases()).unwrap(),
+        None
+    );
 }
 
 /// 音色置き場はプラグインごとに別の場所なので、cartridge の相対パスを Surge の
 /// 音色置き場へ join してしまうと存在しないファイルを指す。
 #[test]
 fn resolve_live_patch_picks_the_base_that_matches_the_patch_form() {
-    let cartridge =
-        resolve_live_patch(Some("Dexed_01.syx/00 Say Again.".into()), &test_bases()).unwrap();
+    let cartridge = resolve_live_patch(Some("Dexed_01.syx/00 Say Again.:".into()), &test_bases())
+        .unwrap()
+        .unwrap();
 
     assert_eq!(
         cartridge,
         Path::new("/cartridges")
             .join("Dexed_01.syx/00 Say Again.")
             .to_string_lossy()
+            + ":"
     );
-    let floe =
-        resolve_live_patch(Some("Taiko/Taiko Beat.floe-preset".into()), &test_bases()).unwrap();
+    let floe = resolve_live_patch(Some("Taiko/Taiko Beat.floe-preset:".into()), &test_bases())
+        .unwrap()
+        .unwrap();
     assert_eq!(
         floe,
         Path::new("/floe")
             .join("Taiko/Taiko Beat.floe-preset")
             .to_string_lossy()
+            + ":"
     );
 }
 
@@ -71,6 +81,7 @@ fn resolve_live_patch_resolves_sforzando_patch_under_its_own_root() {
         name: "Sforzando".to_string(),
         plugin_path: "sforzando.clap".to_string(),
         patch_form: cmrt_server_config::PatchForm::Sfz,
+        patch_tag: "",
         core_cfg: cmrt_core::CoreConfig {
             patch_base: cmrt_core::PatchBase::per_root(&[table_warp.to_string(), sfz.to_string()]),
             ..Default::default()
@@ -78,9 +89,12 @@ fn resolve_live_patch_resolves_sforzando_patch_under_its_own_root() {
     };
     let bases = PatchBases::from_kinds(&[sforzando]);
 
-    let resolved =
-        resolve_live_patch(Some("TableWarp2/Programs/TableWarp2.sfz".into()), &bases).unwrap();
-    let user_bank = resolve_live_patch(Some("sfz/VSCO/Harp.sfz".into()), &bases).unwrap();
+    let resolved = resolve_live_patch(Some("TableWarp2/Programs/TableWarp2.sfz:".into()), &bases)
+        .unwrap()
+        .unwrap();
+    let user_bank = resolve_live_patch(Some("sfz/VSCO/Harp.sfz:".into()), &bases)
+        .unwrap()
+        .unwrap();
 
     assert_eq!(
         resolved,
@@ -88,6 +102,7 @@ fn resolve_live_patch_resolves_sforzando_patch_under_its_own_root() {
             .join("Programs")
             .join("TableWarp2.sfz")
             .to_string_lossy()
+            + ":"
     );
     assert_eq!(
         user_bank,
@@ -95,5 +110,13 @@ fn resolve_live_patch_resolves_sforzando_patch_under_its_own_root() {
             .join("VSCO")
             .join("Harp.sfz")
             .to_string_lossy()
+            + ":"
     );
+}
+
+#[test]
+fn resolve_live_patch_rejects_an_untagged_patch() {
+    let error = resolve_live_patch(Some("Keys/Piano.fxp".into()), &test_bases()).unwrap_err();
+
+    assert!(error.to_string().contains("旧形式"), "{error}");
 }

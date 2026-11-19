@@ -1,6 +1,6 @@
 # ADR 0007: patch 文字列でプラグインを判別する（IPC / SHM は無改修）
 
-- 状態: 採用
+- 状態: 置き換え済み（[0026](0026-patch-tag-decides-the-owner.md)）
 - 関連: [0008](0008-spare-instance-pool.md) / [0014](0014-vvp-as-clap-state.md) /
   clap-mml-render-tui `docs/adr/0001-patch-string-decides-the-plugin.md`（決定の本体）
 

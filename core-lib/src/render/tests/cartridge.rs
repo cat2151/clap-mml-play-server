@@ -32,7 +32,7 @@ fn installed_cartridge_programs() -> Vec<String> {
         .collect()
 }
 
-/// 先頭 cartridge の program 0 / 1 と、別 cartridge の program 0。
+/// 先頭 cartridge の program 0 / 1 と、別 cartridge の program 0（どれも wire）。
 fn three_test_programs() -> (String, String, String) {
     let programs = installed_cartridge_programs();
     let first_cartridge = std::path::Path::new(&programs[0])
@@ -44,7 +44,7 @@ fn three_test_programs() -> (String, String, String) {
         .find(|path| std::path::Path::new(path).parent() != Some(first_cartridge.as_path()))
         .expect("cartridge が 1 個しかない")
         .clone();
-    (programs[0].clone(), programs[1].clone(), other)
+    (wire(&programs[0]), wire(&programs[1]), wire(&other))
 }
 
 fn dexed_renderer() -> (PluginEntry, RealtimeRenderer) {
@@ -202,7 +202,7 @@ fn dexed_rejects_a_cartridge_patch_path_with_a_bad_program_component() {
     let (_entry, mut renderer) = dexed_renderer();
 
     let error = renderer
-        .set_patch(Some("Dexed_01.syx/99 Nope"))
+        .set_patch(Some("Dexed_01.syx/99 Nope:"))
         .unwrap_err()
         .to_string();
 
@@ -217,7 +217,7 @@ fn dexed_reports_a_missing_cartridge_file_with_its_path() {
     let error = format!(
         "{:#}",
         renderer
-            .set_patch(Some("does/not/exist.syx/00 Init"))
+            .set_patch(Some("does/not/exist.syx/00 Init:"))
             .unwrap_err()
     );
 
@@ -279,7 +279,7 @@ fn dexed_single_voice_sysex_sounds_like_the_program_change_reference() {
             .into_owned();
 
         let mut mine = RealtimeRenderer::new(&test_config(), &entry).unwrap();
-        let mine_samples = render_program(&mut mine, patch);
+        let mine_samples = render_program(&mut mine, &wire(patch));
 
         let mut reference = RealtimeRenderer::new(&test_config(), &entry).unwrap();
         select_program_with_cartridge_and_program_change(&mut reference, &cartridge, program as u8);

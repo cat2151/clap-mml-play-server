@@ -4,7 +4,7 @@ use anyhow::Result;
 use clack_host::prelude::PluginEntry;
 
 use crate::render::RealtimePlaybackSchedule;
-use crate::CoreConfig;
+use crate::{CoreConfig, PatchBases};
 
 use mmlabc_to_smf::{mml_preprocessor, raw_mml_to_smf_bytes_with_options, SmfConversionOptions};
 
@@ -175,7 +175,7 @@ pub fn mml_render_for_cache_with_effects(
 
 /// MML文字列 → SMF・WAVファイル出力 + 即時再生
 /// 優先順位:
-///   1. MML先頭のJSON `{"Surge XT patch": "Pads/Pad 1.fxp"}` で指定されたパッチ
+///   1. MML先頭のJSON `{"patch": "Pads/Pad 1.fxp:"}` で指定されたパッチ
 ///   2. random_patch = true なら patches_dir からランダム選択
 ///   3. config.toml の patch_path
 ///   4. Init Saw（デフォルト）
@@ -309,10 +309,20 @@ pub struct PreparedRealtimePlay {
 /// MML（JSON込み）→ SMFバイト列 + 解決済みパッチパス。
 /// パッチの優先順位は offline render と同じ（MML先頭JSON → random_patch → config patch_path）。
 /// patch_history.txt への追記や中間ファイルの生成は行わない。
-pub fn prepare_realtime_play(mml: &str, cfg: &CoreConfig) -> Result<PreparedRealtimePlay> {
+///
+/// MML 先頭 JSON の音色は、その所有者（拡張子とタグ）の基点で `bases` から解決する。
+/// `cfg.patch_base` は既定プラグインの基点なので、他のプラグインの相対パスには使えない。
+/// random_patch と config の patch_path は今までどおり `cfg` から。
+pub fn prepare_realtime_play(
+    mml: &str,
+    cfg: &CoreConfig,
+    bases: &PatchBases,
+) -> Result<PreparedRealtimePlay> {
     let preprocessed = mml_preprocessor::extract_embedded_json(mml);
-    let patch_path =
-        resolve_effective_patch(preprocessed.embedded_json.as_deref(), cfg, cfg.random_patch)?;
+    let patch_path = match embedded_patch_ref(mml)? {
+        Some(patch) => Some(bases.resolve(&patch)?),
+        None => resolve_effective_patch(None, cfg, cfg.random_patch)?,
+    };
     let smf_bytes = mml_str_to_smf_bytes(&preprocessed.remaining_mml)?;
     Ok(PreparedRealtimePlay {
         smf_bytes,

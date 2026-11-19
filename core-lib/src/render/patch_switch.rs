@@ -14,18 +14,15 @@ use clack_host::prelude::PluginInstance;
 
 use super::patch_state::{ensure_accepts_generic_state_file, load_patch, load_plugin_state};
 use super::RealtimeRenderer;
-use crate::cache_wav::{cache_wav_state, is_cache_wav_patch_path};
-use crate::dx7::{is_cartridge_patch_path, parse_cartridge_patch_path, CartridgePatchPath};
-use crate::floe::is_floe_preset_path;
+use crate::cache_wav::cache_wav_state;
+use crate::dx7::{parse_cartridge_patch_path, CartridgePatchPath};
 use crate::host::MidiRenderHost;
-use crate::sforzando::is_sforzando_patch_path;
-use crate::six_sines::is_six_sines_patch_path;
-use crate::tyrelln6::is_tyrelln6_patch_path;
-use crate::vvp::is_vvp_patch_path;
+use crate::patch_tag::parse_patch_wire;
 use cmrt_cache_player::CACHE_PLAYER_PLUGIN_ID;
+use cmrt_server_config::PatchForm;
 
 impl RealtimeRenderer {
-    /// 再生前にパッチを切り替える。同一パッチなら何もしない。
+    /// 再生前にパッチ（wire）を切り替える。同一パッチなら何もしない。
     /// `None` は生成直後にスナップショットした初期 state（Init Saw）へ戻す。
     /// state のロードは main-thread 操作のため、process() と直列なスレッドから呼ぶこと。
     ///
@@ -60,9 +57,9 @@ impl RealtimeRenderer {
                 self.forget_cartridge_program();
                 self.load_six_sines_patch(&path)?;
             }
-            PatchTarget::TyrellN6(path) => {
+            PatchTarget::H2p(path) => {
                 self.forget_cartridge_program();
-                self.load_tyrelln6_patch(&path)?;
+                self.load_h2p_patch(&path)?;
             }
             PatchTarget::CacheWav(path) => {
                 self.forget_cartridge_program();
@@ -98,26 +95,21 @@ impl RealtimeRenderer {
     /// state load 直後の guard に当たるのを避けるための物だったが、single voice SysEx へ変えて
     /// guard と無関係になった（[`cartridge_patch`]）。
     fn resolve_patch_target(&self, patch: Option<&str>) -> Result<PatchTarget> {
-        let Some(path) = patch else {
+        let Some(patch) = patch else {
             return Ok(PatchTarget::InitState);
         };
-        if is_cartridge_patch_path(path) {
-            Ok(PatchTarget::Cartridge(parse_cartridge_patch_path(path)?))
-        } else if is_sforzando_patch_path(path) {
-            Ok(PatchTarget::Sfz(path.to_string()))
-        } else if is_floe_preset_path(path) {
-            Ok(PatchTarget::FloePreset(path.to_string()))
-        } else if is_vvp_patch_path(path) {
-            Ok(PatchTarget::Vvp(path.to_string()))
-        } else if is_six_sines_patch_path(path) {
-            Ok(PatchTarget::SixSines(path.to_string()))
-        } else if is_tyrelln6_patch_path(path) {
-            Ok(PatchTarget::TyrellN6(path.to_string()))
-        } else if is_cache_wav_patch_path(path) {
-            Ok(PatchTarget::CacheWav(path.to_string()))
-        } else {
-            Ok(PatchTarget::StateFile(path.to_string()))
-        }
+        let wire = parse_patch_wire(patch)?;
+        let path = wire.path.to_string();
+        Ok(match wire.form {
+            PatchForm::Cartridge => PatchTarget::Cartridge(parse_cartridge_patch_path(&path)?),
+            PatchForm::Sfz => PatchTarget::Sfz(path),
+            PatchForm::FloePreset => PatchTarget::FloePreset(path),
+            PatchForm::Vvp => PatchTarget::Vvp(path),
+            PatchForm::SixSines => PatchTarget::SixSines(path),
+            PatchForm::H2p => PatchTarget::H2p(path),
+            PatchForm::CacheWav => PatchTarget::CacheWav(path),
+            PatchForm::StateFile => PatchTarget::StateFile(path),
+        })
     }
 
     /// 音色を差し替える。差し替えの前後の**下準備までを含んだ**入口。
@@ -194,8 +186,8 @@ enum PatchTarget {
     Sfz(String),
     /// Six Sines: `.sxsnp` の XML をそのまま CLAP state としてロード。
     SixSines(String),
-    /// TyrellN6: `.h2p` をそのまま CLAP state としてロード。
-    TyrellN6(String),
+    /// TyrellN6・Zebralette3: `.h2p` をそのまま CLAP state としてロード。
+    H2p(String),
     /// 組み込み cache-player: `.wav` の**パス**を CLAP state としてロード。
     ///
     /// ここだけ「ファイルの中身」ではなく「ファイルの場所」を state にする

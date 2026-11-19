@@ -138,7 +138,7 @@ fn every_factory_patch_loads_as_state() {
     let mut silent = Vec::new();
     let mut name_mismatch = Vec::new();
     for patch in &patches {
-        let display = patch.to_string_lossy().into_owned();
+        let display = wire(&patch.to_string_lossy());
         renderer
             .switch_patch(Some(&display), true, PATCH_SETTLE_BLOCKS)
             .unwrap_or_else(|error| panic!("ロードに失敗: {display}: {error:#}"));
@@ -180,7 +180,7 @@ fn every_factory_patch_loads_as_state() {
 #[ignore = "実 Six Sines CLAP と取得済みの factory 音色が要る"]
 fn switching_from_a_to_b_sounds_like_b_alone() {
     let entry = six_sines_entry();
-    let (a, b) = (factory_patch(PATCH_A), factory_patch(PATCH_B));
+    let (a, b) = (wire(&factory_patch(PATCH_A)), wire(&factory_patch(PATCH_B)));
 
     let mut fresh = RealtimeRenderer::new(&six_sines_config(), &entry).unwrap();
     fresh
@@ -233,7 +233,7 @@ fn switching_from_a_to_b_sounds_like_b_alone() {
 fn a_six_sines_patch_in_the_config_is_loaded_before_activate() {
     let patch = factory_patch(PATCH_A);
     let cfg = CoreConfig {
-        patch_path: Some(patch.clone()),
+        patch_path: Some(wire(&patch)),
         ..six_sines_config()
     };
     let mut renderer = RealtimeRenderer::new(&cfg, &six_sines_entry()).unwrap();
@@ -256,10 +256,10 @@ fn a_six_sines_patch_in_the_config_is_loaded_before_activate() {
 fn patches_of_the_other_plugin_are_refused_before_they_are_sent() {
     let surge_entry = load_entry(&builtin_profile("Surge XT").plugin_path).unwrap();
     let mut surge = RealtimeRenderer::new(&test_config(), &surge_entry).unwrap();
-    let error = surge.set_patch(Some("does-not-matter.sxsnp")).unwrap_err();
+    let error = surge.set_patch(Some("does-not-matter.sxsnp:")).unwrap_err();
     assert!(error.to_string().contains(SIX_SINES_PLUGIN_ID), "{error:#}");
     let cfg = CoreConfig {
-        patch_path: Some("does-not-matter.sxsnp".to_string()),
+        patch_path: Some("does-not-matter.sxsnp:".to_string()),
         ..test_config()
     };
     let error = RealtimeRenderer::new(&cfg, &surge_entry)
@@ -270,11 +270,11 @@ fn patches_of_the_other_plugin_are_refused_before_they_are_sent() {
     let entry = six_sines_entry();
     let mut six_sines = RealtimeRenderer::new(&six_sines_config(), &entry).unwrap();
     let error = six_sines
-        .set_patch(Some("does-not-matter.fxp"))
+        .set_patch(Some("does-not-matter.fxp:"))
         .unwrap_err();
     assert!(error.to_string().contains(SIX_SINES_PLUGIN_ID), "{error:#}");
     let cfg = CoreConfig {
-        patch_path: Some("does-not-matter.fxp".to_string()),
+        patch_path: Some("does-not-matter.fxp:".to_string()),
         ..six_sines_config()
     };
     let error = RealtimeRenderer::new(&cfg, &entry)

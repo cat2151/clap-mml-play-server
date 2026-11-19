@@ -48,7 +48,7 @@ fn has_component_with_extension(patch: &str, extension: &str) -> bool {
 
 /// ARIA engine がサンプルを disk から読む方式。`AriaSave/Settings@streaming` に対応する。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum SfzStreaming {
+pub enum SfzStreaming {
     /// init state の値のまま。load 時は各サンプルの頭だけを読み、残りは発音中に読む。
     /// 1 倍速の realtime 演奏なら読み出しが間に合う。
     PluginDefault,
@@ -60,7 +60,7 @@ pub(crate) enum SfzStreaming {
 /// Instance creation immediately saved this template. Preserve every unrelated setting and
 /// replace only the first AriaSave/Slot program coordinate (and `Settings@streaming` when
 /// `streaming` is [`SfzStreaming::Disabled`]).
-pub(crate) fn sforzando_state_blob(
+pub fn sforzando_state_blob(
     init_state: &[u8],
     program: &SforzandoProgramRef,
     streaming: SfzStreaming,
@@ -82,7 +82,7 @@ pub(crate) fn sforzando_state_blob(
 /// `Slot` と丸ごと差し替えた state を作る。`Slot` 以外（`Settings` / `EffectSlot` / `GUI`）は
 /// template のものを使い、`.ariax` 側の `Settings` は読まない。`streaming` の扱いは
 /// [`sforzando_state_blob`] と同じ。
-pub(crate) fn sforzando_ariax_state_blob(
+pub fn sforzando_ariax_state_blob(
     init_state: &[u8],
     ariax_xml: &str,
     streaming: SfzStreaming,

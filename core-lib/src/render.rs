@@ -11,14 +11,11 @@ use clack_host::prelude::*;
 use cmrt_clack_timeline::{process_block_timing, ProcessBlockTiming};
 use cmrt_timeline::{BlockSpan, FreeRunningTimeline, SamplePosition, SampleRate};
 
-use crate::dx7::is_cartridge_patch_path;
-use crate::floe::is_floe_preset_path;
 use crate::host::MidiRenderHost;
-use crate::sforzando::{is_sforzando_patch_path, SfzStreaming};
-use crate::six_sines::is_six_sines_patch_path;
-use crate::tyrelln6::is_tyrelln6_patch_path;
-use crate::vvp::is_vvp_patch_path;
+use crate::patch_tag::parse_patch_wire;
+use crate::sforzando::SfzStreaming;
 use crate::CoreConfig;
+use cmrt_server_config::PatchForm;
 
 mod capability_probe;
 mod cartridge_patch;
@@ -33,16 +30,17 @@ mod patch_switch;
 mod playback;
 mod prepared_state;
 pub(crate) use prepared_state::prepare_native_state;
+mod h2p_patch;
 mod process;
 mod process_inputs;
 mod serial_instantiation;
 mod sfz_state;
 mod six_sines_patch;
-mod tyrelln6_patch;
 mod voicing_probe;
 mod vvp_patch;
 use descriptor::{probe_capabilities, resolve_note_dialect, NoteEventDialect, PluginCapabilities};
 use floe_preset::{ensure_floe_capable, load_floe_state};
+use h2p_patch::load_h2p_state;
 pub(crate) use instance::create_plugin_instance_without_patch;
 use patch_state::{ensure_accepts_generic_state_file, load_patch};
 pub(crate) use patch_state::{load_plugin_state, save_plugin_state};
@@ -50,7 +48,6 @@ use process_inputs::{input_buffer, push_offline_note_event};
 use sfz_state::load_initial_sfz_state;
 use silence::ActiveNotes;
 use six_sines_patch::{ensure_six_sines_capable, load_six_sines_state};
-use tyrelln6_patch::{ensure_tyrelln6_capable, load_tyrelln6_state};
 use vvp_patch::{ensure_vvp_capable, load_vvp_state};
 
 pub use capability_probe::{probe_plugin_capabilities, PluginProbeReport, ProbedDescriptor};
@@ -172,16 +169,20 @@ impl RealtimeRenderer {
 
         // cartridge patch は event なので `activate()` 前には送れない。
         // `start_processing()` のあと、下で `set_patch()` から送る。
-        let cartridge_patch = cfg
+        let wire = cfg
             .patch_path
             .as_deref()
-            .is_some_and(is_cartridge_patch_path);
-        if let (Some(patch), false) = (cfg.patch_path.as_deref(), cartridge_patch) {
+            .map(parse_patch_wire)
+            .transpose()?;
+        let form = wire.map(|wire| wire.form);
+        let cartridge_patch = form == Some(PatchForm::Cartridge);
+        if let (Some(wire), false) = (wire, cartridge_patch) {
             let step = Instant::now();
+            let patch = wire.path;
             // `.vvp` も state なので activate 前でよいが、**渡す前に XML を包む**必要がある。
             // `load_patch()` は `.fxp` の chunk 切り出ししか知らないので、そのまま渡すと
             // Vaporizer2 が読めない生 XML を state として押し込むことになる。
-            if is_sforzando_patch_path(patch) {
+            if wire.form == PatchForm::Sfz {
                 let template = init_state.as_deref().ok_or_else(|| {
                     anyhow::anyhow!(
                         "Sforzando init state を保存できない requested='{patch}' plugin_id='{}'",
@@ -195,19 +196,18 @@ impl RealtimeRenderer {
                     &descriptor.id,
                     sfz_streaming,
                 )?;
-            } else if is_floe_preset_path(patch) {
+            } else if wire.form == PatchForm::FloePreset {
                 ensure_floe_capable(&descriptor.id)?;
                 load_floe_state(&mut plugin_instance, patch)?;
-            } else if is_vvp_patch_path(patch) {
+            } else if wire.form == PatchForm::Vvp {
                 ensure_vvp_capable(&descriptor.id)?;
                 load_vvp_state(&mut plugin_instance, patch)?;
-            } else if is_six_sines_patch_path(patch) {
+            } else if wire.form == PatchForm::SixSines {
                 ensure_six_sines_capable(&descriptor.id)?;
                 load_six_sines_state(&mut plugin_instance, patch)?;
-            } else if is_tyrelln6_patch_path(patch) {
+            } else if wire.form == PatchForm::H2p {
                 // まだ `process()` を回していないので反映は遅れない（空回しは要らない）。
-                ensure_tyrelln6_capable(&descriptor.id)?;
-                load_tyrelln6_state(&mut plugin_instance, patch)?;
+                load_h2p_state(&mut plugin_instance, &descriptor.id, patch)?;
             } else {
                 ensure_accepts_generic_state_file(&descriptor.id, patch)?;
                 load_patch(&mut plugin_instance, &descriptor.id, patch)?;
@@ -261,11 +261,7 @@ impl RealtimeRenderer {
             let step = Instant::now();
             renderer.set_patch(cfg.patch_path.as_deref())?;
             timing.load_patch = step.elapsed();
-        } else if cfg
-            .patch_path
-            .as_deref()
-            .is_some_and(is_six_sines_patch_path)
-        {
+        } else if form == Some(PatchForm::SixSines) {
             renderer.apply_six_sines_state()?;
         }
         timing.total = started.elapsed();

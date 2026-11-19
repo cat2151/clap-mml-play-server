@@ -7,17 +7,18 @@ use anyhow::Result;
 use clack_extensions::state::PluginState;
 use clack_host::prelude::*;
 
+use crate::h2p::{TYRELLN6_PLUGIN_ID, ZEBRALETTE3_PLUGIN_ID};
 use crate::host::MidiRenderHost;
 use crate::six_sines::SIX_SINES_PLUGIN_ID;
-use crate::tyrelln6::TYRELLN6_PLUGIN_ID;
 
 /// 自分の形式の音色しか読まないプラグインと、その音色の拡張子。
 ///
 /// どれも固有形式以外の state を受け取る契約を持たない。生のバイト列が state load へ届いたときの
 /// 挙動はプラグインごとに違う（Vaporizer2 はプロセスごと落ちた）ので、送る前に拒む。
-const OWN_FORMAT_ONLY_PLUGINS: [(&str, &str); 2] = [
+const OWN_FORMAT_ONLY_PLUGINS: [(&str, &str); 3] = [
     (SIX_SINES_PLUGIN_ID, ".sxsnp"),
     (TYRELLN6_PLUGIN_ID, ".h2p"),
+    (ZEBRALETTE3_PLUGIN_ID, ".h2p"),
 ];
 
 /// `.fxp` のような汎用 state file を、そのプラグインへ流してよいか。

@@ -254,7 +254,7 @@ fn set_patch_routes_a_vvp_path_to_the_vaporizer2_loader() {
         RealtimeRenderer::new(&test_config_with_plugin_id(VAPORIZER2_PLUGIN_ID), &entry).unwrap();
 
     for patch in vaporizer2_sample_patches() {
-        let display = patch.display().to_string();
+        let display = wire(&patch.display().to_string());
         renderer.set_patch(Some(&display)).unwrap();
 
         let samples = render_live_note(&mut renderer);
@@ -276,9 +276,9 @@ fn set_patch_routes_a_vvp_path_to_the_vaporizer2_loader() {
 #[test]
 #[ignore = "実プラグインと調査対象の .vvp が要る"]
 fn vaporizer2_loads_one_requested_patch() {
-    let patch = std::env::var(VAPORIZER2_PATCH_ENV).unwrap_or_else(|_| {
+    let patch = wire(&std::env::var(VAPORIZER2_PATCH_ENV).unwrap_or_else(|_| {
         panic!("{VAPORIZER2_PATCH_ENV} に調査対象の .vvp を設定してから実行すること")
-    });
+    }));
     let path = plugin_path(VAPORIZER2_CLAP_ENV);
     let entry = load_entry(&path).unwrap();
     let mut renderer =
@@ -301,9 +301,9 @@ fn vaporizer2_loads_one_requested_patch() {
 #[test]
 #[ignore = "実プラグインと調査対象の .vvp が要る"]
 fn vaporizer2_keeps_sounding_when_chords_replace_each_other() {
-    let patch = std::env::var(VAPORIZER2_PATCH_ENV).unwrap_or_else(|_| {
+    let patch = wire(&std::env::var(VAPORIZER2_PATCH_ENV).unwrap_or_else(|_| {
         panic!("{VAPORIZER2_PATCH_ENV} に調査対象の .vvp を設定してから実行すること")
-    });
+    }));
     let path = plugin_path(VAPORIZER2_CLAP_ENV);
     let entry = load_entry(&path).unwrap();
     let mut renderer =
@@ -357,7 +357,7 @@ fn a_vvp_patch_in_the_config_is_loaded_before_activate() {
         .next()
         .expect("音色置き場が空");
     let cfg = CoreConfig {
-        patch_path: Some(patch.display().to_string()),
+        patch_path: Some(wire(&patch.display().to_string())),
         ..test_config_with_plugin_id(VAPORIZER2_PLUGIN_ID)
     };
 
@@ -383,7 +383,9 @@ fn set_patch_refuses_a_vvp_path_on_a_surge_instance() {
     let entry = load_entry(&path).unwrap();
     let mut renderer = RealtimeRenderer::new(&test_config(), &entry).unwrap();
 
-    let error = renderer.set_patch(Some("does-not-matter.vvp")).unwrap_err();
+    let error = renderer
+        .set_patch(Some("does-not-matter.vvp:"))
+        .unwrap_err();
 
     assert!(error.to_string().contains(VAPORIZER2_PLUGIN_ID));
 }
@@ -396,7 +398,7 @@ fn a_surge_instance_refuses_to_start_with_a_vvp_patch_in_the_config() {
     let path = plugin_path(SURGE_CLAP_ENV);
     let entry = load_entry(&path).unwrap();
     let cfg = CoreConfig {
-        patch_path: Some("does-not-matter.vvp".to_string()),
+        patch_path: Some("does-not-matter.vvp:".to_string()),
         ..test_config()
     };
 

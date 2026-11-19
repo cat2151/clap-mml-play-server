@@ -83,7 +83,7 @@ fn mml_str_to_smf_bytes_returns_valid_smf() {
 #[test]
 fn mml_to_smf_bytes_strips_json_prefix() {
     // JSON プレフィックス付きの MML でも SMF が生成される
-    let mml = r#"{"Surge XT patch": "Pads/Pad 1.fxp"} cde"#;
+    let mml = r#"{"patch": "Pads/Pad 1.fxp:"} cde"#;
     let result = mml_to_smf_bytes(mml);
     assert!(
         result.is_ok(),
@@ -447,3 +447,4 @@ fn ensure_cmrt_dir_uses_non_utf8_env_override() {
 }
 
 mod effects;
+mod patch_entries;

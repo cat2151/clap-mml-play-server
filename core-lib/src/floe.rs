@@ -7,6 +7,9 @@
 pub const FLOE_PLUGIN_ID: &str = "com.floe-audio.floe";
 
 pub use cmrt_server_config::{floe_note_assignments, floe_preset_is_percussion};
+pub use preset_load::{preset_load_pending, request_preset_load};
+
+mod preset_load;
 
 const FLOE_PRESET_EXTENSION: &str = ".floe-preset";
 const PATH_SEPARATORS: [char; 2] = ['/', '\\'];

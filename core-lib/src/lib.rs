@@ -15,6 +15,8 @@ pub mod effect_plugins;
 #[cfg(feature = "host")]
 pub mod floe;
 #[cfg(feature = "host")]
+pub mod h2p;
+#[cfg(feature = "host")]
 pub mod host;
 #[cfg(feature = "host")]
 mod logging;
@@ -24,6 +26,8 @@ pub mod midi;
 pub mod patch_list;
 #[cfg(feature = "host")]
 pub mod patch_state_prepare;
+#[cfg(feature = "host")]
+pub mod patch_tag;
 pub mod path_identity;
 #[cfg(feature = "host")]
 pub mod pipeline;
@@ -39,8 +43,6 @@ pub mod six_sines;
 pub mod six_sines_factory;
 #[cfg(feature = "host")]
 pub mod surge_data;
-#[cfg(feature = "host")]
-pub mod tyrelln6;
 #[cfg(feature = "host")]
 pub mod voicing;
 #[cfg(feature = "host")]
@@ -103,7 +105,7 @@ pub use boot_log::{log_boot, log_boot_fatal};
 #[cfg(feature = "host")]
 pub use cmrt_server_config::DrumKitNote;
 #[cfg(feature = "host")]
-pub use cmrt_server_config::{lexical_absolute, PatchBase};
+pub use cmrt_server_config::{lexical_absolute, patch_tag_of, PatchBase};
 #[cfg(feature = "host")]
 pub use downloaded_patches::{prepare_downloaded_patches, PatchDownload};
 #[cfg(feature = "host")]
@@ -119,6 +121,8 @@ pub use floe::{
     floe_note_assignments, floe_preset_is_percussion, is_floe_preset_path, FLOE_PLUGIN_ID,
 };
 #[cfg(feature = "host")]
+pub use h2p::{is_h2p_patch_path, TYRELLN6_PLUGIN_ID, ZEBRALETTE3_PLUGIN_ID};
+#[cfg(feature = "host")]
 pub use host::{
     builtin_plugin_path, load_builtin_entry, load_entry, PluginEntry, BUILTIN_PLUGIN_PATH_PREFIX,
 };
@@ -130,6 +134,13 @@ pub use patch_list::{
 };
 #[cfg(feature = "host")]
 pub use patch_state_prepare::{prepare_clap_patch_state, PatchStateError};
+#[cfg(feature = "host")]
+pub use patch_tag::{
+    default_owner_wire, display_from_wire, display_from_wire_str, parse_patch_wire,
+    patch_display_from_embedded_json, patch_from_embedded_json, split_display, wire_from_display,
+    PatchTagRow, PatchWire, PatchWireError, MAX_PATCH_TAG_LEN, PATCH_FILTER_QUERY_JSON_KEY,
+    PATCH_JSON_KEY,
+};
 #[cfg(feature = "host")]
 pub use pipeline::{
     embedded_patch_ref, encode_wav_i16, ensure_cmrt_dir, ensure_daw_dir, ensure_phrase_dir,
@@ -163,8 +174,6 @@ pub use six_sines::{is_six_sines_patch_path, SIX_SINES_PLUGIN_ID};
 pub use surge_data::{
     apply_minimal_surge_data_home, plugin_is_surge, MinimalSurgeDataHome, SURGE_XT_PLUGIN_ID,
 };
-#[cfg(feature = "host")]
-pub use tyrelln6::{is_tyrelln6_patch_path, TYRELLN6_PLUGIN_ID};
 #[cfg(feature = "host")]
 pub use voicing::{PatchVoicing, VoicingReport};
 #[cfg(feature = "host")]

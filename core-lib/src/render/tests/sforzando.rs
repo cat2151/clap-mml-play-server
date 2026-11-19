@@ -23,8 +23,8 @@ fn render_sfz_note(renderer: &mut RealtimeRenderer, key: u8) -> Vec<f32> {
 #[ignore = "実 sforzando CLAP と2つの SFZ 音色が要る"]
 fn sforzando_loads_switches_and_renders_sfz_through_state() {
     let clap_path = plugin_path(SFORZANDO_CLAP_ENV);
-    let patch_a = plugin_path(SFZ_PATCH_A_ENV);
-    let patch_b = plugin_path(SFZ_PATCH_B_ENV);
+    let patch_a = wire(&plugin_path(SFZ_PATCH_A_ENV));
+    let patch_b = wire(&plugin_path(SFZ_PATCH_B_ENV));
     let entry = load_entry(&clap_path).unwrap();
     let mut config = test_config_with_plugin_id(SFORZANDO_PLUGIN_ID);
     config.patch_path = Some(patch_a.clone());
@@ -50,7 +50,7 @@ fn sforzando_loads_switches_and_renders_sfz_through_state() {
         .parent()
         .map(|parent| parent.join("Xylophone.sfz"));
     if let Some(unregistered) = unregistered.filter(|path| path.is_file()) {
-        let unregistered = unregistered.to_string_lossy().into_owned();
+        let unregistered = wire(&unregistered.to_string_lossy());
         let error = renderer.set_patch(Some(&unregistered)).unwrap_err();
         assert!(format!("{error:#}").contains("program source"), "{error:#}");
         assert_eq!(renderer.current_patch.as_deref(), Some(patch_b.as_str()));
@@ -154,7 +154,7 @@ fn ariax_params_change_the_sound_and_survive_a_state_save() {
     let ariax_xml = std::fs::read_to_string(&ariax_path).unwrap();
     let entry = load_entry(&clap_path).unwrap();
     let mut config = test_config_with_plugin_id(SFORZANDO_PLUGIN_ID);
-    config.patch_path = Some(tablewarp2.clone());
+    config.patch_path = Some(wire(&tablewarp2));
     let mut renderer = RealtimeRenderer::new(&config, &entry).unwrap();
 
     // 1. 対照: 同じ `.sfz` で同じ note を 2 回。
@@ -288,7 +288,7 @@ fn ariax_switches_with_sfz_and_a_mismatched_ariax_keeps_the_previous_patch() {
     let tablewarp2 = plugin_path(TABLEWARP2_SFZ_ENV);
     let entry = load_entry(&clap_path).unwrap();
     let mut config = test_config_with_plugin_id(SFORZANDO_PLUGIN_ID);
-    config.patch_path = Some(tablewarp2.clone());
+    config.patch_path = Some(wire(&tablewarp2));
     let mut renderer = RealtimeRenderer::new(&config, &entry).unwrap();
 
     // .sfz → .ariax → .sfz
@@ -297,8 +297,11 @@ fn ariax_switches_with_sfz_and_a_mismatched_ariax_keeps_the_previous_patch() {
         peak(&sfz) > AUDIBLE_PEAK,
         "最初の .sfz が無音: {tablewarp2}"
     );
-    renderer.set_patch(Some(&ariax_path)).unwrap();
-    assert_eq!(renderer.current_patch.as_deref(), Some(ariax_path.as_str()));
+    renderer.set_patch(Some(&wire(&ariax_path))).unwrap();
+    assert_eq!(
+        renderer.current_patch.as_deref(),
+        Some(wire(&ariax_path).as_str())
+    );
     let ariax = render_sfz_note(&mut renderer, ARIAX_KEY);
     assert!(peak(&ariax) > AUDIBLE_PEAK, ".ariax が無音: {ariax_path}");
     let sfz_vs_ariax = rms_of_difference(&sfz, &ariax);
@@ -310,11 +313,16 @@ fn ariax_switches_with_sfz_and_a_mismatched_ariax_keeps_the_previous_patch() {
     // 座標が manifest に無い .ariax は load 前に弾かれ、直前の .ariax が鳴り続ける。
     let ariax_xml = std::fs::read_to_string(&ariax_path).unwrap();
     let mismatched = MismatchedAriaxBank::new(&tablewarp2, &ariax_xml);
-    let error = renderer.set_patch(Some(&mismatched.ariax())).unwrap_err();
+    let error = renderer
+        .set_patch(Some(&wire(&mismatched.ariax())))
+        .unwrap_err();
     let message = format!("{error:#}");
     assert!(message.contains("Slot 座標"), "{message}");
     assert!(message.contains("bankId='-1'"), "{message}");
-    assert_eq!(renderer.current_patch.as_deref(), Some(ariax_path.as_str()));
+    assert_eq!(
+        renderer.current_patch.as_deref(),
+        Some(wire(&ariax_path).as_str())
+    );
     let after_error = render_sfz_note(&mut renderer, ARIAX_KEY);
     let after_vs_ariax = rms_of_difference(&ariax, &after_error);
     let after_vs_sfz = rms_of_difference(&sfz, &after_error);
@@ -330,7 +338,7 @@ fn ariax_switches_with_sfz_and_a_mismatched_ariax_keeps_the_previous_patch() {
         "拒否の後に直前の .ariax の音ではない: vs_ariax={after_vs_ariax} vs_sfz={after_vs_sfz}"
     );
 
-    renderer.set_patch(Some(&tablewarp2)).unwrap();
+    renderer.set_patch(Some(&wire(&tablewarp2))).unwrap();
     let sfz_again = render_sfz_note(&mut renderer, ARIAX_KEY);
     assert!(peak(&sfz_again) > AUDIBLE_PEAK, ".sfz へ戻すと無音");
     let back_vs_sfz = rms_of_difference(&sfz, &sfz_again);
@@ -342,7 +350,7 @@ fn ariax_switches_with_sfz_and_a_mismatched_ariax_keeps_the_previous_patch() {
 
     // 起動時の patch が .ariax でも、realtime と offline の両方で鳴る。
     let mut config = test_config_with_plugin_id(SFORZANDO_PLUGIN_ID);
-    config.patch_path = Some(ariax_path.clone());
+    config.patch_path = Some(wire(&ariax_path));
     let mut initial = RealtimeRenderer::new(&config, &entry).unwrap();
     let initial_ariax = render_sfz_note(&mut initial, ARIAX_KEY);
     assert!(

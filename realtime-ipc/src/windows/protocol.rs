@@ -11,6 +11,9 @@ use super::{
 };
 
 pub(super) const MAGIC: [u8; 8] = *b"CMRTMIDI";
+/// v14 requires patch strings to carry a `:<tag>` suffix. The layout is unchanged, but an old
+/// server would route a tagged patch by its extension alone and silently play the wrong plugin.
+///
 /// v13 adds [`SharedRing::dropped_live_events_total`]. An old server would leave it at 0, so a
 /// client could not tell "nothing was dropped" from "the server cannot report drops".
 ///
@@ -31,7 +34,7 @@ pub(super) const MAGIC: [u8; 8] = *b"CMRTMIDI";
 /// v9 added standby-bank patch preload ([`KIND_PREPARE_STANDBY_PATCH`]).
 ///
 /// v8 was live tempo-map changes ([`KIND_SET_LIVE_TEMPO`]).
-pub(super) const VERSION: u32 = 13;
+pub(super) const VERSION: u32 = 14;
 pub(super) const SLOT_COUNT: usize = 64;
 pub(super) const KIND_MIDI: u32 = 1;
 pub(super) const KIND_STOP: u32 = 2;

@@ -63,6 +63,7 @@ fn fake_kind(name: &str, patch_form: PatchForm, patches_dir: Option<&str>) -> Pl
         name: name.to_string(),
         plugin_path: format!("{name}.clap"),
         patch_form,
+        patch_tag: "",
         core_cfg: CoreConfig {
             patch_base: patches_dir.map(str::to_string).into(),
             ..test_core_cfg()
@@ -80,6 +81,7 @@ fn real_kinds() -> Vec<PluginKind> {
             name: "Surge XT".to_string(),
             plugin_path: env_path(SURGE_CLAP_ENV),
             patch_form: PatchForm::StateFile,
+            patch_tag: "",
             core_cfg: CoreConfig {
                 plugin_id: Some(SURGE_PLUGIN_ID.to_string()),
                 ..test_core_cfg()
@@ -90,6 +92,7 @@ fn real_kinds() -> Vec<PluginKind> {
             name: "Dexed".to_string(),
             plugin_path: env_path(DEXED_CLAP_ENV),
             patch_form: PatchForm::Cartridge,
+            patch_tag: "",
             core_cfg: CoreConfig {
                 plugin_id: Some(DEXED_PLUGIN_ID.to_string()),
                 patch_base: Some(env_path(DEXED_CARTRIDGES_ENV)).into(),
@@ -120,6 +123,7 @@ fn real_kinds_with_vaporizer2() -> Vec<PluginKind> {
         name: "Vaporizer2".to_string(),
         plugin_path: env_path(VAPORIZER2_CLAP_ENV),
         patch_form: PatchForm::Vvp,
+        patch_tag: "",
         core_cfg: CoreConfig {
             plugin_id: Some(VAPORIZER2_PLUGIN_ID.to_string()),
             patch_base: Some(vaporizer2_presets_dir()).into(),
@@ -129,7 +133,7 @@ fn real_kinds_with_vaporizer2() -> Vec<PluginKind> {
     kinds
 }
 
-/// 音色置き場の中の最初の `.vvp` の絶対パス。
+/// 音色置き場の中の最初の `.vvp` の絶対パスの wire。
 ///
 /// ファイル名を直書きしないのは、個人の音色置き場の中身に依存しないため。
 fn first_vvp_patch() -> String {
@@ -144,11 +148,10 @@ fn first_vvp_patch() -> String {
         })
         .collect::<Vec<_>>();
     presets.sort();
-    presets
+    let preset = presets
         .first()
-        .unwrap_or_else(|| panic!("{dir} に .vvp が 1 つも無い"))
-        .to_string_lossy()
-        .into_owned()
+        .unwrap_or_else(|| panic!("{dir} に .vvp が 1 つも無い"));
+    cmrt_core::default_owner_wire(&preset.to_string_lossy())
 }
 
 /// 自プロセスの working set（MB）。物理インスタンスを増やしたときの実コストを見る。
@@ -177,7 +180,7 @@ fn working_set_mb() -> String {
     }
 }
 
-/// cartridge ディレクトリの中の最初の `.syx` の program 00 を指す patch 文字列。
+/// cartridge ディレクトリの中の最初の `.syx` の program 00 を指す wire。
 fn first_cartridge_patch() -> String {
     let dir = env_path(DEXED_CARTRIDGES_ENV);
     let mut cartridges = std::fs::read_dir(&dir)
@@ -193,10 +196,7 @@ fn first_cartridge_patch() -> String {
     let cartridge = cartridges
         .first()
         .unwrap_or_else(|| panic!("{dir} に .syx が 1 つも無い"));
-    Path::new(cartridge)
-        .join("00 test")
-        .to_string_lossy()
-        .into_owned()
+    cmrt_core::default_owner_wire(&Path::new(cartridge).join("00 test").to_string_lossy())
 }
 
 fn peak(samples: &[f32]) -> f32 {

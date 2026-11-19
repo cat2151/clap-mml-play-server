@@ -80,7 +80,7 @@ fn floe_real_plugin_and_all_presets_satisfy_the_render_contract() {
         let mut saved_digests = BTreeMap::new();
 
         for preset in &presets {
-            let display = preset.to_string_lossy().into_owned();
+            let display = wire(&preset.to_string_lossy());
             renderer.set_patch(Some(&display)).unwrap();
             let state = save_plugin_state(renderer.plugin_instance_mut()).unwrap();
             let digest = state_digest(&state);
@@ -109,8 +109,8 @@ fn floe_real_plugin_and_all_presets_satisfy_the_render_contract() {
             saved_digests.len()
         );
 
-        let a = presets[0].to_string_lossy();
-        let b = presets[1].to_string_lossy();
+        let a = wire(&presets[0].to_string_lossy());
+        let b = wire(&presets[1].to_string_lossy());
         renderer.set_patch(Some(&a)).unwrap();
         let a_first = save_plugin_state(renderer.plugin_instance_mut()).unwrap();
         renderer.set_patch(Some(&b)).unwrap();
@@ -122,7 +122,7 @@ fn floe_real_plugin_and_all_presets_satisfy_the_render_contract() {
 
         renderer.plugin_id = "org.example.not-floe".to_string();
         let error = renderer
-            .set_patch(Some("file-does-not-need-to-exist.floe-preset"))
+            .set_patch(Some("file-does-not-need-to-exist.floe-preset:"))
             .unwrap_err();
         assert!(error.to_string().contains(FLOE_PLUGIN_ID));
         assert!(!error.to_string().contains("Floe preset を読めない"));
@@ -130,7 +130,7 @@ fn floe_real_plugin_and_all_presets_satisfy_the_render_contract() {
 
     let startup_preset = &presets[0];
     let cfg = CoreConfig {
-        patch_path: Some(startup_preset.to_string_lossy().into_owned()),
+        patch_path: Some(wire(&startup_preset.to_string_lossy())),
         ..test_config_with_plugin_id(FLOE_PLUGIN_ID)
     };
     let mut renderer = RealtimeRenderer::new(&cfg, &entry).unwrap();

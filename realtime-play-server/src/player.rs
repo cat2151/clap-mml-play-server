@@ -208,7 +208,7 @@ impl PlayerHandle for RealtimePlayer {
     }
 
     fn play_mml(&self, mml: String) -> Result<()> {
-        let prepared = cmrt_core::prepare_realtime_play(&mml, &self.core_cfg)?;
+        let prepared = cmrt_core::prepare_realtime_play(&mml, &self.core_cfg, &self.patch_bases)?;
         let schedule = smf_playback_schedule_with_options(
             &prepared.smf_bytes,
             self.sample_rate,
@@ -265,7 +265,7 @@ impl PlayerHandle for RealtimePlayer {
         effect_chain: String,
     ) -> Result<()> {
         self.validate_live_instance_id(instance_id)?;
-        let patch = resolve_live_patch(patch, &self.patch_bases);
+        let patch = resolve_live_patch(patch, &self.patch_bases)?;
         let (completion_tx, completion_rx) = std::sync::mpsc::sync_channel(0);
         self.inner.submit_prepare_live_patch(
             instance_id,
@@ -322,7 +322,7 @@ impl PlayerHandle for RealtimePlayer {
         patch: Option<String>,
     ) -> Result<VoicingReport> {
         self.validate_live_instance_id(instance_id)?;
-        let patch = resolve_live_patch(patch, &self.patch_bases);
+        let patch = resolve_live_patch(patch, &self.patch_bases)?;
         let (completion_tx, completion_rx) = std::sync::mpsc::sync_channel(0);
         self.inner.submit_probe_live_patch(
             instance_id,
@@ -406,7 +406,7 @@ impl RealtimePlayer {
         patch: Option<String>,
         effect_chain: String,
     ) -> Result<StandbyLoadTicket> {
-        let patch = resolve_live_patch(patch, &self.patch_bases);
+        let patch = resolve_live_patch(patch, &self.patch_bases)?;
         let (completion_tx, ticket) = standby_completion_channel();
         self.inner.submit_prepare_standby_live_patch(
             instance_id,

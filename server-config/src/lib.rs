@@ -18,6 +18,7 @@ mod plugin_defaults;
 mod plugin_identity;
 mod plugin_profile;
 mod primary_plugin;
+mod u_he_products;
 
 pub use effect_defaults::{
     default_dragonfly_plugin_path, default_shu_plugin_path, default_surge_fx_plugin_path,
@@ -34,10 +35,12 @@ pub use plugin_defaults::{
     default_dexed_cartridge_dirs, default_dexed_plugin_path, default_floe_plugin_path,
     default_patches_dirs, default_plugin_path, default_sforzando_plugin_path,
     default_six_sines_plugin_path, default_tyrelln6_plugin_path, default_vaporizer2_plugin_path,
+    default_zebralette3_plugin_path,
 };
 pub use plugin_identity::{
     plugin_file_stem, CACHE_PLAYER_PLUGIN_ID, DEXED_PLUGIN_ID, FLOE_PLUGIN_ID, SFORZANDO_PLUGIN_ID,
     SIX_SINES_PLUGIN_ID, SURGE_XT_PLUGIN_ID, TYRELLN6_PLUGIN_ID, VAPORIZER2_PLUGIN_ID,
+    ZEBRALETTE3_PLUGIN_ID,
 };
 pub use plugin_presets::floe::{floe_note_assignments, floe_preset_is_percussion};
 pub use plugin_presets::sforzando::{
@@ -54,6 +57,9 @@ pub use plugin_profile::{
 pub use primary_plugin::{
     reject_retired_top_level_plugin_keys, resolve_primary_plugin_profile,
     PRIMARY_PLUGIN_PROFILE_NAME,
+};
+pub use u_he_products::{
+    patch_tag_of, u_he_product_of, UHeProduct, U_HE_PRODUCTS, ZEBRALETTE3_PATCH_TAG,
 };
 
 use std::collections::BTreeMap;
