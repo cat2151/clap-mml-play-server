@@ -9,6 +9,7 @@ pub mod dragonfly;
 mod drum_kit_note;
 pub mod effect_preset;
 pub mod floe;
+pub mod jc303;
 pub mod juce_value_tree;
 mod lexical_path;
 pub mod patch_list;

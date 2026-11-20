@@ -3,8 +3,9 @@ use std::path::Path;
 
 use super::PatchStateError;
 use crate::{parse_cartridge_patch_path, DEXED_PLUGIN_ID, FLOE_PLUGIN_ID, SFORZANDO_PLUGIN_ID};
+use cmrt_server_config::JC303_PLUGIN_ID;
 
-/// Prepare an owned state using cmrt's existing Dexed, Floe or sforzando loader.
+/// Prepare an owned state using cmrt's existing Dexed, Floe, sforzando or JC303 loader.
 ///
 /// The bundle and resolved patch must be absolute. Dexed's resolved patch must
 /// retain its cartridge program suffix. All native objects stay on the calling
@@ -21,7 +22,7 @@ pub fn prepare_native_clap_patch_state(
     };
     if !matches!(
         plugin_id,
-        DEXED_PLUGIN_ID | FLOE_PLUGIN_ID | SFORZANDO_PLUGIN_ID
+        DEXED_PLUGIN_ID | FLOE_PLUGIN_ID | SFORZANDO_PLUGIN_ID | JC303_PLUGIN_ID
     ) {
         return Err(PatchStateError::UnsupportedPlugin {
             plugin_id: plugin_id.into(),
@@ -57,6 +58,7 @@ pub fn prepare_native_clap_patch_state(
         {
             resolved_patch.into()
         }
+        JC303_PLUGIN_ID if extension.eq_ignore_ascii_case("json") => resolved_patch.into(),
         _ => {
             return Err(PatchStateError::UnsupportedFormat {
                 path: resolved_patch.into(),

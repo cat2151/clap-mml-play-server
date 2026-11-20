@@ -305,6 +305,18 @@ fn the_builtin_zebralette3_profile_reads_its_patch_directories_from_the_registry
     );
 }
 
+#[test]
+fn the_builtin_jc303_profile_reads_the_plugins_own_preset_directory() {
+    let profile = resolve_builtin("JC303").unwrap();
+
+    assert_eq!(profile.plugin_path, default_jc303_plugin_path());
+    assert_eq!(profile.plugin_id.as_deref(), Some(JC303_PLUGIN_ID));
+    assert_eq!(
+        profile.patches_dirs,
+        Some(plugin_presets::jc303::jc303_preset_dirs())
+    );
+}
+
 /// 本体の設定と食い違わないよう、config に書かれた置き場は無視する。
 #[test]
 fn a_configured_zebralette3_patches_dirs_is_ignored() {
@@ -372,6 +384,10 @@ fn the_plugin_id_decides_the_patch_form() {
         patch_form_of(Some(ZEBRALETTE3_PLUGIN_ID), "whatever.clap"),
         PatchForm::H2p
     );
+    assert_eq!(
+        patch_form_of(Some(JC303_PLUGIN_ID), "whatever.clap"),
+        PatchForm::Jc303Preset
+    );
 }
 
 /// `plugin_id` を書いていない config でも、ファイル名から拾えること。
@@ -409,6 +425,10 @@ fn the_file_name_is_the_last_resort_when_no_plugin_id_is_written() {
     assert_eq!(
         patch_form_of(None, r"C:\CLAP\u-he\Zebralette3.clap"),
         PatchForm::H2p
+    );
+    assert_eq!(
+        patch_form_of(None, r"C:\CLAP\JC303.clap"),
+        PatchForm::Jc303Preset
     );
 }
 

@@ -53,6 +53,8 @@ pub use plugin_presets::dexed as dx7;
 #[cfg(feature = "host")]
 pub use plugin_presets::dragonfly as dragonfly_preset;
 #[cfg(feature = "host")]
+pub use plugin_presets::jc303 as jc303_preset;
+#[cfg(feature = "host")]
 pub use plugin_presets::juce_value_tree;
 #[cfg(feature = "host")]
 pub use plugin_presets::shu as shu_preset;
@@ -154,6 +156,8 @@ pub use pipeline::{
 };
 #[cfg(feature = "host")]
 pub use plugin_catalog::{kind_for_patch, plugin_kinds, PatchBases, PluginKind};
+#[cfg(feature = "host")]
+pub use plugin_presets::jc303::is_jc303_preset_path;
 #[cfg(feature = "host")]
 pub use render::{
     create_renderers_parallel, plugin_requires_serial_instantiation, probe_plugin_capabilities,

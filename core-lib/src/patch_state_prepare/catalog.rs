@@ -6,6 +6,7 @@ use crate::{
     DEXED_PLUGIN_ID, FLOE_PLUGIN_ID, SFORZANDO_PLUGIN_ID, SIX_SINES_PLUGIN_ID, SURGE_XT_PLUGIN_ID,
     TYRELLN6_PLUGIN_ID, VAPORIZER2_PLUGIN_ID, ZEBRALETTE3_PLUGIN_ID,
 };
+use cmrt_server_config::JC303_PLUGIN_ID;
 
 pub fn supports_catalog_clap_plugin(id: &str) -> bool {
     matches!(
@@ -18,6 +19,7 @@ pub fn supports_catalog_clap_plugin(id: &str) -> bool {
             | TYRELLN6_PLUGIN_ID
             | VAPORIZER2_PLUGIN_ID
             | ZEBRALETTE3_PLUGIN_ID
+            | JC303_PLUGIN_ID
     )
 }
 
@@ -32,7 +34,10 @@ pub fn prepare_catalog_clap_patch_state(
     if id == SURGE_XT_PLUGIN_ID {
         return prepare_clap_patch_state(id, patch);
     }
-    if matches!(id, DEXED_PLUGIN_ID | FLOE_PLUGIN_ID | SFORZANDO_PLUGIN_ID) {
+    if matches!(
+        id,
+        DEXED_PLUGIN_ID | FLOE_PLUGIN_ID | SFORZANDO_PLUGIN_ID | JC303_PLUGIN_ID
+    ) {
         return prepare_native_clap_patch_state(id, bundle, patch);
     }
     let extension = match id {

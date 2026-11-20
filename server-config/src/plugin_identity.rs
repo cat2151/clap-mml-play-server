@@ -15,6 +15,7 @@ pub const SFORZANDO_PLUGIN_ID: &str = "com.Plogue Art et Technologie, Inc.sforza
 pub const SIX_SINES_PLUGIN_ID: &str = "org.baconpaul.six-sines";
 pub const TYRELLN6_PLUGIN_ID: &str = "com.u-he.TyrellN6";
 pub const ZEBRALETTE3_PLUGIN_ID: &str = "com.u-he.Zebralette3";
+pub const JC303_PLUGIN_ID: &str = "co.midilab.JC303";
 /// DAW の cell キャッシュ WAV を鳴らす組み込みプラグイン（`cache-player` crate）の CLAP ID。
 ///
 /// **`.clap` ファイルとしてディスクに存在しない**（バイナリへ静的リンク）ので、`installed_plugin_profiles()`

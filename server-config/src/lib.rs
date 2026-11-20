@@ -33,14 +33,14 @@ pub use patch_dirs::{configured_patch_dirs, patch_root_dir, shared_patch_root_di
 pub use paths::{config_app_dir, config_file_path, six_sines_factory_dir};
 pub use plugin_defaults::{
     default_dexed_cartridge_dirs, default_dexed_plugin_path, default_floe_plugin_path,
-    default_patches_dirs, default_plugin_path, default_sforzando_plugin_path,
-    default_six_sines_plugin_path, default_tyrelln6_plugin_path, default_vaporizer2_plugin_path,
-    default_zebralette3_plugin_path,
+    default_jc303_plugin_path, default_patches_dirs, default_plugin_path,
+    default_sforzando_plugin_path, default_six_sines_plugin_path, default_tyrelln6_plugin_path,
+    default_vaporizer2_plugin_path, default_zebralette3_plugin_path,
 };
 pub use plugin_identity::{
-    plugin_file_stem, CACHE_PLAYER_PLUGIN_ID, DEXED_PLUGIN_ID, FLOE_PLUGIN_ID, SFORZANDO_PLUGIN_ID,
-    SIX_SINES_PLUGIN_ID, SURGE_XT_PLUGIN_ID, TYRELLN6_PLUGIN_ID, VAPORIZER2_PLUGIN_ID,
-    ZEBRALETTE3_PLUGIN_ID,
+    plugin_file_stem, CACHE_PLAYER_PLUGIN_ID, DEXED_PLUGIN_ID, FLOE_PLUGIN_ID, JC303_PLUGIN_ID,
+    SFORZANDO_PLUGIN_ID, SIX_SINES_PLUGIN_ID, SURGE_XT_PLUGIN_ID, TYRELLN6_PLUGIN_ID,
+    VAPORIZER2_PLUGIN_ID, ZEBRALETTE3_PLUGIN_ID,
 };
 pub use plugin_presets::floe::{floe_note_assignments, floe_preset_is_percussion};
 pub use plugin_presets::sforzando::{

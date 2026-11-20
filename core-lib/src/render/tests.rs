@@ -15,6 +15,7 @@
 //! CMRT_TEST_SFORZANDO_PATCH_B=<別 library の melodic .sfz>
 //! CMRT_TEST_SFORZANDO_TABLEWARP2=<TableWarp2 の Programs\TableWarp2.sfz>
 //! CMRT_TEST_SFORZANDO_ARIAX=<TableWarp2 の Presets 配下の .ariax（例 Keys\Airy Bells.ariax）>
+//! CMRT_TEST_JC303_CLAP=C:\Program Files\Common Files\CLAP\JC303.clap
 //! CMRT_TEST_DEXED_CARTRIDGES=%APPDATA%\DigitalSuburban\Dexed\Cartridges
 //! cargo test -p cmrt-core -- --ignored --test-threads=1
 //! ```
@@ -25,7 +26,7 @@
 //! 環境変数が無いテストは、黙って通さず panic させる（未検証を成功と誤認しないため）。
 //!
 //! Vaporizer2 の `.vvp` と TyrellN6 の `.h2p` の置き場は環境変数ではなく、本番と同じ経路で
-//! registry から読む（[`vaporizer2`] / [`tyrelln6`] module）。
+//! registry から読む（[`vaporizer2`] / [`tyrelln6`] module）。JC303 の `.json` も本体の置き場から読む（[`jc303`]）。
 //!
 //! このファイルにはプラグインをまたいで使うヘルパだけを置く。テスト本体は
 //! プラグイン別（[`dexed`] / [`surge`] / [`vaporizer2`]）と、
@@ -101,6 +102,7 @@ mod cache_player;
 mod cartridge;
 mod dexed;
 mod floe;
+mod jc303;
 mod plugin_id;
 mod sforzando;
 mod six_sines;

@@ -27,6 +27,10 @@ fn rejects_identity_and_format_before_loading_native_code() {
         Err(PatchStateError::UnsupportedFormat { .. })
     ));
     assert!(matches!(
+        prepare_native_clap_patch_state(JC303_PLUGIN_ID, bundle, patch),
+        Err(PatchStateError::UnsupportedFormat { .. })
+    ));
+    assert!(matches!(
         prepare_native_clap_patch_state(FLOE_PLUGIN_ID, bundle, Path::new("relative.floe-preset")),
         Err(PatchStateError::InvalidPath { .. })
     ));

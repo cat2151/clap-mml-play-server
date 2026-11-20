@@ -164,6 +164,18 @@ pub fn default_zebralette3_plugin_path() -> &'static str {
     ""
 }
 
+/// OS ごとのデフォルト JC303 パスを返す。Windows 以外は空。
+/// 音色置き場は本体の preset 置き場から決まる（[`crate::merged_plugin_profiles`]）。
+#[cfg(target_os = "windows")]
+pub fn default_jc303_plugin_path() -> &'static str {
+    r"C:\Program Files\Common Files\CLAP\JC303.clap"
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn default_jc303_plugin_path() -> &'static str {
+    ""
+}
+
 /// OS ごとのデフォルト patches_dirs を返す。
 /// 既知 OS でない場合や取得できない場合は空配列を返す（ユーザーに設定を促す）。
 #[cfg(target_os = "windows")]

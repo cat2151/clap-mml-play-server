@@ -11,6 +11,7 @@
 //! - sforzando: `.sfz` 1 ファイル = 1 音色。
 //! - Six Sines: `.sxsnp` 1 ファイル = 1 音色。
 //! - TyrellN6・Zebralette3: `.h2p` 1 ファイル = 1 音色。
+//! - JC303: `.json` 1 ファイル = 1 音色。
 //!
 //! どれも同じ `Vec<PathBuf>` で返すので、呼び出し側（TUI の一覧・検索・カテゴリ分け）は
 //! プラグインの違いを知らないまま動く。
@@ -141,7 +142,7 @@ fn visit_dir(
             continue;
         }
         match extension_lowercase(&path).as_deref() {
-            Some("fxp" | "vvp" | "floe-preset" | "sfz" | "sxsnp" | "h2p") => {
+            Some("fxp" | "vvp" | "floe-preset" | "sfz" | "sxsnp" | "h2p" | "json") => {
                 list.push(FoundPatch { path, voice: None })
             }
             Some("syx") => push_cartridge_programs(&path, list, on_diagnostic),

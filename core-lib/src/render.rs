@@ -31,6 +31,7 @@ mod playback;
 mod prepared_state;
 pub(crate) use prepared_state::prepare_native_state;
 mod h2p_patch;
+mod jc303_patch;
 mod process;
 mod process_inputs;
 mod serial_instantiation;
@@ -42,6 +43,7 @@ use descriptor::{probe_capabilities, resolve_note_dialect, NoteEventDialect, Plu
 use floe_preset::{ensure_floe_capable, load_floe_state};
 use h2p_patch::load_h2p_state;
 pub(crate) use instance::create_plugin_instance_without_patch;
+use jc303_patch::load_jc303_state;
 use patch_state::{ensure_accepts_generic_state_file, load_patch};
 pub(crate) use patch_state::{load_plugin_state, save_plugin_state};
 use process_inputs::{input_buffer, push_offline_note_event};
@@ -208,6 +210,11 @@ impl RealtimeRenderer {
             } else if wire.form == PatchForm::H2p {
                 // まだ `process()` を回していないので反映は遅れない（空回しは要らない）。
                 load_h2p_state(&mut plugin_instance, &descriptor.id, patch)?;
+            } else if wire.form == PatchForm::Jc303Preset {
+                let template = init_state.as_deref().ok_or_else(|| {
+                    anyhow::anyhow!("JC303 の init state を保存できない requested='{patch}'")
+                })?;
+                load_jc303_state(&mut plugin_instance, &descriptor.id, template, patch)?;
             } else {
                 ensure_accepts_generic_state_file(&descriptor.id, patch)?;
                 load_patch(&mut plugin_instance, &descriptor.id, patch)?;

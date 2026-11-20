@@ -61,6 +61,10 @@ impl RealtimeRenderer {
                 self.forget_cartridge_program();
                 self.load_h2p_patch(&path)?;
             }
+            PatchTarget::Jc303Preset(path) => {
+                self.forget_cartridge_program();
+                self.load_jc303_patch(&path)?;
+            }
             PatchTarget::CacheWav(path) => {
                 self.forget_cartridge_program();
                 let state = cache_wav_state(&path)?;
@@ -107,6 +111,7 @@ impl RealtimeRenderer {
             PatchForm::Vvp => PatchTarget::Vvp(path),
             PatchForm::SixSines => PatchTarget::SixSines(path),
             PatchForm::H2p => PatchTarget::H2p(path),
+            PatchForm::Jc303Preset => PatchTarget::Jc303Preset(path),
             PatchForm::CacheWav => PatchTarget::CacheWav(path),
             PatchForm::StateFile => PatchTarget::StateFile(path),
         })
@@ -188,6 +193,8 @@ enum PatchTarget {
     SixSines(String),
     /// TyrellN6・Zebralette3: `.h2p` をそのまま CLAP state としてロード。
     H2p(String),
+    /// JC303: `.json` の値を init state へ書き込み、CLAP state としてロード。
+    Jc303Preset(String),
     /// 組み込み cache-player: `.wav` の**パス**を CLAP state としてロード。
     ///
     /// ここだけ「ファイルの中身」ではなく「ファイルの場所」を state にする

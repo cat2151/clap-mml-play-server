@@ -14,11 +14,12 @@ use serde::Deserialize;
 
 use crate::{
     default_dexed_cartridge_dirs, default_dexed_plugin_path, default_floe_plugin_path,
-    default_patches_dirs, default_plugin_path, default_sforzando_plugin_path,
-    default_six_sines_plugin_path, default_tyrelln6_plugin_path, default_vaporizer2_plugin_path,
-    default_zebralette3_plugin_path, u_he_product_of, CACHE_PLAYER_PLUGIN_ID, DEXED_PLUGIN_ID,
-    FLOE_PLUGIN_ID, SFORZANDO_PLUGIN_ID, SIX_SINES_PLUGIN_ID, SURGE_XT_PLUGIN_ID,
-    TYRELLN6_PLUGIN_ID, VAPORIZER2_PLUGIN_ID, ZEBRALETTE3_PLUGIN_ID,
+    default_jc303_plugin_path, default_patches_dirs, default_plugin_path,
+    default_sforzando_plugin_path, default_six_sines_plugin_path, default_tyrelln6_plugin_path,
+    default_vaporizer2_plugin_path, default_zebralette3_plugin_path, u_he_product_of,
+    CACHE_PLAYER_PLUGIN_ID, DEXED_PLUGIN_ID, FLOE_PLUGIN_ID, JC303_PLUGIN_ID, SFORZANDO_PLUGIN_ID,
+    SIX_SINES_PLUGIN_ID, SURGE_XT_PLUGIN_ID, TYRELLN6_PLUGIN_ID, VAPORIZER2_PLUGIN_ID,
+    ZEBRALETTE3_PLUGIN_ID,
 };
 
 /// `[plugins.<名前>]` 1 つ分のプラグイン設定。
@@ -131,6 +132,15 @@ pub fn builtin_plugin_profiles() -> BTreeMap<String, PluginProfile> {
                 patches_dirs: None,
             },
         ),
+        (
+            "JC303".to_string(),
+            PluginProfile {
+                plugin_path: default_jc303_plugin_path().to_string(),
+                plugin_id: Some(JC303_PLUGIN_ID.to_string()),
+                // 音色置き場は本体の preset 置き場を [`merged_plugin_profiles`] が埋める。
+                patches_dirs: None,
+            },
+        ),
     ])
 }
 
@@ -168,6 +178,8 @@ pub enum PatchForm {
     /// TyrellN6 と Zebralette3 が同じ拡張子を読む。どちらへ送るかは patch タグで決める
     /// （[`crate::U_HE_PRODUCTS`]）。
     H2p,
+    /// ファイル 1 つ = 音色 1 つ。JC303 の `.json`（init state を雛形に値を書き込んで CLAP state へ）。
+    Jc303Preset,
     /// ファイル 1 つ = 音源 1 つ。組み込み cache-player の `.wav`（DAW の cell キャッシュ）。
     ///
     /// 他の形と違い、**音色ではなく録音済みの音そのもの**を指す。それでも patch 文字列の
@@ -205,6 +217,8 @@ pub fn patch_form_of(plugin_id: Option<&str>, plugin_path: &str) -> PatchForm {
         PatchForm::Vvp
     } else if matches(SIX_SINES_PLUGIN_ID, "six sines") {
         PatchForm::SixSines
+    } else if matches(JC303_PLUGIN_ID, "jc303") {
+        PatchForm::Jc303Preset
     } else if u_he_product_of(plugin_id, plugin_path).is_some() {
         PatchForm::H2p
     } else {
@@ -216,9 +230,10 @@ pub fn patch_form_of(plugin_id: Option<&str>, plugin_path: &str) -> PatchForm {
 ///
 /// 表記ゆれを吸収し、同名なら config 側の「書かれている項目」が組み込みを上書きする。
 ///
-/// Vaporizer2・Floe・u-he（TyrellN6・Zebralette3）の `patches_dirs` は config を無視し、本体の設定から
-/// 読んだ値で置き換える（[`plugin_presets::vaporizer2::vaporizer2_preset_dirs`]・
-/// [`plugin_presets::floe::floe_preset_dirs`]・[`plugin_presets::u_he::u_he_preset_dirs`]）。
+/// Vaporizer2・Floe・u-he（TyrellN6・Zebralette3）・JC303 の `patches_dirs` は config を無視し、本体の
+/// 設定や置き場から決めた値で置き換える（[`plugin_presets::vaporizer2::vaporizer2_preset_dirs`]・
+/// [`plugin_presets::floe::floe_preset_dirs`]・[`plugin_presets::u_he::u_he_preset_dirs`]・
+/// [`plugin_presets::jc303::jc303_preset_dirs`]）。
 /// Six Sines は factory の取得先（[`crate::six_sines_factory_dir`]）で置き換える。
 pub fn merged_plugin_profiles(
     from_config: &BTreeMap<String, PluginProfile>,
@@ -246,6 +261,9 @@ pub fn merged_plugin_profiles(
                 profile.patches_dirs =
                     u_he_product_of(profile.plugin_id.as_deref(), &profile.plugin_path)
                         .map(|product| plugin_presets::u_he::u_he_preset_dirs(product.product))
+            }
+            PatchForm::Jc303Preset => {
+                profile.patches_dirs = Some(plugin_presets::jc303::jc303_preset_dirs())
             }
             PatchForm::SixSines => {
                 profile.patches_dirs = Some(

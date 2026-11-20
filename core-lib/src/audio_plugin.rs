@@ -155,15 +155,17 @@ impl AudioPluginInfo {
 
     /// 音色そのものが reverb などの effect を内蔵しているか。
     ///
-    /// false の plugin（Dexed・sforzando・Floe・Six Sines・TyrellN6）は音色が dry なので、client は試聴時に
+    /// false の plugin（Dexed・sforzando・Floe・Six Sines・TyrellN6・JC303）は音色が dry なので、client は試聴時に
     /// effect を足してよい。未知の plugin は true 側へ倒す（勝手に effect を足させない）。
     /// render 済み wav は音が完成しているので true。`.h2p` は製品ごとに違う
     /// （Zebralette3 は reverb・delay を内蔵する）。
     pub fn has_builtin_effects(&self) -> bool {
         match self.patch_form {
-            PatchForm::Cartridge | PatchForm::Sfz | PatchForm::FloePreset | PatchForm::SixSines => {
-                false
-            }
+            PatchForm::Cartridge
+            | PatchForm::Sfz
+            | PatchForm::FloePreset
+            | PatchForm::SixSines
+            | PatchForm::Jc303Preset => false,
             PatchForm::H2p => u_he_product_of(self.plugin_id.as_deref(), &self.plugin_path)
                 .is_none_or(|product| product.builtin_effects),
             PatchForm::Vvp | PatchForm::StateFile | PatchForm::CacheWav => true,

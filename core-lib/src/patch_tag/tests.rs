@@ -1,6 +1,6 @@
 use super::*;
 
-const ALL_FORMS: [PatchForm; 8] = [
+const ALL_FORMS: [PatchForm; 9] = [
     PatchForm::StateFile,
     PatchForm::Cartridge,
     PatchForm::Vvp,
@@ -8,6 +8,7 @@ const ALL_FORMS: [PatchForm; 8] = [
     PatchForm::Sfz,
     PatchForm::SixSines,
     PatchForm::H2p,
+    PatchForm::Jc303Preset,
     PatchForm::CacheWav,
 ];
 
@@ -21,7 +22,8 @@ fn index_of(form: PatchForm) -> usize {
         PatchForm::Sfz => 4,
         PatchForm::SixSines => 5,
         PatchForm::H2p => 6,
-        PatchForm::CacheWav => 7,
+        PatchForm::Jc303Preset => 7,
+        PatchForm::CacheWav => 8,
     }
 }
 
@@ -116,6 +118,7 @@ fn every_form_parses_with_an_empty_tag() {
         ("Keys/Airy Bells.ariax:", PatchForm::Sfz),
         ("Bass/Bass 1.sxsnp:", PatchForm::SixSines),
         ("01 Basses/Abgrund.h2p:", PatchForm::H2p),
+        ("factory/dice_acid.json:", PatchForm::Jc303Preset),
         (r"slot=1;D:\c\track2_meas2.wav:", PatchForm::CacheWav),
         ("slot=1;:", PatchForm::CacheWav),
     ];

@@ -13,7 +13,8 @@ use cmrt_server_config::{PatchForm, ZEBRALETTE3_PATCH_TAG};
 
 use crate::{
     cache_wav::is_cache_wav_patch_path, is_cartridge_patch_path, is_floe_preset_path,
-    is_h2p_patch_path, is_sforzando_patch_path, is_six_sines_patch_path, is_vvp_patch_path,
+    is_h2p_patch_path, is_jc303_preset_path, is_sforzando_patch_path, is_six_sines_patch_path,
+    is_vvp_patch_path,
 };
 
 /// タグの上限文字数。
@@ -37,6 +38,7 @@ const DEFAULT_OWNERS: &[PatchTagRow] = &[
     row(PatchForm::Sfz, "sforzando"),
     row(PatchForm::SixSines, "Six Sines"),
     row(PatchForm::H2p, "TyrellN6"),
+    row(PatchForm::Jc303Preset, "JC303"),
     row(PatchForm::CacheWav, "cache-player"),
 ];
 
@@ -259,6 +261,8 @@ pub(crate) fn patch_form_of_path(patch: &str) -> Option<PatchForm> {
         PatchForm::SixSines
     } else if is_h2p_patch_path(patch) {
         PatchForm::H2p
+    } else if is_jc303_preset_path(patch) {
+        PatchForm::Jc303Preset
     } else if is_cache_wav_patch_path(patch) {
         PatchForm::CacheWav
     } else if is_state_file_patch_path(patch) {
