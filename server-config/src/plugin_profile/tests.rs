@@ -1,4 +1,5 @@
 use super::*;
+mod apricot;
 use crate::configured_patch_dirs;
 
 const SURGE_AND_DEXED_PROFILES: &str = r#"

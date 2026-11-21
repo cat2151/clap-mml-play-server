@@ -14,3 +14,5 @@ dunce = "1"
 plugin-presets = { path = "../plugin-presets" }
 serde = { version = "1", features = ["derive"] }
 toml = "1"
+clack-host = { git = "https://github.com/prokopyl/clack.git", package = "clack-host" }
+clap-sys = "0.5"

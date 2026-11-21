@@ -4,6 +4,7 @@
 //! CLAP で実際に送る層は持たない（`clack` に依存しないため）。
 //! 背景は `docs/adr/0006-no-generic-clap-preset-api.md`。
 
+pub mod apricot;
 pub mod dexed;
 pub mod dragonfly;
 mod drum_kit_note;

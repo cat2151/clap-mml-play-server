@@ -13,7 +13,7 @@ use crate::{configured_patch_dirs, patch_form_of, PatchBase, PatchForm};
 /// Plugin-neutral result consumed by catalog clients.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct PatchCatalogResolution {
-    /// Existing, canonical scan roots.
+    /// Existing scan roots. An adapter with `resolved_patches` may include a virtual container.
     pub dirs: Vec<String>,
     /// `Some` means the adapter has already restricted the list to loadable files.
     /// `None` means the caller should use its normal directory scanner.
@@ -38,6 +38,9 @@ pub fn resolve_patch_catalog(
     plugin_path: &str,
     configured: Option<&[String]>,
 ) -> PatchCatalogResolution {
+    if plugin_presets::apricot::is_apricot(plugin_id, plugin_path) {
+        return crate::apricot_catalog::resolve(plugin_path);
+    }
     if patch_form_of(plugin_id, plugin_path) == PatchForm::Sfz {
         return with_per_root_base(cached_sforzando_catalog(plugin_path));
     }
@@ -57,6 +60,9 @@ pub fn resolve_patch_catalog_roots(
     plugin_path: &str,
     configured: Option<&[String]>,
 ) -> PatchCatalogResolution {
+    if plugin_presets::apricot::is_apricot(plugin_id, plugin_path) {
+        return crate::apricot_catalog::roots(plugin_path);
+    }
     if plugin_presets::obxf::is_obxf(plugin_id, plugin_path) {
         return resolve_obxf_directories(configured);
     }

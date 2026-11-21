@@ -39,6 +39,7 @@ const DEFAULT_OWNERS: &[PatchTagRow] = &[
     row(PatchForm::SixSines, "Six Sines"),
     row(PatchForm::H2p, "TyrellN6"),
     row(PatchForm::Jc303Preset, "JC303"),
+    row(PatchForm::ApricotPreset, "Apricot"),
     row(PatchForm::CacheWav, "cache-player"),
 ];
 
@@ -256,7 +257,12 @@ pub fn patch_display_from_embedded_json(value: &serde_json::Value) -> Option<Str
 
 /// タグを剥がした patch パスの拡張子から loader を決める。未知の拡張子は `None`。
 pub(crate) fn patch_form_of_path(patch: &str) -> Option<PatchForm> {
-    let form = if is_cartridge_patch_path(patch) {
+    let form = if std::path::Path::new(patch)
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("synthpatch"))
+    {
+        PatchForm::ApricotPreset
+    } else if is_cartridge_patch_path(patch) {
         PatchForm::Cartridge
     } else if is_sforzando_patch_path(patch) {
         PatchForm::Sfz

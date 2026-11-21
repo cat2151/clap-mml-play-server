@@ -16,7 +16,8 @@ use cmrt_server_config::JC303_PLUGIN_ID;
 ///
 /// どれも固有形式以外の state を受け取る契約を持たない。生のバイト列が state load へ届いたときの
 /// 挙動はプラグインごとに違う（Vaporizer2 はプロセスごと落ちた）ので、送る前に拒む。
-const OWN_FORMAT_ONLY_PLUGINS: [(&str, &str); 4] = [
+const OWN_FORMAT_ONLY_PLUGINS: [(&str, &str); 5] = [
+    (cmrt_server_config::APRICOT_PLUGIN_ID, ".synthpatch"),
     (SIX_SINES_PLUGIN_ID, ".sxsnp"),
     (TYRELLN6_PLUGIN_ID, ".h2p"),
     (ZEBRALETTE3_PLUGIN_ID, ".h2p"),

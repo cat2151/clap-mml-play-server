@@ -1,5 +1,7 @@
 use super::*;
 
+mod apricot;
+
 fn fake_kind(name: &str, patch_form: PatchForm, patches_dir: Option<&str>) -> PluginKind {
     PluginKind {
         key: PluginKey::from_identity(None, &format!("{name}.clap")),

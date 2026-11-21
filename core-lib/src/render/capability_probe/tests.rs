@@ -18,6 +18,7 @@ fn the_probe_asks_for_both_the_final_and_draft_preset_interfaces() {
         .collect();
 
     assert!(factories.contains(&"clap.preset-discovery-factory/2"));
+    assert!(factories.contains(&"clap.preset-discovery-factory/draft-2"));
     assert!(factories.contains(&"clap.preset-discovery-factory/draft/2"));
     assert!(extensions.contains(&"clap.preset-load/2"));
     assert!(extensions.contains(&"clap.preset-load.draft/2"));

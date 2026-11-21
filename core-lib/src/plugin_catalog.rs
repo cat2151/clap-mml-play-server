@@ -69,7 +69,14 @@ pub fn plugin_kinds(cfg: &ServerConfig, core_cfg: &CoreConfig) -> Vec<PluginKind
             continue;
         }
         let patch_form = patch_form_of(profile.plugin_id.as_deref(), &profile.plugin_path);
-        let patch_base = if patch_form == PatchForm::Sfz {
+        let patch_base = if patch_form == PatchForm::ApricotPreset {
+            cmrt_server_config::resolve_patch_catalog_roots(
+                profile.plugin_id.as_deref(),
+                &profile.plugin_path,
+                profile.patches_dirs.as_deref(),
+            )
+            .base
+        } else if patch_form == PatchForm::Sfz {
             sforzando_patch_base(&profile.plugin_path, profile.patches_dirs.as_deref(), &name)
         } else {
             PatchBase::from(cmrt_server_config::patch_root_dir(

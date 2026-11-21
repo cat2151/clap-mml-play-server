@@ -1,6 +1,6 @@
 # 0025: 一時 renderer から別 host へ音色 state を転送する検証ゲート
 
-日付: 2026-10-10。状態: 採用。catでの実機転送ゲートと本番transactionの検証を通過。
+- 状態: 採用
 
 ## 背景
 
@@ -18,7 +18,8 @@ pending 完了と callback 処理を使い、sforzando は初期 state と既存
 
 cmrt の生成ロックは UAPMD と共有されない。呼び出し側は別 host の instance 生成を
 排除しなければならない。一時 instance の破棄後に別 UAPMD instance へ state を
-転送し、音声が出て、異なる patch が区別できることを cat の opt-in test で確認する。
+転送し、音声が出て、異なる patch が区別できることを cat の opt-in test
+`native_preparation_cross_host_gate` で確認する。
 成功した state.load だけでは成立とはしない。
 
 ## 制約と検証
@@ -28,20 +29,16 @@ lifecycle は共通の所有権管理ではないため、この経路の成立�
 不成立なら API を本番へ接続せず、承認済み handoff の停止条件に従う。entry の恒久保持、
 helper process、UAPMD 直接 loader の導入をこの検証のために追加しない。
 
-実行コマンド: cat root で `cargo test native_preparation_cross_host_gate -- --ignored --test-threads=1 --nocapture`。
-`RANDOM_GATE_PLUGIN` に対象の厳密 ID、`RANDOM_GATE_WORK_DIR` に実行 ledger の作業領域を渡す。
-テストは既存カタログの二候補を shared reader で解決する。sforzandoはTableWarp2.sfzと
-Airy Bells.ariaxを指定し、user configを更新しない。
-実測結果は実行 ledger に記録する。全音源対応完了や人間の聴取確認はこの ADR だけでは主張しない。
-
-2026-10-10のWindows実機で、Dexed program 0/1、Floe二つのCeltic Harp preset、
+Windows実機では、Dexed program 0/1、Floe二つのCeltic Harp preset、
 sforzando SFZ/ARIAについて準備後の別UAPMD instance復元・発音・音声差を確認した。
+sforzandoの比較対象はTableWarp2.sfzとAiry Bells.ariaxである。
 既存UAPMD instanceを保持したままworker準備→既存instance適用→保存→別instance復元も
-通過した。Floeの準備は二回目の検証で約538ms/318msだった。外部sampleを二重に読む
+成立したため、この三音源にnative準備を採用する。
+Floe二音色の準備は約538ms/318msだった。外部sampleを二重に読む
 方式であり、メモリ使用量の上限や他環境でのlifecycle安全性を保証する測定ではない。
 追加測定で、Floeの二音色を順に準備・適用・別instance復元するテストプロセス全体の
 ピークworking setは約935MiBだった（カタログ、current・temporary・restored instanceを
-含み、準備instance単体の割り当て量ではない）。測定方法とログはhandoff作業領域に保存する。
+含み、準備instance単体の割り当て量ではない）。これらの結果は、全音源での成立や人間の聴取確認を意味しない。
 
 カタログ向け一般APIはSurge、Six Sines、TyrellN6、Vaporizer2の検査付き純粋変換と、
 この三音源のnative準備をまとめる。旧Surge専用APIは維持する。

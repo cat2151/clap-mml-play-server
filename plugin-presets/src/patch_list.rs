@@ -142,9 +142,9 @@ fn visit_dir(
             continue;
         }
         match extension_lowercase(&path).as_deref() {
-            Some("fxp" | "vvp" | "floe-preset" | "sfz" | "sxsnp" | "h2p" | "json") => {
-                list.push(FoundPatch { path, voice: None })
-            }
+            Some(
+                "fxp" | "vvp" | "floe-preset" | "sfz" | "sxsnp" | "h2p" | "json" | "synthpatch",
+            ) => list.push(FoundPatch { path, voice: None }),
             Some("syx") => push_cartridge_programs(&path, list, on_diagnostic),
             _ => {}
         }

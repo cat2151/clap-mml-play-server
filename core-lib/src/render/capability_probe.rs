@@ -32,6 +32,7 @@ const PROBED_FACTORY_IDS: &[&CStr] = &[
     c"clap.plugin-factory",
     c"clap.plugin-invalidation-factory",
     c"clap.preset-discovery-factory/2",
+    c"clap.preset-discovery-factory/draft-2",
     c"clap.preset-discovery-factory/draft/2",
     c"clap.preset-discovery-factory/draft/1",
     c"clap.preset-discovery-factory",

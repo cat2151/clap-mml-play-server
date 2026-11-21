@@ -17,6 +17,7 @@ use crate::sforzando::SfzStreaming;
 use crate::CoreConfig;
 use cmrt_server_config::PatchForm;
 
+mod apricot_patch;
 mod capability_probe;
 mod cartridge_patch;
 mod descriptor;
@@ -211,6 +212,8 @@ impl RealtimeRenderer {
             } else if wire.form == PatchForm::H2p {
                 // まだ `process()` を回していないので反映は遅れない（空回しは要らない）。
                 load_h2p_state(&mut plugin_instance, &descriptor.id, patch)?;
+            } else if wire.form == PatchForm::ApricotPreset {
+                apricot_patch::load_apricot_preset(&mut plugin_instance, &descriptor.id, patch)?;
             } else if wire.form == PatchForm::Jc303Preset {
                 let template = init_state.as_deref().ok_or_else(|| {
                     anyhow::anyhow!("JC303 の init state を保存できない requested='{patch}'")

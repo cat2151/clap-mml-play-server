@@ -382,6 +382,8 @@ name = "cmrt-server-config"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "clack-host",
+ "clap-sys",
  "dirs",
  "dunce",
  "plugin-presets",

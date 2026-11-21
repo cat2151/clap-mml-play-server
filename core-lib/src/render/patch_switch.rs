@@ -40,6 +40,11 @@ impl RealtimeRenderer {
             return Ok(());
         }
         match target {
+            PatchTarget::ApricotPreset(path) => {
+                self.forget_cartridge_program();
+                let id = self.plugin_id.clone();
+                super::apricot_patch::load_apricot_preset(self.plugin_instance_mut(), &id, &path)?;
+            }
             PatchTarget::Cartridge(cartridge) => self.load_cartridge_patch(&cartridge)?,
             PatchTarget::Vvp(path) => {
                 self.forget_cartridge_program();
@@ -105,6 +110,7 @@ impl RealtimeRenderer {
         let wire = parse_patch_wire(patch)?;
         let path = wire.path.to_string();
         Ok(match wire.form {
+            PatchForm::ApricotPreset => PatchTarget::ApricotPreset(path),
             PatchForm::Cartridge => PatchTarget::Cartridge(parse_cartridge_patch_path(&path)?),
             PatchForm::Sfz => PatchTarget::Sfz(path),
             PatchForm::FloePreset => PatchTarget::FloePreset(path),
@@ -184,6 +190,7 @@ fn keeps_voices_across_patch_load(plugin_id: &str) -> bool {
 
 /// `set_patch()` の要求を、プラグインへの実際の操作へ翻訳したもの。
 enum PatchTarget {
+    ApricotPreset(String),
     /// Dexed: cartridge SysEx + Program Change。
     Cartridge(CartridgePatchPath),
     /// Vaporizer2: `.vvp` の XML を JUCE binary-XML で包んで CLAP state としてロード。

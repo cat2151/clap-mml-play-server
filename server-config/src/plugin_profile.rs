@@ -62,6 +62,18 @@ impl PluginProfile {
 pub fn builtin_plugin_profiles() -> BTreeMap<String, PluginProfile> {
     BTreeMap::from([
         (
+            "Apricot".to_string(),
+            PluginProfile {
+                plugin_path: if cfg!(windows) {
+                    r"C:\Program Files\Common Files\CLAP\Apricot.clap".into()
+                } else {
+                    String::new()
+                },
+                plugin_id: Some(crate::APRICOT_PLUGIN_ID.into()),
+                patches_dirs: Some(plugin_presets::apricot::apricot_preset_dirs()),
+            },
+        ),
+        (
             "OB-Xf".to_string(),
             PluginProfile {
                 plugin_path: if cfg!(windows) {
@@ -192,6 +204,8 @@ pub enum PatchForm {
     H2p,
     /// ファイル 1 つ = 音色 1 つ。JC303 の `.json`（init state を雛形に値を書き込んで CLAP state へ）。
     Jc303Preset,
+    /// Apricot の `.synthpatch`。factory は bundle 以下の仮想パス。
+    ApricotPreset,
     /// ファイル 1 つ = 音源 1 つ。組み込み cache-player の `.wav`（DAW の cell キャッシュ）。
     ///
     /// 他の形と違い、**音色ではなく録音済みの音そのもの**を指す。それでも patch 文字列の
@@ -229,6 +243,8 @@ pub fn patch_form_of(plugin_id: Option<&str>, plugin_path: &str) -> PatchForm {
         PatchForm::Vvp
     } else if matches(SIX_SINES_PLUGIN_ID, "six sines") {
         PatchForm::SixSines
+    } else if plugin_presets::apricot::is_apricot(plugin_id, plugin_path) {
+        PatchForm::ApricotPreset
     } else if matches(JC303_PLUGIN_ID, "jc303") {
         PatchForm::Jc303Preset
     } else if u_he_product_of(plugin_id, plugin_path).is_some() {
@@ -266,6 +282,9 @@ pub fn merged_plugin_profiles(
             profile.patches_dirs = Some(plugin_presets::obxf::obxf_preset_dirs());
         }
         match patch_form_of(profile.plugin_id.as_deref(), &profile.plugin_path) {
+            PatchForm::ApricotPreset => {
+                profile.patches_dirs = Some(plugin_presets::apricot::apricot_preset_dirs())
+            }
             PatchForm::Vvp => {
                 profile.patches_dirs = Some(plugin_presets::vaporizer2::vaporizer2_preset_dirs())
             }

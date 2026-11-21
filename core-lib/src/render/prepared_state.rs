@@ -12,7 +12,7 @@ pub(crate) fn prepare_native_state(bundle: &str, id: &str, patch: &str) -> Resul
     let entry = load_entry(bundle)?;
     let config = CoreConfig {
         plugin_id: Some(id.into()),
-        // 呼び出し元（Dexed・Floe・sforzando・JC303）はどれも拡張子の既定所有者。
+        // native 準備に対応する音源はどれも拡張子の既定所有者。
         patch_path: Some(default_owner_wire(patch)),
         sample_rate: 48_000.0,
         buffer_size: 256,

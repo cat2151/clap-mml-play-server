@@ -168,7 +168,10 @@ impl AudioPluginInfo {
             | PatchForm::Jc303Preset => false,
             PatchForm::H2p => u_he_product_of(self.plugin_id.as_deref(), &self.plugin_path)
                 .is_none_or(|product| product.builtin_effects),
-            PatchForm::Vvp | PatchForm::StateFile | PatchForm::CacheWav => true,
+            PatchForm::Vvp
+            | PatchForm::StateFile
+            | PatchForm::CacheWav
+            | PatchForm::ApricotPreset => true,
         }
     }
 }
@@ -333,6 +336,24 @@ fn selector_category(
     display: &str,
     sort: &PatchSortMetadata,
 ) -> Option<String> {
+    if plugin.patch_form == PatchForm::ApricotPreset {
+        let path = PathBuf::from(plugin.patch_base.resolve(split_display(display).0));
+        if let Some((_, key)) = plugin_presets::apricot::factory_patch(&path) {
+            return key
+                .strip_prefix("patches/")?
+                .split_once('/')
+                .map(|(category, _)| {
+                    category
+                        .strip_prefix("Factory ")
+                        .unwrap_or(category)
+                        .to_string()
+                });
+        }
+        return path
+            .parent()
+            .and_then(Path::file_name)
+            .map(|name| name.to_string_lossy().into_owned());
+    }
     if plugin_presets::obxf::is_obxf(plugin.plugin_id.as_deref(), &plugin.plugin_path) {
         let (path, _) = split_display(display);
         let normalized = path.replace('\\', "/");

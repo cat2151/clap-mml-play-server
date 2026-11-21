@@ -9,6 +9,7 @@
 //! 固定の既定プラグイン Surge XT の解決規則も、プラグインをロードするこちら側の知識として
 //! ここが持つ。
 
+mod apricot_catalog;
 mod effect_defaults;
 mod patch_base;
 mod patch_catalog;
@@ -44,6 +45,7 @@ pub use plugin_identity::{
     SFORZANDO_PLUGIN_ID, SIX_SINES_PLUGIN_ID, SURGE_XT_PLUGIN_ID, TYRELLN6_PLUGIN_ID,
     VAPORIZER2_PLUGIN_ID, ZEBRALETTE3_PLUGIN_ID,
 };
+pub use plugin_presets::apricot::APRICOT_PLUGIN_ID;
 pub use plugin_presets::floe::{floe_note_assignments, floe_preset_is_percussion};
 pub use plugin_presets::obxf::{OBXF_PATCH_TAG, OBXF_PLUGIN_ID};
 pub use plugin_presets::sforzando::{

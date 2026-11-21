@@ -47,3 +47,15 @@ fn missing_native_patch_is_an_io_error() {
         Err(PatchStateError::Io { .. })
     ));
 }
+
+#[test]
+fn apricot_factory_reference_cannot_point_at_another_bundle() {
+    assert!(matches!(
+        prepare_native_clap_patch_state(
+            APRICOT_PLUGIN_ID,
+            &absolute("plugins/Apricot.clap"),
+            &absolute("other/Apricot.clap/patches/Factory Pads/Pad.synthpatch")
+        ),
+        Err(PatchStateError::InvalidData { .. })
+    ));
+}

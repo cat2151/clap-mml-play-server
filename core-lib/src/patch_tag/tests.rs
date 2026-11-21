@@ -1,6 +1,6 @@
 use super::*;
 
-const ALL_FORMS: [PatchForm; 9] = [
+const ALL_FORMS: [PatchForm; 10] = [
     PatchForm::StateFile,
     PatchForm::Cartridge,
     PatchForm::Vvp,
@@ -10,6 +10,7 @@ const ALL_FORMS: [PatchForm; 9] = [
     PatchForm::H2p,
     PatchForm::Jc303Preset,
     PatchForm::CacheWav,
+    PatchForm::ApricotPreset,
 ];
 
 /// variant を足したら `ALL_FORMS` も足させるための網羅 match。
@@ -24,6 +25,7 @@ fn index_of(form: PatchForm) -> usize {
         PatchForm::H2p => 6,
         PatchForm::Jc303Preset => 7,
         PatchForm::CacheWav => 8,
+        PatchForm::ApricotPreset => 9,
     }
 }
 
