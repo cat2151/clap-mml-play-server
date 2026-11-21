@@ -62,6 +62,18 @@ impl PluginProfile {
 pub fn builtin_plugin_profiles() -> BTreeMap<String, PluginProfile> {
     BTreeMap::from([
         (
+            "OB-Xf".to_string(),
+            PluginProfile {
+                plugin_path: if cfg!(windows) {
+                    r"C:\Program Files\Common Files\CLAP\Surge Synth Team\OB-Xf.clap".to_string()
+                } else {
+                    String::new()
+                },
+                plugin_id: Some(crate::OBXF_PLUGIN_ID.to_string()),
+                patches_dirs: Some(plugin_presets::obxf::obxf_preset_dirs()),
+            },
+        ),
+        (
             "Surge XT".to_string(),
             PluginProfile {
                 plugin_path: default_plugin_path().to_string(),
@@ -250,6 +262,9 @@ pub fn merged_plugin_profiles(
         merged.insert(key, base.overridden_by(configured.clone()));
     }
     for profile in merged.values_mut() {
+        if plugin_presets::obxf::is_obxf(profile.plugin_id.as_deref(), &profile.plugin_path) {
+            profile.patches_dirs = Some(plugin_presets::obxf::obxf_preset_dirs());
+        }
         match patch_form_of(profile.plugin_id.as_deref(), &profile.plugin_path) {
             PatchForm::Vvp => {
                 profile.patches_dirs = Some(plugin_presets::vaporizer2::vaporizer2_preset_dirs())

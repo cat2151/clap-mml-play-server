@@ -41,6 +41,9 @@ pub fn resolve_patch_catalog(
     if patch_form_of(plugin_id, plugin_path) == PatchForm::Sfz {
         return with_per_root_base(cached_sforzando_catalog(plugin_path));
     }
+    if plugin_presets::obxf::is_obxf(plugin_id, plugin_path) {
+        return resolve_obxf_directories(configured);
+    }
     resolve_plain_directories(configured)
 }
 
@@ -54,6 +57,9 @@ pub fn resolve_patch_catalog_roots(
     plugin_path: &str,
     configured: Option<&[String]>,
 ) -> PatchCatalogResolution {
+    if plugin_presets::obxf::is_obxf(plugin_id, plugin_path) {
+        return resolve_obxf_directories(configured);
+    }
     if patch_form_of(plugin_id, plugin_path) == PatchForm::Sfz {
         return with_per_root_base(
             sforzando::resolve_roots(sforzando::RegistrySources::read(
@@ -63,6 +69,14 @@ pub fn resolve_patch_catalog_roots(
         );
     }
     resolve_plain_directories(configured)
+}
+
+fn resolve_obxf_directories(configured: Option<&[String]>) -> PatchCatalogResolution {
+    let mut resolution = resolve_plain_directories(configured);
+    // 本体は初回 instance 生成時に user folder を作る。存在する root だけで基点を決めると、
+    // catalog 作成と server 起動の間に基点が変わり、保存した display を解決できなくなる。
+    resolution.base = PatchBase::shared(&configured_patch_dirs(configured));
+    resolution
 }
 
 impl From<SforzandoCatalog> for PatchCatalogResolution {

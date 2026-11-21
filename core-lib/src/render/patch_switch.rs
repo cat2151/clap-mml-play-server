@@ -113,7 +113,10 @@ impl RealtimeRenderer {
             PatchForm::H2p => PatchTarget::H2p(path),
             PatchForm::Jc303Preset => PatchTarget::Jc303Preset(path),
             PatchForm::CacheWav => PatchTarget::CacheWav(path),
-            PatchForm::StateFile => PatchTarget::StateFile(path),
+            PatchForm::StateFile => {
+                super::obxf_patch::ensure_state_file_owner(&self.plugin_id, wire.tag)?;
+                PatchTarget::StateFile(path)
+            }
         })
     }
 

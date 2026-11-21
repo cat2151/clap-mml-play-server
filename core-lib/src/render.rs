@@ -32,6 +32,7 @@ mod prepared_state;
 pub(crate) use prepared_state::prepare_native_state;
 mod h2p_patch;
 mod jc303_patch;
+mod obxf_patch;
 mod process;
 mod process_inputs;
 mod serial_instantiation;
@@ -216,6 +217,7 @@ impl RealtimeRenderer {
                 })?;
                 load_jc303_state(&mut plugin_instance, &descriptor.id, template, patch)?;
             } else {
+                obxf_patch::ensure_state_file_owner(&descriptor.id, wire.tag)?;
                 ensure_accepts_generic_state_file(&descriptor.id, patch)?;
                 load_patch(&mut plugin_instance, &descriptor.id, patch)?;
             }

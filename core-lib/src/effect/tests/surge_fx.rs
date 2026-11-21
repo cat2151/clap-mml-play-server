@@ -6,9 +6,9 @@ use std::path::{Path, PathBuf};
 use super::*;
 use crate::surge_fx_preset::juce_xml;
 use crate::surge_fx_preset::{
-    calibration_state_xml, param_layout, param_remap, parse_srgfx, parse_state_xml,
+    calibration_state_xml, param_layout, param_layouts, param_remap, parse_srgfx, parse_state_xml,
     SurgeFxParamRanges, SurgeFxSnapshot, SurgeFxStateReport, SURGE_FX_PARAM_COUNT,
-    SURGE_FX_PARAM_LAYOUTS, SURGE_FX_PLUGIN_ID, VALTYPE_INT,
+    SURGE_FX_PLUGIN_ID, VALTYPE_INT,
 };
 
 const SURGEFX_CLAP_ENV: &str = "CMRT_TEST_SURGEFX_CLAP";
@@ -47,7 +47,7 @@ fn load_and_check(
         .unwrap_or_else(|error| panic!("{label}: {error:#}"));
     let report = saved_report(renderer);
     assert_eq!(report.fx_type, snapshot.fx_type, "{label}: fxt");
-    let layout = param_layout(snapshot.fx_type).unwrap();
+    let layout = param_layout(snapshot.fx_type).unwrap().unwrap();
     let remap = param_remap(layout);
     for (gui_index, storage_index) in remap.into_iter().enumerate() {
         if !layout.active[storage_index] {
@@ -274,7 +274,7 @@ fn surge_fx_temposync_delay_preset_matches_self_report() {
     assert!(snapshot.params[0].temposync && snapshot.params[1].temposync);
     let ranges = renderer.measure_surge_fx_ranges(snapshot.fx_type).unwrap();
     let report = load_and_check(&mut renderer, &snapshot, &ranges, "Basic 1-16");
-    let remap = param_remap(param_layout(1).unwrap());
+    let remap = param_remap(param_layout(1).unwrap().unwrap());
     for (gui_index, storage_index) in remap.into_iter().enumerate() {
         let expected = i32::from(snapshot.params[storage_index].temposync);
         assert_eq!(
@@ -294,14 +294,14 @@ fn surge_fx_temposync_delay_preset_matches_self_report() {
 fn surge_fx_param_names_agree_with_generated_layout() {
     let mut renderer = surge_fx_renderer();
     let mut checked = 0;
-    for layout in SURGE_FX_PARAM_LAYOUTS {
+    for layout in param_layouts().unwrap() {
         renderer
             .surge_fx_self_report(&calibration_state_xml(layout.fx_type, 0.0))
             .unwrap();
         let names = renderer.param_names();
         let remap = param_remap(layout);
         for (gui_index, storage_index) in remap.into_iter().enumerate() {
-            let expected = layout.names[storage_index];
+            let expected = &layout.names[storage_index];
             if !layout.active[storage_index] || expected.is_empty() {
                 continue;
             }
@@ -345,7 +345,7 @@ fn surge_fx_every_factory_snapshot_matches_self_report() {
             }
         };
         for snapshot in parsed {
-            if param_layout(snapshot.fx_type).is_none() {
+            if param_layout(snapshot.fx_type).unwrap().is_none() {
                 skipped.push(format!("{label} (type {})", snapshot.fx_type));
                 continue;
             }

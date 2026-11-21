@@ -103,6 +103,7 @@ mod cartridge;
 mod dexed;
 mod floe;
 mod jc303;
+mod obxf;
 mod plugin_id;
 mod sforzando;
 mod six_sines;

@@ -43,11 +43,18 @@ const DEFAULT_OWNERS: &[PatchTagRow] = &[
 ];
 
 /// 共有拡張子の追加タグ。既定所有者以外が同じ拡張子を読むときだけ行を足す。
-const EXTRA_TAGS: &[PatchTagRow] = &[PatchTagRow {
-    form: PatchForm::H2p,
-    tag: ZEBRALETTE3_PATCH_TAG,
-    owner: "Zebralette3",
-}];
+const EXTRA_TAGS: &[PatchTagRow] = &[
+    PatchTagRow {
+        form: PatchForm::H2p,
+        tag: ZEBRALETTE3_PATCH_TAG,
+        owner: "Zebralette3",
+    },
+    PatchTagRow {
+        form: PatchForm::StateFile,
+        tag: cmrt_server_config::OBXF_PATCH_TAG,
+        owner: "OB-Xf",
+    },
+];
 
 const fn row(form: PatchForm, owner: &'static str) -> PatchTagRow {
     PatchTagRow {

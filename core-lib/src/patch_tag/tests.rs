@@ -50,8 +50,43 @@ fn extra_tags_are_non_empty_valid_and_unique_per_form() {
     }
 }
 
+#[test]
+fn longer_tags_require_all_shorter_tags_in_the_same_form_to_be_used() {
+    let alphabet_size = u128::from(26_u8 + 26 + 10);
+    for row in EXTRA_TAGS {
+        for length in 1..row.tag.len() {
+            let used = EXTRA_TAGS
+                .iter()
+                .filter(|other| other.form == row.form && other.tag.len() == length)
+                .count() as u128;
+            assert_eq!(
+                used,
+                alphabet_size.pow(length as u32),
+                "{} のタグ '{}' は、同じ拡張子で {length} 文字の候補を使い切る前に長くしている",
+                row.owner,
+                row.tag
+            );
+        }
+    }
+}
+
 fn owner(wire: &str) -> &'static str {
     parse_patch_wire(wire).unwrap().owner
+}
+
+#[test]
+fn fxp_owners_and_display_round_trip_are_distinct() {
+    assert_eq!(owner("Basses/Bass.fxp:"), "Surge XT");
+    let wire = "Basses/Bass.fxp:o";
+    let parsed = parse_patch_wire(wire).unwrap();
+    assert_eq!(parsed.owner, "OB-Xf");
+    assert_eq!(parsed.path, "Basses/Bass.fxp");
+    assert_eq!(wire_from_display(&display_from_wire(&parsed)), wire);
+    assert_eq!(split_display(wire), ("Basses/Bass.fxp", "o"));
+    assert!(matches!(
+        parse_patch_wire("Basses/Bass.fxp:obxf"),
+        Err(PatchWireError::UnknownTag { .. })
+    ));
 }
 
 #[test]

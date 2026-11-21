@@ -44,6 +44,7 @@ pub struct EffectRenderer {
     instance: PluginInstance<MidiRenderHost>,
     processor: Option<StartedPluginAudioProcessor<MidiRenderHost>>,
     plugin_id: String,
+    plugin_version: String,
     /// preset を載せる前の state。preset → state の組み立ての template になる。
     init_state: Vec<u8>,
     /// input port ごとの channel buffer。
@@ -90,6 +91,7 @@ impl EffectRenderer {
             instance,
             processor: None,
             plugin_id: descriptor.id,
+            plugin_version: descriptor.version,
             init_state,
             inputs,
             out_left: vec![0.0; buf_size],
@@ -105,6 +107,10 @@ impl EffectRenderer {
 
     pub fn plugin_id(&self) -> &str {
         &self.plugin_id
+    }
+
+    pub fn plugin_version(&self) -> &str {
+        &self.plugin_version
     }
 
     pub fn buf_size(&self) -> usize {

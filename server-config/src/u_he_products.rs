@@ -47,10 +47,5 @@ pub fn u_he_product_of(plugin_id: Option<&str>, plugin_path: &str) -> Option<&'s
     })
 }
 
-/// その plugin の音色を指す patch 文字列のタグ。既定所有者なら空。
-pub fn patch_tag_of(plugin_id: Option<&str>, plugin_path: &str) -> &'static str {
-    u_he_product_of(plugin_id, plugin_path).map_or("", |product| product.patch_tag)
-}
-
 #[cfg(test)]
 mod tests;

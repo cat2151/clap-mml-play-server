@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use super::*;
-use crate::surge_fx_preset::{SURGE_FX_PARAM_COUNT, SURGE_FX_PARAM_LAYOUTS};
+use crate::surge_fx_preset::SURGE_FX_PARAM_COUNT;
 
 const SURGE_FX_JSON_KEY: &str = "Surge XT Effects preset";
 const TONE3000_JSON_KEY: &str = "TONE3000 preset";
@@ -197,19 +197,20 @@ fn scan_lists_readable_srgfx_files_and_reports_the_rest() {
         presets.join("Reverb 1").join("Cathedral 2.srgfx"),
         format!(
             r#"<single-fx streaming_version="17"><snapshot type="{}" name="Cathedral 2"{params}/></single-fx>"#,
-            SURGE_FX_PARAM_LAYOUTS[0].fx_type
+            1
         ),
     )
     .unwrap();
     std::fs::write(presets.join("Broken.srgfx"), "<single-fx>").unwrap();
     std::fs::write(presets.join("notes.txt"), "ignored").unwrap();
 
-    let catalog = AudioEffectCatalog::scan(vec![AudioEffectPluginInfo::new(
+    let plugin = AudioEffectPluginInfo::new(
         "Surge XT Effects",
         plugin_path.to_string_lossy().into_owned(),
         SURGE_FX_PLUGIN_ID,
         &presets,
-    )]);
+    );
+    let catalog = scan_surge_with_external_layouts(plugin);
     std::fs::remove_dir_all(&root).unwrap();
 
     assert_eq!(catalog.plugins().len(), 1);
@@ -310,6 +311,30 @@ fn categories_and_kinds_are_deduplicated_and_sorted() {
     );
 }
 
+fn scan_surge_with_external_layouts(plugin: AudioEffectPluginInfo) -> AudioEffectCatalog {
+    // Catalog scanning tests need only supported type IDs, not real parameter data.
+    let layouts: Vec<_> = (1..=64)
+        .map(|fx_type| crate::surge_fx_preset::SurgeFxParamLayout {
+            fx_type,
+            display_name: format!("Invented {fx_type}"),
+            posy_offset: [0; 12],
+            active: [false; 12],
+            names: std::array::from_fn(|_| String::new()),
+        })
+        .collect();
+    let mut catalog = AudioEffectCatalog::with_entries(vec![plugin.clone()], Vec::new());
+    scan::scan_files(
+        &plugin,
+        "srgfx",
+        |root, path, name| {
+            crate::surge_fx_preset::surge_fx_value_with_layouts(root, path, name, &layouts)
+        },
+        &mut catalog.presets,
+        &mut catalog.skipped,
+    );
+    catalog
+}
+
 /// 実 install が無い環境（Linux CI など）では何もせず通す。
 /// TUI の category / kind pane を Surge の実機カタログで裏づける。
 /// 他の任意 install（TONE3000 の Amp Simulator 等）は混ぜない。
@@ -324,7 +349,7 @@ fn installed_surge_catalog_has_the_expected_categories_and_kinds() {
     if !plugin.preset_root.is_dir() {
         return;
     }
-    let catalog = AudioEffectCatalog::scan(vec![plugin]);
+    let catalog = scan_surge_with_external_layouts(plugin);
     assert_eq!(
         catalog.categories(),
         [

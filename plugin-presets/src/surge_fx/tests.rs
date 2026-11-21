@@ -1,5 +1,30 @@
 use super::*;
 
+fn layouts() -> &'static [SurgeFxParamLayout] {
+    static LAYOUTS: std::sync::OnceLock<Vec<SurgeFxParamLayout>> = std::sync::OnceLock::new();
+    LAYOUTS.get_or_init(|| {
+        (1..=3)
+            .map(|fx_type| {
+                let mut layout = SurgeFxParamLayout {
+                    fx_type,
+                    display_name: format!("Invented {fx_type}"),
+                    posy_offset: [1; SURGE_FX_PARAM_COUNT],
+                    active: [true; SURGE_FX_PARAM_COUNT],
+                    names: std::array::from_fn(|i| format!("Example {i}")),
+                };
+                if fx_type == 1 {
+                    layout.posy_offset[8] = -20;
+                }
+                layout
+            })
+            .collect()
+    })
+}
+
+fn param_layout(fx_type: i32) -> Option<&'static SurgeFxParamLayout> {
+    layouts().iter().find(|layout| layout.fx_type == fx_type)
+}
+
 const CATHEDRAL_2: &str = r#"<single-fx streaming_version="17">
   <snapshot name="Cathedral 2"
      type="2"
@@ -106,42 +131,26 @@ fn rejects_files_without_snapshot_or_type() {
     assert!(parse_srgfx(r#"<other><snapshot name="x" type="1"/></other>"#).is_err());
 }
 
-/// Delay は `Channel`（storage 8、posy_offset -15）が GUI の先頭へ来る。
+/// An invented layout puts storage 8 at the front.
 #[test]
-fn delay_remap_moves_input_channel_to_the_front() {
+fn remap_moves_a_negative_offset_to_the_front() {
     let layout = param_layout(1).unwrap();
     let remap = param_remap(layout);
-    assert_eq!(remap, [8, 0, 1, 2, 3, 4, 5, 6, 7, 11, 10, 9]);
+    assert_eq!(remap, [8, 0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11]);
 }
 
-/// Phaser は GUI の並びが storage の並びと大きく違う。
+/// Inactive and zero-offset parameters follow active controls in storage order.
 #[test]
-fn phaser_remap_follows_posy_offsets() {
-    let layout = param_layout(3).unwrap();
-    let remap = param_remap(layout);
-    let gui_names: Vec<&str> = remap.iter().map(|index| layout.names[*index]).collect();
-    assert_eq!(
-        gui_names,
-        [
-            "Waveform",
-            "Rate",
-            "Depth",
-            "Stereo",
-            "Count",
-            "Spread",
-            "Center",
-            "Sharpness",
-            "Feedback",
-            "Tone",
-            "Width",
-            "Mix"
-        ]
-    );
+fn remap_appends_hidden_parameters_in_storage_order() {
+    let mut layout = param_layout(3).unwrap().clone();
+    layout.posy_offset[0] = 0;
+    layout.active[2] = false;
+    assert_eq!(param_remap(&layout), [1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 2]);
 }
 
 #[test]
 fn every_layout_remap_is_a_permutation() {
-    for layout in SURGE_FX_PARAM_LAYOUTS {
+    for layout in layouts() {
         let mut remap = param_remap(layout);
         remap.sort_unstable();
         assert_eq!(

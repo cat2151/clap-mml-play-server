@@ -42,6 +42,9 @@ pub(super) fn load_patch(
     plugin_id: &str,
     patch_path: &str,
 ) -> Result<()> {
+    if plugin_id == cmrt_server_config::OBXF_PLUGIN_ID {
+        return super::obxf_patch::load_obxf_preset(plugin_instance, patch_path);
+    }
     let path = std::path::Path::new(patch_path);
     if plugin_id == crate::SURGE_XT_PLUGIN_ID && crate::patch_state_prepare::is_fxp(path) {
         let absolute = crate::lexical_absolute(path)?;

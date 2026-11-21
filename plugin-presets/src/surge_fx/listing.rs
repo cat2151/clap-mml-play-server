@@ -4,7 +4,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
-use super::{param_layout, parse_srgfx};
+use super::{param_layouts, parse_srgfx, SurgeFxParamLayout};
 use crate::effect_preset::{relative_display, PresetValue};
 
 pub const SRGFX_EXTENSION: &str = "srgfx";
@@ -54,12 +54,24 @@ pub const SURGE_FOLDER_CLASSIFICATION: &[(&str, &str, &str)] = &[
 
 /// 先頭の snapshot が読めて effect 種別が対応済みなら、相対パスを値にする。
 pub fn surge_fx_value(root: &Path, path: &Path, plugin_name: &str) -> Result<PresetValue> {
+    surge_fx_value_with_layouts(root, path, plugin_name, param_layouts()?)
+}
+
+pub fn surge_fx_value_with_layouts(
+    root: &Path,
+    path: &Path,
+    plugin_name: &str,
+    layouts: &[SurgeFxParamLayout],
+) -> Result<PresetValue> {
     let xml = std::fs::read_to_string(path).context("読めない")?;
     let snapshot = parse_srgfx(&xml)?
         .into_iter()
         .next()
         .ok_or_else(|| anyhow::anyhow!("snapshot が無い"))?;
-    if param_layout(snapshot.fx_type).is_none() {
+    if !layouts
+        .iter()
+        .any(|layout| layout.fx_type == snapshot.fx_type)
+    {
         anyhow::bail!("effect 種別 {} は未対応", snapshot.fx_type);
     }
     let value = relative_display(root, path);

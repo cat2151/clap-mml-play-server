@@ -1,4 +1,5 @@
 use super::*;
+use crate::patch_tag_of;
 
 #[test]
 fn the_plugin_id_or_the_file_name_finds_the_product() {

@@ -13,6 +13,7 @@ mod effect_defaults;
 mod patch_base;
 mod patch_catalog;
 mod patch_dirs;
+mod patch_tag;
 mod paths;
 mod plugin_defaults;
 mod plugin_identity;
@@ -30,6 +31,7 @@ pub use patch_catalog::{
     resolve_patch_catalog, resolve_patch_catalog_roots, PatchCatalogResolution,
 };
 pub use patch_dirs::{configured_patch_dirs, patch_root_dir, shared_patch_root_dir};
+pub use patch_tag::patch_tag_of;
 pub use paths::{config_app_dir, config_file_path, six_sines_factory_dir};
 pub use plugin_defaults::{
     default_dexed_cartridge_dirs, default_dexed_plugin_path, default_floe_plugin_path,
@@ -43,6 +45,7 @@ pub use plugin_identity::{
     VAPORIZER2_PLUGIN_ID, ZEBRALETTE3_PLUGIN_ID,
 };
 pub use plugin_presets::floe::{floe_note_assignments, floe_preset_is_percussion};
+pub use plugin_presets::obxf::{OBXF_PATCH_TAG, OBXF_PLUGIN_ID};
 pub use plugin_presets::sforzando::{
     resolve_sforzando_preset, resolve_sforzando_program, sfz_is_drum_kit, sfz_note_assignments,
     sfz_one_shot_notes, sfz_sample_weight, SforzandoPresetRef, SforzandoProgramRef,
@@ -58,9 +61,7 @@ pub use primary_plugin::{
     reject_retired_top_level_plugin_keys, resolve_primary_plugin_profile,
     PRIMARY_PLUGIN_PROFILE_NAME,
 };
-pub use u_he_products::{
-    patch_tag_of, u_he_product_of, UHeProduct, U_HE_PRODUCTS, ZEBRALETTE3_PATCH_TAG,
-};
+pub use u_he_products::{u_he_product_of, UHeProduct, U_HE_PRODUCTS, ZEBRALETTE3_PATCH_TAG};
 
 use std::collections::BTreeMap;
 

@@ -6,7 +6,7 @@ use crate::{
     DEXED_PLUGIN_ID, FLOE_PLUGIN_ID, SFORZANDO_PLUGIN_ID, SIX_SINES_PLUGIN_ID, SURGE_XT_PLUGIN_ID,
     TYRELLN6_PLUGIN_ID, VAPORIZER2_PLUGIN_ID, ZEBRALETTE3_PLUGIN_ID,
 };
-use cmrt_server_config::JC303_PLUGIN_ID;
+use cmrt_server_config::{JC303_PLUGIN_ID, OBXF_PLUGIN_ID};
 
 pub fn supports_catalog_clap_plugin(id: &str) -> bool {
     matches!(
@@ -20,6 +20,7 @@ pub fn supports_catalog_clap_plugin(id: &str) -> bool {
             | VAPORIZER2_PLUGIN_ID
             | ZEBRALETTE3_PLUGIN_ID
             | JC303_PLUGIN_ID
+            | OBXF_PLUGIN_ID
     )
 }
 
@@ -41,6 +42,7 @@ pub fn prepare_catalog_clap_patch_state(
         return prepare_native_clap_patch_state(id, bundle, patch);
     }
     let extension = match id {
+        OBXF_PLUGIN_ID => "fxp",
         SIX_SINES_PLUGIN_ID => "sxsnp",
         TYRELLN6_PLUGIN_ID | ZEBRALETTE3_PLUGIN_ID => "h2p",
         VAPORIZER2_PLUGIN_ID => "vvp",
@@ -73,6 +75,10 @@ pub fn prepare_catalog_clap_patch_state(
         path: patch.into(),
         reason,
     };
+    if id == OBXF_PLUGIN_ID {
+        return plugin_presets::obxf::obxf_state_blob(&bytes)
+            .map_err(|e| invalid(format!("{e:#}")));
+    }
     if let Some(product) = crate::h2p::h2p_product_of(id) {
         crate::h2p::check_h2p_model(product, &bytes).map_err(invalid)?;
         return Ok(bytes);

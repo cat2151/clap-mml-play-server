@@ -20,6 +20,7 @@
 pub mod juce_xml;
 mod listing;
 mod param_layout;
+pub mod source_layout;
 mod streaming_migration;
 
 use std::io::Cursor;
@@ -28,9 +29,14 @@ use anyhow::{bail, Context, Result};
 use xmltree::{Element, EmitterConfig, XMLNode};
 
 pub use listing::{
-    surge_classification, surge_fx_value, SRGFX_EXTENSION, SURGE_FOLDER_CLASSIFICATION,
+    surge_classification, surge_fx_value, surge_fx_value_with_layouts, SRGFX_EXTENSION,
+    SURGE_FOLDER_CLASSIFICATION,
 };
-pub use param_layout::{SurgeFxParamLayout, SURGE_FX_PARAM_LAYOUTS};
+pub use param_layout::{
+    decode_layout_file, decode_param_layouts, ensure_param_layout_version, param_layout_cache_path,
+    param_layouts, read_param_layouts, SurgeFxLayoutFile, SurgeFxParamLayout,
+    PARAM_LAYOUT_CACHE_RELATIVE_PATH, PARAM_LAYOUT_GENERATOR_VERSION,
+};
 pub use streaming_migration::{apply_streaming_migrations, SURGE_STREAMING_REVISION};
 
 /// Surge XT Effects の CLAP plugin ID。
@@ -170,10 +176,10 @@ fn flag_attribute(element: &Element, key: &str) -> bool {
 }
 
 /// effect 種別の layout。未知の種別は `None`。
-pub fn param_layout(fx_type: i32) -> Option<&'static SurgeFxParamLayout> {
-    SURGE_FX_PARAM_LAYOUTS
+pub fn param_layout(fx_type: i32) -> Result<Option<&'static SurgeFxParamLayout>> {
+    Ok(param_layouts()?
         .iter()
-        .find(|layout| layout.fx_type == fx_type)
+        .find(|layout| layout.fx_type == fx_type))
 }
 
 /// GUI 順（state の `fxp_N`）→ storage 順（`.srgfx` の `pN`）の対応。

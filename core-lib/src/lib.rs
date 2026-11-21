@@ -44,6 +44,8 @@ pub mod six_sines_factory;
 #[cfg(feature = "host")]
 pub mod surge_data;
 #[cfg(feature = "host")]
+pub mod surge_fx_source;
+#[cfg(feature = "host")]
 pub mod voicing;
 #[cfg(feature = "host")]
 mod workspace_update;

@@ -82,6 +82,31 @@ preset ファイルから plugin state を host が組んで `clap.state.load` �
   parameter 欄を上書きする。`preset` state だけ書いても decay しか変わらない。catalog の値は preset 名、
   `path` は plugin 本体（引くのは `PresetLocation::value`）。Early Reflections は preset の代わりに `program` param の選択肢を並べる
 
+### Surge XT Effects の parameter 表は公式 source から利用環境で生成する
+
+当初は `.srgfx` と state の並びの違いを埋めるため、原作ソースから生成した対応表を
+Rust の定数として host に組み込んだ。このため、plugin 固有データの更新が host exe の
+再ビルドと結び付いていた。表の分割だけでは、この依存関係は変わらない。
+
+最初の改善では user の判断で exe への埋め込みをやめ、生成済みの外部 JSON を repository で
+管理して catalog 構築時に利用環境へ保存する方式を選んだ。ただし、この方式でも原作由来の
+parameter 表を自分の repository で保持・配布する点は変わらず、Python の生成器にも
+ループなどを補完する手書き表が残っていた。
+
+user はその保持・配布も避ける方針を選び、公式 source の取得と JSON 生成を Rust で行うことを
+決めた。生成済み表と手書きの parameter 補完表は保持せず、catalog 構築時に公式 release の
+必要な定義・ループ・式を解析する。取得した source と生成物は LocalAppData にだけ置き、
+通常起動と演奏は通信しない。従来から対象外の Audio Input は追加せず、未知の定義を推測で補わない。
+
+最新 HEAD では利用中の plugin と並びが食い違い得るため、正式版の descriptor version に合う
+release を使い、sst-effects はその release の submodule revision に従う。対応 release を特定
+できない版や未対応の構文では生成を失敗させ、利用中の cache を保全する。plugin の版と生成器の
+版が合う cache を再利用し、異なる版の表は適用しない。旧 cache は保全したうえで公式 source から
+再生成する。catalog・favorites・設定と音色指定は維持する。
+
+これは原作の内部 source 構造への依存を引き受ける判断であり、native preset loader への委譲とは
+区別する。正規化の値域は従来どおり実 plugin から測る。
+
 ## latency と block 境界
 
 chain は各段の `clap.latency` を合計し、末尾に無音を足して回してから先頭を捨てるので、

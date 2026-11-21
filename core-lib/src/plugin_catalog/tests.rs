@@ -19,6 +19,29 @@ fn base_of<'a>(bases: &'a PatchBases, wire: &str) -> &'a crate::PatchBase {
 }
 
 #[test]
+fn obxf_and_surge_route_to_their_own_instances_and_roots() {
+    let mut obxf = fake_kind("OB-Xf", PatchForm::StateFile, Some("X:/obxf"));
+    obxf.patch_tag = cmrt_server_config::OBXF_PATCH_TAG;
+    let kinds = vec![
+        fake_kind("Surge XT", PatchForm::StateFile, Some("X:/surge")),
+        obxf,
+    ];
+    assert_eq!(
+        kind_for_patch(&kinds, 0, Some("Basses/Bass.fxp:")).unwrap(),
+        0
+    );
+    assert_eq!(
+        kind_for_patch(&kinds, 0, Some("Basses/Bass.fxp:o")).unwrap(),
+        1
+    );
+    let bases = PatchBases::from_kinds(&kinds);
+    assert_eq!(
+        base_of(&bases, "Basses/Bass.fxp:o"),
+        &PatchBase::Shared("X:/obxf".into())
+    );
+}
+
+#[test]
 fn duplicate_patch_forms_are_ambiguous_instead_of_using_the_first_plugin() {
     let kinds = vec![
         fake_kind("Surge XT A", PatchForm::StateFile, None),

@@ -333,6 +333,18 @@ fn selector_category(
     display: &str,
     sort: &PatchSortMetadata,
 ) -> Option<String> {
+    if plugin_presets::obxf::is_obxf(plugin.plugin_id.as_deref(), &plugin.plugin_path) {
+        let (path, _) = split_display(display);
+        let normalized = path.replace('\\', "/");
+        // system / local / user の共通基点は drive root にもなる。インストール先の
+        // ProgramData 等をカテゴリとせず、本体の Patches 以下の分類を表示する。
+        let relative = normalized
+            .rsplit_once("/OB-Xf/Patches/")
+            .map_or(normalized.as_str(), |(_, relative)| relative);
+        return relative
+            .split_once('/')
+            .map(|(category, _)| category.to_string());
+    }
     if plugin.patch_form == PatchForm::Vvp {
         let code = vvp_category_code(display);
         return cmrt_server_config::VAPORIZER2_CATEGORY_CODES

@@ -104,7 +104,8 @@ impl EffectRenderer {
     /// `.srgfx` の snapshot を載せる。range 計測のため state の load/save を 2 回はさむ。
     pub fn load_surge_fx_snapshot(&mut self, snapshot: &SurgeFxSnapshot) -> Result<()> {
         self.ensure_plugin(SURGE_FX_PLUGIN_ID)?;
-        let layout = param_layout(snapshot.fx_type).ok_or_else(|| {
+        crate::surge_fx_preset::ensure_param_layout_version(self.plugin_version())?;
+        let layout = param_layout(snapshot.fx_type)?.ok_or_else(|| {
             anyhow::anyhow!(
                 "Surge XT Effects の type {} ('{}') は未対応",
                 snapshot.fx_type,

@@ -5,6 +5,27 @@ use super::*;
 static TEMP_ID: AtomicUsize = AtomicUsize::new(0);
 
 #[test]
+fn obxf_base_includes_roots_that_the_plugin_has_not_created_yet() {
+    let root = std::env::temp_dir();
+    let roots = vec![
+        root.to_string_lossy().into_owned(),
+        root.join("cmrt-obxf-not-created-yet/Patches")
+            .to_string_lossy()
+            .into_owned(),
+    ];
+    let catalog = resolve_patch_catalog(Some(crate::OBXF_PLUGIN_ID), "OB-Xf.clap", Some(&roots));
+    let realtime =
+        resolve_patch_catalog_roots(Some(crate::OBXF_PLUGIN_ID), "OB-Xf.clap", Some(&roots));
+    assert_eq!(catalog.base, PatchBase::shared(&roots));
+    assert_eq!(catalog.base, realtime.base);
+    let patch = root.join("Basses/Bass.fxp");
+    assert_eq!(
+        catalog.base.resolve(&catalog.base.display(&patch)),
+        patch.to_string_lossy()
+    );
+}
+
+#[test]
 fn generic_facade_does_not_apply_vendor_resolution_to_other_plugins() {
     let id = TEMP_ID.fetch_add(1, Ordering::Relaxed);
     let root = std::env::temp_dir().join(format!(

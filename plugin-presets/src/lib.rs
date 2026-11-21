@@ -12,6 +12,7 @@ pub mod floe;
 pub mod jc303;
 pub mod juce_value_tree;
 mod lexical_path;
+pub mod obxf;
 pub mod patch_list;
 pub mod sforzando;
 pub mod shu;

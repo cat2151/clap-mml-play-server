@@ -47,6 +47,22 @@ pub(super) fn scan_presets(
             return;
         }
     };
+    if plugin.plugin_id == SURGE_FX_PLUGIN_ID {
+        if let Err(error) = crate::surge_fx_preset::param_layouts() {
+            skipped.push(format!("{}: {error:#}", plugin.name));
+            return;
+        }
+    }
+    scan_files(plugin, extension, describe, presets, skipped);
+}
+
+pub(super) fn scan_files(
+    plugin: &AudioEffectPluginInfo,
+    extension: &str,
+    describe: impl Fn(&Path, &Path, &str) -> Result<PresetValue>,
+    presets: &mut Vec<AudioEffectPreset>,
+    skipped: &mut Vec<String>,
+) {
     let mut files = Vec::new();
     collect_files(&plugin.preset_root, extension, &mut files);
     files.sort();
