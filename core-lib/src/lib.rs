@@ -161,6 +161,8 @@ pub use plugin_catalog::{kind_for_patch, plugin_kinds, PatchBases, PluginKind};
 #[cfg(feature = "host")]
 pub use plugin_presets::jc303::is_jc303_preset_path;
 #[cfg(feature = "host")]
+pub use plugin_presets::sforzando::sfz_files_without_cc1;
+#[cfg(feature = "host")]
 pub use render::{
     create_renderers_parallel, plugin_requires_serial_instantiation, probe_plugin_capabilities,
     select_descriptor, LiveMidiEvent, RealtimePlaybackSchedule, RealtimeRenderer, RendererCreated,

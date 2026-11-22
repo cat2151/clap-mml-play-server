@@ -141,8 +141,13 @@ impl RealtimeRenderer {
 
     /// faster-than-realtime の offline render 用。`new()` との違いは、sforzando の `.sfz` を
     /// サンプル全体を load 時に読む設定（[`SfzStreaming::Disabled`]）で読むことだけ。
-    fn new_for_offline(cfg: &CoreConfig, entry: &PluginEntry) -> Result<Self> {
+    pub fn new_for_offline(cfg: &CoreConfig, entry: &PluginEntry) -> Result<Self> {
         Self::build(cfg, entry, SfzStreaming::Disabled).map(|(renderer, _)| renderer)
+    }
+
+    /// State captured after CLAP init and before loading any patch.
+    pub fn initial_state(&self) -> Option<&[u8]> {
+        self.init_state.as_deref()
     }
 
     fn build(

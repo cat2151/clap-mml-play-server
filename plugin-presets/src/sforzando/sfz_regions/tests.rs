@@ -89,6 +89,34 @@ fn unreadable_root_is_an_error() {
 }
 
 #[test]
+fn cc1_scan_checks_expanded_includes_and_refuses_incomplete_evidence() {
+    let dir = fixture_dir("cc1");
+    let path = write(
+        &dir,
+        "kit.sfz",
+        "#define $WHEEL 01\n#include \"nested/part.sfz\"\n",
+    );
+    write(&dir, "nested/part.sfz", "#include \"region.sfz\"\n");
+    write(
+        &dir,
+        "region.sfz",
+        "<control> default_path=$sample_dir/Toy/\n<region> locc11=0 // pitch_oncc1=100\n",
+    );
+    assert_eq!(sfz_files_without_cc1(&path).unwrap(), 3);
+
+    for unresolved in [
+        "<region> pitch_oncc$WHEEL=100",
+        "<script> script=modulation.lua",
+        "#include \"missing.sfz\"",
+        "#INCLUDE \"region.sfz\"",
+        "<region> pitch_oncc$UNKNOWN=100",
+    ] {
+        write(&dir, "region.sfz", unresolved);
+        assert!(sfz_files_without_cc1(&path).is_err(), "{unresolved}");
+    }
+}
+
+#[test]
 fn a_control_header_replaces_only_control_opcodes() {
     let dir = fixture_dir("control");
     let path = write(

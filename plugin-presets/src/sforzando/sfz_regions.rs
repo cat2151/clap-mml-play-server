@@ -31,18 +31,22 @@ pub(super) fn complete_sfz_regions(path: &Path) -> anyhow::Result<Vec<SfzRegion>
     read_regions(path, true)
 }
 
+/// Returns the number of inspected SFZ files when the program and its includes
+/// contain no explicit CC1 reference. Scripts and unsupported directives leave
+/// the routing unresolved.
+pub fn sfz_files_without_cc1(path: &Path) -> anyhow::Result<usize> {
+    let text =
+        read_sfz_text(path).with_context(|| format!("sfz を読めない: {}", path.display()))?;
+    let mut walker = Walker::new(path, true);
+    walker.cc1_files = Some(0);
+    walker.walk_text(&text, 0)?;
+    Ok(walker.cc1_files.unwrap_or(0))
+}
+
 fn read_regions(path: &Path, strict: bool) -> anyhow::Result<Vec<SfzRegion>> {
     let text =
         read_sfz_text(path).with_context(|| format!("sfz を読めない: {}", path.display()))?;
-    let mut walker = Walker {
-        root_dir: path.parent().unwrap_or_else(|| Path::new("")),
-        defines: Vec::new(),
-        levels: Default::default(),
-        current: Current::Ignored,
-        region: None,
-        regions: Vec::new(),
-        strict,
-    };
+    let mut walker = Walker::new(path, strict);
     walker.walk_text(&text, 0)?;
     walker.flush_region();
     Ok(walker.regions)
@@ -63,17 +67,37 @@ struct Walker<'a> {
     region: Option<SfzRegion>,
     regions: Vec<SfzRegion>,
     strict: bool,
+    cc1_files: Option<usize>,
 }
 
-impl Walker<'_> {
+impl<'a> Walker<'a> {
+    fn new(path: &'a Path, strict: bool) -> Self {
+        Self {
+            root_dir: path.parent().unwrap_or_else(|| Path::new("")),
+            defines: Vec::new(),
+            levels: Default::default(),
+            current: Current::Ignored,
+            region: None,
+            regions: Vec::new(),
+            strict,
+            cc1_files: None,
+        }
+    }
+
     fn walk_text(&mut self, text: &str, depth: usize) -> anyhow::Result<()> {
-        for line in text.lines() {
+        if let Some(files) = &mut self.cc1_files {
+            *files += 1;
+        }
+        for (index, line) in text.lines().enumerate() {
             let line = line.find("//").map_or(line, |end| &line[..end]);
             if let Some(define) = line.trim_start().strip_prefix("#define") {
                 self.define(define);
                 continue;
             }
             let line = self.expand_defines(line);
+            if self.cc1_files.is_some() {
+                check_cc1_line(&line).with_context(|| format!("SFZ line {}", index + 1))?;
+            }
             self.walk_line(&line, depth)?;
         }
         Ok(())
@@ -136,7 +160,9 @@ impl Walker<'_> {
         }
         let path = normalize(self.root_dir, &[include]);
         match read_sfz_text(&path) {
-            Ok(text) => self.walk_text(&text, depth + 1)?,
+            Ok(text) => self
+                .walk_text(&text, depth + 1)
+                .with_context(|| format!("sfz include: {}", path.display()))?,
             Err(error) if self.strict => {
                 return Err(error)
                     .with_context(|| format!("sfz include を読めない: {}", path.display()));
@@ -147,6 +173,9 @@ impl Walker<'_> {
     }
 
     fn header(&mut self, name: &str) {
+        if self.cc1_files.is_some() {
+            return;
+        }
         self.flush_region();
         let name = name.trim().to_ascii_lowercase();
         if name == "region" {
@@ -192,6 +221,31 @@ impl Walker<'_> {
         merged.extend(own);
         self.regions.push(merged);
     }
+}
+
+fn check_cc1_line(line: &str) -> anyhow::Result<()> {
+    let directive = line.trim_start();
+    let line = line.to_ascii_lowercase();
+    anyhow::ensure!(
+        !line.contains('<') || !line.contains("script"),
+        "SFZ contains a script"
+    );
+    anyhow::ensure!(
+        !line
+            .replace("default_path=$sample_dir/", "")
+            .replace("default_path=$sample_dir\\", "")
+            .contains('$')
+            && (!directive.starts_with('#') || directive.starts_with("#include")),
+        "unresolved SFZ macro or directive"
+    );
+    anyhow::ensure!(
+        !line.split("cc").skip(1).any(|suffix| {
+            let suffix = suffix.trim_start_matches('0');
+            suffix.starts_with('1') && suffix.as_bytes().get(1).is_none_or(|c| !c.is_ascii_digit())
+        }),
+        "SFZ contains a CC1 reference"
+    );
+    Ok(())
 }
 
 /// `pos` から `英数字_` が 1 文字以上並び `=` が続くなら、その名前の byte 数。
