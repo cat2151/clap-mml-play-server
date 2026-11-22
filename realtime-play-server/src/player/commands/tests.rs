@@ -99,6 +99,7 @@ fn prepare_patch_targets_one_instance_and_returns_completion() {
             12,
             Some("keys.fxp".to_string()),
             String::new(),
+            true,
             completion_tx,
             Arc::clone(&audio_output),
         )
@@ -110,12 +111,14 @@ fn prepare_patch_targets_one_instance_and_returns_completion() {
             instance_id,
             patch,
             effect_chain,
+            zero_cc1,
             completion,
         }) => {
             assert_eq!(generation, 1);
             assert_eq!(instance_id, 12);
             assert_eq!(patch.as_deref(), Some("keys.fxp"));
             assert_eq!(effect_chain, "");
+            assert!(zero_cc1);
             completion.send(Ok(())).unwrap();
         }
         other => panic!("expected patch command, got {other:?}"),
@@ -145,6 +148,7 @@ fn preparing_a_patch_while_live_keeps_the_generation() {
             9,
             Some("shadow.fxp".to_string()),
             String::new(),
+            false,
             completion_tx,
             Arc::clone(&audio_output),
         )
@@ -176,6 +180,7 @@ fn preparing_a_patch_before_going_live_starts_a_new_generation() {
             0,
             Some("keys.fxp".to_string()),
             String::new(),
+            false,
             completion_tx,
             Arc::clone(&audio_output),
         )

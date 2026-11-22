@@ -112,6 +112,7 @@ impl PlayerHandle for FakePlayer {
         _instance_id: InstanceId,
         _patch: Option<String>,
         _effect_chain: String,
+        _zero_cc1: bool,
     ) -> Result<()> {
         Ok(())
     }

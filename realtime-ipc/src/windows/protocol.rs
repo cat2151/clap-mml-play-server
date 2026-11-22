@@ -11,6 +11,8 @@ use super::{
 };
 
 pub(super) const MAGIC: [u8; 8] = *b"CMRTMIDI";
+/// v15 lets a patch prepare reset CC1 and discard CC1 scheduled for the old patch.
+///
 /// v14 requires patch strings to carry a `:<tag>` suffix. The layout is unchanged, but an old
 /// server would route a tagged patch by its extension alone and silently play the wrong plugin.
 ///
@@ -34,7 +36,7 @@ pub(super) const MAGIC: [u8; 8] = *b"CMRTMIDI";
 /// v9 added standby-bank patch preload ([`KIND_PREPARE_STANDBY_PATCH`]).
 ///
 /// v8 was live tempo-map changes ([`KIND_SET_LIVE_TEMPO`]).
-pub(super) const VERSION: u32 = 14;
+pub(super) const VERSION: u32 = 15;
 pub(super) const SLOT_COUNT: usize = 64;
 pub(super) const KIND_MIDI: u32 = 1;
 pub(super) const KIND_STOP: u32 = 2;

@@ -135,6 +135,7 @@ pub enum FastMidiCommand {
         /// 空なら chain 無し。
         effect_chain: String,
         probe: bool,
+        zero_cc1: bool,
     },
     /// 非演奏 bank への先読みロード。
     ///

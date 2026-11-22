@@ -226,6 +226,7 @@ pub(super) fn apply_command(context: CommandContext<'_>, command: PlayerCommand)
             instance_id,
             patch,
             effect_chain,
+            zero_cc1,
             completion,
         } => {
             ensure_live_mode(playback_mode, generation, banks.instance_count());
@@ -246,12 +247,19 @@ pub(super) fn apply_command(context: CommandContext<'_>, command: PlayerCommand)
             let result = banks.prepare_patch(index, patch.as_deref(), &effect_chain, true);
             if let Some(PlaybackMode::Live {
                 generation: live_generation,
+                clock_samples,
                 instances,
+                timeline,
                 ..
             }) = playback_mode
             {
                 *live_generation = generation;
-                instances[index].queue.clear();
+                instances[index].reset_patch_midi(
+                    timeline.as_mut(),
+                    instance_id,
+                    *clock_samples,
+                    zero_cc1 && result.is_ok(),
+                );
                 instances[index].auto_gain.reset();
                 auto_gain.set_gain_db(index, 0.0);
                 if result.is_err() {

@@ -158,6 +158,7 @@ fn log_received(command: &FastMidiCommand) {
             patch,
             effect_chain,
             probe: false,
+            ..
         } if !effect_chain.is_empty() => {
             eprintln!(
                 "cmrt-ipc-recv: kind=prepare-patch request={request_id} \
@@ -207,6 +208,7 @@ fn dispatch(
             patch,
             effect_chain,
             probe,
+            zero_cc1,
         } => {
             let response = if probe {
                 player
@@ -214,7 +216,7 @@ fn dispatch(
                     .and_then(|report| serde_json::to_vec(&report).map_err(Into::into))
             } else {
                 player
-                    .prepare_live_patch(instance_id, patch, effect_chain)
+                    .prepare_live_patch(instance_id, patch, effect_chain, zero_cc1)
                     .map(|()| Vec::new())
             };
             respond(server, request_id, response)

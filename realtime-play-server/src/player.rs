@@ -55,11 +55,13 @@ pub(crate) trait PlayerHandle: Send + Sync + 'static {
     ///
     /// `effect_chain` は `"effects after instrument"` の値の JSON 文字列で、空なら chain 無し。
     /// chain を作れなければ音色も載せずに失敗する。
+    /// `zero_cc1` が true ならロード時に CC1 をリセットし、差し替え前に予約された CC1 を破棄する。
     fn prepare_live_patch(
         &self,
         instance_id: InstanceId,
         patch: Option<String>,
         effect_chain: String,
+        zero_cc1: bool,
     ) -> Result<()>;
     /// 非演奏 bank への先読みロードを **受け付けるだけ**。
     ///
@@ -263,6 +265,7 @@ impl PlayerHandle for RealtimePlayer {
         instance_id: InstanceId,
         patch: Option<String>,
         effect_chain: String,
+        zero_cc1: bool,
     ) -> Result<()> {
         self.validate_live_instance_id(instance_id)?;
         let patch = resolve_live_patch(patch, &self.patch_bases)?;
@@ -271,6 +274,7 @@ impl PlayerHandle for RealtimePlayer {
             instance_id,
             patch,
             effect_chain,
+            zero_cc1,
             completion_tx,
             Arc::clone(&self.audio_output),
         )?;

@@ -81,6 +81,7 @@ fn decode_slot(slot: CommandSlot) -> Result<FastMidiCommand, FastIpcError> {
             patch: decode_patch(&slot)?,
             effect_chain: decode_effect_chain(&slot)?,
             probe: slot.kind == KIND_PROBE_PATCH,
+            zero_cc1: slot.kind == KIND_PREPARE_PATCH && slot.buffer_multiplier == 1,
         }),
         KIND_PREPARE_STANDBY_PATCH => Ok(FastMidiCommand::PrepareStandbyPatch {
             request_id: slot.request_id,

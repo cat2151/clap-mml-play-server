@@ -69,6 +69,7 @@ pub(super) enum PlayerCommand {
         patch: Option<String>,
         /// `"effects after instrument"` の値の JSON 文字列。空なら chain 無し。
         effect_chain: String,
+        zero_cc1: bool,
         completion: std::sync::mpsc::SyncSender<std::result::Result<(), String>>,
     },
     /// 非演奏 bank への先読みロード。
@@ -292,6 +293,7 @@ impl PlayerInner {
         instance_id: InstanceId,
         patch: Option<String>,
         effect_chain: String,
+        zero_cc1: bool,
         completion: std::sync::mpsc::SyncSender<std::result::Result<(), String>>,
         audio_output: Arc<AudioOutputControl>,
     ) -> Result<()> {
@@ -313,6 +315,7 @@ impl PlayerInner {
             instance_id,
             patch,
             effect_chain,
+            zero_cc1,
             completion,
         });
         self.command_available.notify_one();

@@ -121,6 +121,11 @@ impl<T> BlockScheduler<T> {
         self.pending.clear();
     }
 
+    /// Keep matching pending payloads in their original playback order.
+    pub fn retain(&mut self, mut keep: impl FnMut(&T) -> bool) {
+        self.pending.retain(|queued| keep(&queued.payload));
+    }
+
     pub fn len(&self) -> usize {
         self.pending.len()
     }

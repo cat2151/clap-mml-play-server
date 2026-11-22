@@ -94,6 +94,14 @@ impl LiveTimelineState {
         })?;
         Ok(())
     }
+
+    fn discard_cc1(&mut self, instance_id: u8) {
+        self.scheduler.retain(|event| {
+            event.instance_id != instance_id
+                || event.message[0] & 0xf0 != 0xb0
+                || event.message[1] != 1
+        });
+    }
 }
 
 /// 待ち行列が満杯で捨てたイベントの累計（live MIDI と timeline MIDI の合計）。
@@ -122,6 +130,31 @@ pub(super) struct LiveInstanceState {
     pub(super) queue: Vec<LiveQueuedEvent>,
     pub(super) auto_gain: InstanceAutoGain,
 }
+
+impl LiveInstanceState {
+    pub(super) fn reset_patch_midi(
+        &mut self,
+        timeline: Option<&mut LiveTimelineState>,
+        instance_id: u8,
+        clock_samples: u64,
+        zero_cc1: bool,
+    ) {
+        self.queue.clear();
+        if zero_cc1 {
+            // 先読み分は旧音色への値。新しい音色の最初の発音までに 0 を通す。
+            if let Some(timeline) = timeline {
+                timeline.discard_cc1(instance_id);
+            }
+            self.queue.push(LiveQueuedEvent {
+                at_sample: clock_samples,
+                message: [0xb0, 1, 0],
+            });
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;
 
 /// auto-trim の on/off と、その結果として instance ごとに掛かっているゲイン。
 ///

@@ -17,6 +17,7 @@ fn prepare_patch_waits_for_success_response() {
             patch,
             effect_chain,
             probe,
+            zero_cc1,
         } = command
         else {
             panic!("unexpected command");
@@ -25,6 +26,7 @@ fn prepare_patch_waits_for_success_response() {
         assert_eq!(patch.as_deref(), Some("Keys/Piano.fxp"));
         assert_eq!(effect_chain, "", "chain 無しの method は空で届く");
         assert!(!probe);
+        assert!(!zero_cc1);
         server.complete_request(request_id, Ok(&[])).unwrap();
     });
     let mut client = FastMidiClient::connect(port).unwrap();
