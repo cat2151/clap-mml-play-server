@@ -8,7 +8,7 @@
 - ビルドロック回避を含め、`--target-dir`等で既定以外のtargetディレクトリを作成・使用することを禁止
 
 # 完了時
-- 450行をoverした*.rsは、単一責任の原則に従いファイル分割
+- 450行をoverした*.rsと*.pyは、単一責任の原則に従いファイル分割
 - cargoのclippyとfmtを使うこと
 - リリースビルド（ cargo build --release ）をすること（../clap-mml-render-tui/ にてcargo runから利用するので）
 - プルリクエストは日本語で書くこと
